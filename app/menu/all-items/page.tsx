@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Utensils, 
   Plus, 
@@ -32,7 +32,7 @@ import {
 } from 'lucide-react'
 
 interface MenuItem {
-  id: string
+  _id?: string
   name: string
   description: string
   price: number
@@ -52,207 +52,12 @@ interface MenuItem {
   tags: string[]
   salesCount: number
   rating: number
-  createdAt: string
-  updatedAt: string
+  createdAt?: Date
+  updatedAt?: Date
 }
 
-const initialMenuItems: MenuItem[] = [
-  {
-    id: '1',
-    name: 'کباب کوبیده',
-    description: 'کباب کوبیده سنتی با گوشت گوساله تازه و ادویه‌های مخصوص',
-    price: 120000,
-    category: 'غذاهای اصلی',
-    image: '/api/placeholder/200/200',
-    isAvailable: true,
-    isPopular: true,
-    preparationTime: 25,
-    ingredients: ['گوشت گوساله', 'پیاز', 'زعفران', 'نمک', 'فلفل'],
-    allergens: ['گلوتن'],
-    nutritionalInfo: {
-      calories: 450,
-      protein: 35,
-      carbs: 15,
-      fat: 25
-    },
-    tags: ['سنتی', 'پرفروش', 'گوشت'],
-    salesCount: 1250,
-    rating: 4.8,
-    createdAt: '1402/01/15',
-    updatedAt: '1403/01/20'
-  },
-  {
-    id: '2',
-    name: 'جوجه کباب',
-    description: 'جوجه کباب با سینه مرغ تازه و سس مخصوص',
-    price: 135000,
-    category: 'غذاهای اصلی',
-    image: '/api/placeholder/200/200',
-    isAvailable: true,
-    isPopular: true,
-    preparationTime: 20,
-    ingredients: ['سینه مرغ', 'ماست', 'زعفران', 'نمک', 'فلفل'],
-    allergens: ['لبنیات'],
-    nutritionalInfo: {
-      calories: 380,
-      protein: 40,
-      carbs: 10,
-      fat: 18
-    },
-    tags: ['سنتی', 'پرفروش', 'مرغ'],
-    salesCount: 980,
-    rating: 4.7,
-    createdAt: '1402/01/15',
-    updatedAt: '1403/01/20'
-  },
-  {
-    id: '3',
-    name: 'سالاد سزار',
-    description: 'سالاد سزار با کاهو تازه، پنیر پارمزان و سس مخصوص',
-    price: 45000,
-    category: 'پیش‌غذاها',
-    image: '/api/placeholder/200/200',
-    isAvailable: true,
-    isPopular: false,
-    preparationTime: 10,
-    ingredients: ['کاهو', 'پنیر پارمزان', 'سس سزار', 'نان تست'],
-    allergens: ['لبنیات', 'گلوتن'],
-    nutritionalInfo: {
-      calories: 280,
-      protein: 12,
-      carbs: 20,
-      fat: 18
-    },
-    tags: ['سالاد', 'سالم', 'پیش‌غذا'],
-    salesCount: 320,
-    rating: 4.3,
-    createdAt: '1402/03/10',
-    updatedAt: '1403/01/18'
-  },
-  {
-    id: '4',
-    name: 'نوشابه',
-    description: 'نوشابه گازدار سرد',
-    price: 15000,
-    category: 'نوشیدنی‌ها',
-    image: '/api/placeholder/200/200',
-    isAvailable: true,
-    isPopular: false,
-    preparationTime: 2,
-    ingredients: ['نوشابه'],
-    allergens: [],
-    nutritionalInfo: {
-      calories: 140,
-      protein: 0,
-      carbs: 35,
-      fat: 0
-    },
-    tags: ['نوشیدنی', 'سرد', 'گازدار'],
-    salesCount: 2100,
-    rating: 4.0,
-    createdAt: '1402/01/15',
-    updatedAt: '1403/01/20'
-  },
-  {
-    id: '5',
-    name: 'دوغ محلی',
-    description: 'دوغ محلی تازه و خنک',
-    price: 18000,
-    category: 'نوشیدنی‌ها',
-    image: '/api/placeholder/200/200',
-    isAvailable: true,
-    isPopular: true,
-    preparationTime: 3,
-    ingredients: ['دوغ', 'نمک', 'نعنا'],
-    allergens: ['لبنیات'],
-    nutritionalInfo: {
-      calories: 80,
-      protein: 6,
-      carbs: 8,
-      fat: 3
-    },
-    tags: ['نوشیدنی', 'سرد', 'محلی'],
-    salesCount: 850,
-    rating: 4.5,
-    createdAt: '1402/01/15',
-    updatedAt: '1403/01/20'
-  },
-  {
-    id: '6',
-    name: 'میرزا قاسمی',
-    description: 'میرزا قاسمی با بادمجان کبابی و سیر',
-    price: 70000,
-    category: 'پیش‌غذاها',
-    image: '/api/placeholder/200/200',
-    isAvailable: true,
-    isPopular: false,
-    preparationTime: 15,
-    ingredients: ['بادمجان', 'سیر', 'گوجه', 'تخم مرغ'],
-    allergens: ['تخم مرغ'],
-    nutritionalInfo: {
-      calories: 220,
-      protein: 8,
-      carbs: 25,
-      fat: 12
-    },
-    tags: ['سنتی', 'گیاهی', 'پیش‌غذا'],
-    salesCount: 180,
-    rating: 4.2,
-    createdAt: '1402/05/20',
-    updatedAt: '1403/01/15'
-  },
-  {
-    id: '7',
-    name: 'چلو گوشت',
-    description: 'چلو گوشت با گوشت گوساله و برنج ایرانی',
-    price: 180000,
-    category: 'غذاهای اصلی',
-    image: '/api/placeholder/200/200',
-    isAvailable: false,
-    isPopular: false,
-    preparationTime: 35,
-    ingredients: ['گوشت گوساله', 'برنج', 'پیاز', 'زعفران'],
-    allergens: ['گلوتن'],
-    nutritionalInfo: {
-      calories: 650,
-      protein: 45,
-      carbs: 55,
-      fat: 28
-    },
-    tags: ['سنتی', 'گوشت', 'گران'],
-    salesCount: 95,
-    rating: 4.6,
-    createdAt: '1402/02/10',
-    updatedAt: '1403/01/10'
-  },
-  {
-    id: '8',
-    name: 'بستنی سنتی',
-    description: 'بستنی سنتی با طعم زعفران و گلاب',
-    price: 35000,
-    category: 'دسرها',
-    image: '/api/placeholder/200/200',
-    isAvailable: true,
-    isPopular: true,
-    preparationTime: 5,
-    ingredients: ['شیر', 'خامه', 'زعفران', 'گلاب'],
-    allergens: ['لبنیات'],
-    nutritionalInfo: {
-      calories: 320,
-      protein: 8,
-      carbs: 35,
-      fat: 18
-    },
-    tags: ['دسر', 'سنتی', 'سرد'],
-    salesCount: 650,
-    rating: 4.9,
-    createdAt: '1402/04/15',
-    updatedAt: '1403/01/20'
-  }
-]
-
 export default function AllMenuItemsPage() {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems)
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -261,6 +66,26 @@ export default function AllMenuItemsPage() {
   const [filterPopular, setFilterPopular] = useState('all')
   const [sortBy, setSortBy] = useState('name')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [loading, setLoading] = useState(false)
+
+  const loadMenuItems = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/menu-items')
+      const result = await response.json()
+      if (result.success) {
+        setMenuItems(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading menu items:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadMenuItems()
+  }, [])
 
   const [formData, setFormData] = useState({
     name: '',
@@ -318,30 +143,57 @@ export default function AllMenuItemsPage() {
     }
   })
 
-  const handleSave = () => {
-    if (editingItem) {
-      const updatedItem = {
-        ...formData,
-        id: editingItem.id,
-        salesCount: editingItem.salesCount,
-        rating: editingItem.rating,
-        createdAt: editingItem.createdAt,
-        updatedAt: new Date().toLocaleDateString('fa-IR')
+  const handleSave = async () => {
+    try {
+      setLoading(true)
+      
+      if (editingItem) {
+        // Update existing item
+        const response = await fetch(`/api/menu-items/${editingItem._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify(formData)
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadMenuItems()
+          setShowForm(false)
+          setEditingItem(null)
+          resetForm()
+        } else {
+          alert('خطا در به‌روزرسانی آیتم: ' + result.message)
+        }
+      } else {
+        // Create new item
+        const response = await fetch('/api/menu-items', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify(formData)
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadMenuItems()
+          setShowForm(false)
+          resetForm()
+        } else {
+          alert('خطا در ایجاد آیتم: ' + result.message)
+        }
       }
-      setMenuItems(menuItems.map(item => item.id === editingItem.id ? updatedItem : item))
-    } else {
-      const newItem: MenuItem = {
-        ...formData,
-        id: Date.now().toString(),
-        salesCount: 0,
-        rating: 0,
-        createdAt: new Date().toLocaleDateString('fa-IR'),
-        updatedAt: new Date().toLocaleDateString('fa-IR')
-      }
-      setMenuItems([...menuItems, newItem])
+    } catch (error) {
+      console.error('Error saving menu item:', error)
+      alert('خطا در ذخیره آیتم')
+    } finally {
+      setLoading(false)
     }
-    setShowForm(false)
-    setEditingItem(null)
+  }
+
+  const resetForm = () => {
     setFormData({
       name: '',
       description: '',
@@ -363,8 +215,55 @@ export default function AllMenuItemsPage() {
     })
   }
 
-  const deleteItem = (id: string) => {
-    setMenuItems(menuItems.filter(item => item.id !== id))
+  const deleteItem = async (id: string) => {
+    if (!confirm('آیا مطمئن هستید که می‌خواهید این آیتم را حذف کنید؟')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/menu-items?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadMenuItems()
+      } else {
+        alert('خطا در حذف آیتم: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error deleting menu item:', error)
+      alert('خطا در حذف آیتم')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleAvailability = async (id: string, currentStatus: boolean) => {
+    try {
+      const response = await fetch('/api/menu-items/status', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({
+          id,
+          field: 'isAvailable',
+          value: !currentStatus
+        })
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadMenuItems()
+      } else {
+        alert('خطا در تغییر وضعیت: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error toggling availability:', error)
+      alert('خطا در تغییر وضعیت')
+    }
   }
 
   const toggleIngredient = (ingredient: string) => {
@@ -556,10 +455,17 @@ export default function AllMenuItemsPage() {
         </div>
 
         {/* Menu Items Display */}
-        {viewMode === 'grid' ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری آیتم‌ها...</p>
+            </div>
+          </div>
+        ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredMenuItems.map(item => (
-              <div key={item.id} className="premium-card p-6">
+              <div key={item._id} className="premium-card p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-3 space-x-reverse">
                     <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center overflow-hidden">
@@ -655,16 +561,14 @@ export default function AllMenuItemsPage() {
                       <Edit className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => deleteItem(item.id)}
+                      onClick={() => deleteItem(item._id!)}
                       className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                   <button
-                    onClick={() => setMenuItems(menuItems.map(i => 
-                      i.id === item.id ? { ...i, isAvailable: !i.isAvailable } : i
-                    ))}
+                    onClick={() => toggleAvailability(item._id!, item.isAvailable)}
                     className={`p-2 rounded-lg transition-colors ${
                       item.isAvailable
                         ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30'
@@ -695,7 +599,7 @@ export default function AllMenuItemsPage() {
                 </thead>
                 <tbody>
                   {filteredMenuItems.map(item => (
-                    <tr key={item.id} className="border-b border-gray-100 dark:border-gray-700/30">
+                    <tr key={item._id} className="border-b border-gray-100 dark:border-gray-700/30">
                       <td className="py-4 px-4">
                         <div className="flex items-center space-x-3 space-x-reverse">
                           <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center overflow-hidden">
@@ -775,15 +679,13 @@ export default function AllMenuItemsPage() {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => deleteItem(item.id)}
+                            onClick={() => deleteItem(item._id!)}
                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => setMenuItems(menuItems.map(i => 
-                              i.id === item.id ? { ...i, isAvailable: !i.isAvailable } : i
-                            ))}
+                            onClick={() => toggleAvailability(item._id!, item.isAvailable)}
                             className={`p-2 rounded-lg transition-colors ${
                               item.isAvailable
                                 ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30'
@@ -1015,25 +917,7 @@ export default function AllMenuItemsPage() {
                   onClick={() => {
                     setShowForm(false)
                     setEditingItem(null)
-                    setFormData({
-                      name: '',
-                      description: '',
-                      price: 0,
-                      category: '',
-                      image: '',
-                      isAvailable: true,
-                      isPopular: false,
-                      preparationTime: 0,
-                      ingredients: [],
-                      allergens: [],
-                      nutritionalInfo: {
-                        calories: 0,
-                        protein: 0,
-                        carbs: 0,
-                        fat: 0
-                      },
-                      tags: []
-                    })
+                    resetForm()
                   }}
                   className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
                 >
@@ -1041,10 +925,11 @@ export default function AllMenuItemsPage() {
                 </button>
                 <button
                   onClick={handleSave}
-                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  disabled={loading}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" />
-                  <span>ذخیره</span>
+                  <span>{loading ? 'در حال ذخیره...' : 'ذخیره'}</span>
                 </button>
               </div>
             </div>

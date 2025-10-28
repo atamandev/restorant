@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Truck, 
   ShoppingBag, 
@@ -25,7 +25,9 @@ import {
   ChefHat, 
   Utensils, 
   Edit,
-  Package
+  Package,
+  Timer,
+  RefreshCw
 } from 'lucide-react'
 
 interface MenuItem {
@@ -41,10 +43,11 @@ interface MenuItem {
 interface OrderItem extends MenuItem {
   quantity: number
   notes?: string
+  uniqueId?: string
 }
 
 interface DeliveryOrder {
-  id: string
+  _id?: string
   orderNumber: string
   customerName: string
   customerPhone: string
@@ -58,23 +61,14 @@ interface DeliveryOrder {
   total: number
   orderTime: string
   estimatedDeliveryTime: string
-  status: 'pending' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered'
+  status: 'pending' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'
   notes: string
   paymentMethod: 'cash' | 'card' | 'credit'
   priority: 'normal' | 'urgent'
   deliveryInstructions?: string
+  createdAt?: Date
+  updatedAt?: Date
 }
-
-const menuItems: MenuItem[] = [
-  { id: '1', name: 'کباب کوبیده', price: 120000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 25, description: 'کباب کوبیده سنتی با گوشت گوساله تازه' },
-  { id: '2', name: 'جوجه کباب', price: 135000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 20, description: 'جوجه کباب با سینه مرغ تازه و سس مخصوص' },
-  { id: '3', name: 'سالاد سزار', price: 45000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 10, description: 'سالاد سزار با کاهو تازه و پنیر پارمزان' },
-  { id: '4', name: 'نوشابه', price: 15000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 2, description: 'نوشابه گازدار سرد' },
-  { id: '5', name: 'دوغ محلی', price: 18000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 3, description: 'دوغ محلی تازه و خنک' },
-  { id: '6', name: 'میرزا قاسمی', price: 70000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 15, description: 'میرزا قاسمی با بادمجان کبابی و سیر' },
-  { id: '7', name: 'چلو گوشت', price: 180000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 35, description: 'چلو گوشت با گوشت گوساله و برنج ایرانی' },
-  { id: '8', name: 'بستنی سنتی', price: 35000, category: 'دسرها', image: '/api/placeholder/60/60', preparationTime: 5, description: 'بستنی سنتی با طعم زعفران و گلاب' },
-]
 
 export default function DeliveryPage() {
   const [searchTerm, setSearchTerm] = useState('')
@@ -90,8 +84,26 @@ export default function DeliveryPage() {
   const [deliveryInstructions, setDeliveryInstructions] = useState('')
   const [priority, setPriority] = useState('normal')
   const [showOrderForm, setShowOrderForm] = useState(false)
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [loading, setLoading] = useState(false)
 
-  const categories = ['all', 'غذاهای اصلی', 'پیش‌غذاها', 'نوشیدنی‌ها', 'دسرها']
+  const categories = ['all', 'Appetizers', 'Main Courses', 'Beverages', 'Desserts']
+
+  const loadMenuItems = async () => {
+    try {
+      const response = await fetch('/api/menu-items')
+      const result = await response.json()
+      if (result.success) {
+        setMenuItems(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading menu items:', error)
+    }
+  }
+
+  useEffect(() => {
+    loadMenuItems()
+  }, [])
 
   const filteredMenuItems = menuItems.filter(item =>
     (selectedCategory === 'all' || item.category === selectedCategory) &&
@@ -100,27 +112,27 @@ export default function DeliveryPage() {
 
   const addToOrder = (item: MenuItem) => {
     setOrder(prevOrder => {
-      const existingItem = prevOrder.find(orderItem => orderItem.id === item.id)
-      if (existingItem) {
-        return prevOrder.map(orderItem =>
-          orderItem.id === item.id ? { ...orderItem, quantity: orderItem.quantity + 1 } : orderItem
-        )
+      // همیشه یک آیتم جدید اضافه می‌کنیم، حتی اگر همان محصول باشد
+      const newOrderItem = { 
+        ...item, 
+        quantity: 1,
+        uniqueId: `${item.id}-${Date.now()}-${Math.random()}` // شناسه یکتا برای هر انتخاب
       }
-      return [...prevOrder, { ...item, quantity: 1 }]
+      return [...prevOrder, newOrderItem]
     })
   }
 
-  const updateQuantity = (id: string, delta: number) => {
+  const updateQuantity = (uniqueId: string, delta: number) => {
     setOrder(prevOrder => {
       const updatedOrder = prevOrder.map(item =>
-        item.id === id ? { ...item, quantity: item.quantity + delta } : item
+        item.uniqueId === uniqueId ? { ...item, quantity: item.quantity + delta } : item
       ).filter(item => item.quantity > 0)
       return updatedOrder
     })
   }
 
-  const removeItem = (id: string) => {
-    setOrder(prevOrder => prevOrder.filter(item => item.id !== id))
+  const removeItem = (uniqueId: string) => {
+    setOrder(prevOrder => prevOrder.filter(item => item.uniqueId !== uniqueId))
   }
 
   const calculateEstimatedTime = () => {
@@ -139,7 +151,7 @@ export default function DeliveryPage() {
   const serviceCharge = subtotal * serviceChargeRate
   const total = subtotal + tax + serviceCharge + deliveryFee - discount
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (order.length === 0) {
       alert('سبد خرید خالی است!')
       return
@@ -150,41 +162,63 @@ export default function DeliveryPage() {
       return
     }
     
-    const deliveryOrder: DeliveryOrder = {
-      id: Date.now().toString(),
-      orderNumber: `DL-${Date.now().toString().slice(-6)}`,
-      customerName,
-      customerPhone,
-      customerAddress,
-      deliveryFee,
-      items: order,
-      subtotal,
-      tax,
-      serviceCharge,
-      discount,
-      total,
-      orderTime: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      estimatedDeliveryTime: new Date(Date.now() + calculateEstimatedTime() * 60000).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      status: 'pending',
-      notes,
-      paymentMethod: paymentMethod as 'cash' | 'card' | 'credit',
-      priority: priority as 'normal' | 'urgent',
-      deliveryInstructions
+    setLoading(true)
+    
+    try {
+      const deliveryOrder: DeliveryOrder = {
+        orderNumber: `DL-${Date.now().toString().slice(-6)}`,
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryFee,
+        items: order,
+        subtotal,
+        tax,
+        serviceCharge,
+        discount,
+        total,
+        orderTime: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+        estimatedDeliveryTime: new Date(Date.now() + calculateEstimatedTime() * 60000).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+        status: 'pending',
+        notes,
+        paymentMethod: paymentMethod as 'cash' | 'card' | 'credit',
+        priority: priority as 'normal' | 'urgent',
+        deliveryInstructions
+      }
+
+      const response = await fetch('/api/delivery-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(deliveryOrder)
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        alert(`سفارش ارسال با موفقیت ثبت شد!\nشماره سفارش: ${deliveryOrder.orderNumber}\nزمان تخمینی تحویل: ${deliveryOrder.estimatedDeliveryTime}\nمبلغ کل: ${total.toLocaleString('fa-IR')} تومان`)
+        
+        // Reset form
+        setOrder([])
+        setCustomerName('')
+        setCustomerPhone('')
+        setCustomerAddress('')
+        setDeliveryFee(15000)
+        setDiscount(0)
+        setNotes('')
+        setDeliveryInstructions('')
+        setPaymentMethod('cash')
+        setPriority('normal')
+      } else {
+        alert('خطا در ثبت سفارش: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error creating delivery order:', error)
+      alert('خطا در ثبت سفارش')
+    } finally {
+      setLoading(false)
     }
-    
-    alert(`سفارش ارسال با موفقیت ثبت شد!\nشماره سفارش: ${deliveryOrder.orderNumber}\nزمان تخمینی تحویل: ${deliveryOrder.estimatedDeliveryTime}\nمبلغ کل: ${total.toLocaleString('fa-IR')} تومان`)
-    
-    // Reset form
-    setOrder([])
-    setCustomerName('')
-    setCustomerPhone('')
-    setCustomerAddress('')
-    setDeliveryFee(15000)
-    setDiscount(0)
-    setNotes('')
-    setDeliveryInstructions('')
-    setPaymentMethod('cash')
-    setPriority('normal')
   }
 
   return (
@@ -298,7 +332,7 @@ export default function DeliveryPage() {
               ) : (
                 <div className="space-y-4">
                   {order.map(item => (
-                    <div key={item.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
+                    <div key={item.uniqueId} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
                       <div className="flex items-center space-x-3 space-x-reverse">
                         <img src={item.image} alt={item.name} className="w-10 h-10 rounded object-cover" />
                         <div>
@@ -310,20 +344,20 @@ export default function DeliveryPage() {
                       </div>
                       <div className="flex items-center space-x-2 space-x-reverse">
                         <button
-                          onClick={() => updateQuantity(item.id, -1)}
+                          onClick={() => updateQuantity(item.uniqueId!, -1)}
                           className="p-1 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500"
                         >
                           <Minus className="w-4 h-4" />
                         </button>
                         <span className="font-medium text-gray-900 dark:text-white">{item.quantity}</span>
                         <button
-                          onClick={() => updateQuantity(item.id, 1)}
+                          onClick={() => updateQuantity(item.uniqueId!, 1)}
                           className="p-1 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500"
                         >
                           <Plus className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => removeItem(item.id)}
+                          onClick={() => removeItem(item.uniqueId!)}
                           className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -471,10 +505,15 @@ export default function DeliveryPage() {
             <div className="flex space-x-3 space-x-reverse mt-auto">
               <button
                 onClick={handleCheckout}
-                className="premium-button flex-1 flex items-center justify-center space-x-2 space-x-reverse"
+                disabled={loading}
+                className="premium-button flex-1 flex items-center justify-center space-x-2 space-x-reverse disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <CheckCircle className="w-5 h-5" />
-                <span>ثبت سفارش</span>
+                {loading ? (
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-5 h-5" />
+                )}
+                <span>{loading ? 'در حال ثبت...' : 'ثبت سفارش'}</span>
               </button>
               <button className="p-3 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
                 <Receipt className="w-5 h-5" />

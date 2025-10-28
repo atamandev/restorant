@@ -2,283 +2,156 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
-const client = new MongoClient(MONGO_URI)
+const DB_NAME = 'restoren'
+const COLLECTION_NAME = 'orders'
 
-// GET /api/orders - دریافت لیست سفارشات
+let client: MongoClient
+let db: any
+
+async function connectToDatabase() {
+  if (!client) {
+    client = new MongoClient(MONGO_URI)
+    await client.connect()
+    db = client.db(DB_NAME)
+  }
+  return db
+}
+
+// GET - دریافت تمام سفارشات با فیلتر و مرتب‌سازی
 export async function GET(request: NextRequest) {
   try {
-    await client.connect()
-    const db = client.db('restoren')
+    await connectToDatabase()
+    const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '10')
-    const search = searchParams.get('search') || ''
     const status = searchParams.get('status')
-    const type = searchParams.get('type')
-    const branchId = searchParams.get('branchId')
-    const paymentStatus = searchParams.get('paymentStatus')
-    const dateFrom = searchParams.get('dateFrom')
-    const dateTo = searchParams.get('dateTo')
-    
-    const skip = (page - 1) * limit
-    
-    // Build query
-    const query: any = {}
-    if (search) {
-      query.$or = [
-        { orderNumber: { $regex: search, $options: 'i' } },
-        { customerName: { $regex: search, $options: 'i' } },
-        { tableNumber: { $regex: search, $options: 'i' } }
-      ]
-    }
-    if (status) {
-      query.status = status
-    }
-    if (type) {
-      query.type = type
-    }
-    if (branchId) {
-      query.branchId = branchId
-    }
-    if (paymentStatus) {
-      query.paymentStatus = paymentStatus
-    }
-    if (dateFrom || dateTo) {
-      query.createdAt = {}
-      if (dateFrom) {
-        query.createdAt.$gte = new Date(dateFrom)
-      }
-      if (dateTo) {
-        query.createdAt.$lte = new Date(dateTo)
-      }
-    }
-    
-    const orders = await db.collection('orders')
-      .find(query)
-      .sort({ createdAt: -1 })
+    const orderType = searchParams.get('orderType')
+    const priority = searchParams.get('priority')
+    const sortBy = searchParams.get('sortBy') || 'orderTime'
+    const sortOrder = searchParams.get('sortOrder') || 'desc'
+    const limit = parseInt(searchParams.get('limit') || '100')
+    const skip = parseInt(searchParams.get('skip') || '0')
+
+    // ساخت فیلتر
+    const filter: any = {}
+    if (status && status !== 'all') filter.status = status
+    if (orderType && orderType !== 'all') filter.orderType = orderType
+    if (priority && priority !== 'all') filter.priority = priority
+
+    // ساخت مرتب‌سازی
+    const sort: any = {}
+    sort[sortBy] = sortOrder === 'asc' ? 1 : -1
+
+    const orders = await collection
+      .find(filter)
+      .sort(sort)
       .skip(skip)
       .limit(limit)
       .toArray()
-    
-    const total = await db.collection('orders').countDocuments(query)
-    
+
+    // آمار کلی
+    const stats = await collection.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalRevenue: { $sum: '$total' },
+          pendingOrders: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+          confirmedOrders: { $sum: { $cond: [{ $eq: ['$status', 'confirmed'] }, 1, 0] } },
+          preparingOrders: { $sum: { $cond: [{ $eq: ['$status', 'preparing'] }, 1, 0] } },
+          readyOrders: { $sum: { $cond: [{ $eq: ['$status', 'ready'] }, 1, 0] } },
+          completedOrders: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } }
+        }
+      }
+    ]).toArray()
+
     return NextResponse.json({
       success: true,
       data: orders,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
+      stats: stats[0] || {
+        totalOrders: 0,
+        totalRevenue: 0,
+        pendingOrders: 0,
+        confirmedOrders: 0,
+        preparingOrders: 0,
+        readyOrders: 0,
+        completedOrders: 0
       },
-      message: 'لیست سفارشات با موفقیت دریافت شد'
+      pagination: {
+        limit,
+        skip,
+        total: await collection.countDocuments(filter)
+      }
     })
   } catch (error) {
     console.error('Error fetching orders:', error)
     return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در دریافت لیست سفارشات',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { success: false, message: 'خطا در دریافت سفارشات' },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
-// POST /api/orders - ایجاد سفارش جدید
+// POST - ایجاد سفارش جدید
 export async function POST(request: NextRequest) {
   try {
+    await connectToDatabase()
+    const collection = db.collection(COLLECTION_NAME)
+    
     const body = await request.json()
-    console.log('Received body:', body)
     
-    const { 
-      tableNumber, 
-      customerName, 
-      customerId, 
-      type, 
-      items, 
-      totalAmount, 
-      discountAmount, 
-      taxAmount, 
-      serviceCharge, 
-      finalAmount, 
-      paymentMethod, 
-      notes, 
-      branchId, 
-      createdBy 
-    } = body
-
-    // Validate required fields
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json(
-        { success: false, message: 'لیست آیتم‌ها اجباری است' },
-        { status: 400 }
-      )
-    }
-
-    if (!totalAmount || !finalAmount || !createdBy) {
-      return NextResponse.json(
-        { success: false, message: 'مبلغ کل، مبلغ نهایی و شناسه کاربر اجباری است' },
-        { status: 400 }
-      )
-    }
-
-    await client.connect()
-    const db = client.db('restoren')
-    
-    // Generate order number
-    const orderCount = await db.collection('orders').countDocuments()
+    // تولید شماره سفارش منحصر به فرد
+    const orderCount = await collection.countDocuments()
     const orderNumber = `ORD-${String(orderCount + 1).padStart(6, '0')}`
     
-    const orderData = {
+    const order = {
       orderNumber,
-      tableNumber: tableNumber || null,
-      customerName: customerName || null,
-      customerId: customerId ? new ObjectId(customerId) : null,
-      type: type || 'DINE_IN',
-      status: 'PENDING',
-      items: items.map((item: any) => ({
-        menuItemId: new ObjectId(item.menuItemId),
-        name: item.name,
-        quantity: parseInt(item.quantity),
-        price: parseFloat(item.price),
-        notes: item.notes || null
-      })),
-      totalAmount: parseFloat(totalAmount),
-      discountAmount: discountAmount ? parseFloat(discountAmount) : 0,
-      taxAmount: taxAmount ? parseFloat(taxAmount) : 0,
-      serviceCharge: serviceCharge ? parseFloat(serviceCharge) : 0,
-      finalAmount: parseFloat(finalAmount),
-      paymentMethod: paymentMethod || null,
-      paymentStatus: 'PENDING',
-      notes: notes || null,
-      branchId: branchId ? new ObjectId(branchId) : null,
-      createdBy: new ObjectId(createdBy),
+      customerName: body.customerName,
+      customerPhone: body.customerPhone,
+      customerAddress: body.customerAddress || '',
+      orderType: body.orderType || 'dine-in',
+      tableNumber: body.tableNumber || '',
+      items: body.items || [],
+      subtotal: body.subtotal || 0,
+      tax: body.tax || 0,
+      serviceCharge: body.serviceCharge || 0,
+      discount: body.discount || 0,
+      total: body.total || 0,
+      orderTime: body.orderTime || new Date().toISOString(),
+      estimatedTime: body.estimatedTime || new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      status: body.status || 'pending',
+      notes: body.notes || '',
+      paymentMethod: body.paymentMethod || 'cash',
+      priority: body.priority || 'normal',
       createdAt: new Date(),
       updatedAt: new Date()
     }
 
-    console.log('Creating order with data:', orderData)
-
-    const result = await db.collection('orders').insertOne(orderData)
+    const result = await collection.insertOne(order)
     
-    const order = await db.collection('orders').findOne({ _id: result.insertedId })
-
-    console.log('Order created successfully:', order)
-
     return NextResponse.json({
       success: true,
-      data: order,
+      data: { ...order, _id: result.insertedId },
       message: 'سفارش با موفقیت ایجاد شد'
     })
   } catch (error) {
     console.error('Error creating order:', error)
     return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در ایجاد سفارش',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { success: false, message: 'خطا در ایجاد سفارش' },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
-// PUT /api/orders - به‌روزرسانی سفارش
-export async function PUT(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const { id, ...updateData } = body
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'شناسه سفارش اجباری است' },
-        { status: 400 }
-      )
-    }
-
-    await client.connect()
-    const db = client.db('restoren')
-    
-    const updateFields = {
-      ...updateData,
-      updatedAt: new Date()
-    }
-
-    // Convert numeric fields
-    if (updateFields.totalAmount) {
-      updateFields.totalAmount = parseFloat(updateFields.totalAmount)
-    }
-    if (updateFields.discountAmount) {
-      updateFields.discountAmount = parseFloat(updateFields.discountAmount)
-    }
-    if (updateFields.taxAmount) {
-      updateFields.taxAmount = parseFloat(updateFields.taxAmount)
-    }
-    if (updateFields.serviceCharge) {
-      updateFields.serviceCharge = parseFloat(updateFields.serviceCharge)
-    }
-    if (updateFields.finalAmount) {
-      updateFields.finalAmount = parseFloat(updateFields.finalAmount)
-    }
-
-    // Convert ObjectId fields
-    if (updateFields.customerId) {
-      updateFields.customerId = new ObjectId(updateFields.customerId)
-    }
-    if (updateFields.branchId) {
-      updateFields.branchId = new ObjectId(updateFields.branchId)
-    }
-    if (updateFields.createdBy) {
-      updateFields.createdBy = new ObjectId(updateFields.createdBy)
-    }
-
-    const result = await db.collection('orders').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateFields }
-    )
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'سفارش مورد نظر یافت نشد' },
-        { status: 404 }
-      )
-    }
-
-    const updatedOrder = await db.collection('orders').findOne({ _id: new ObjectId(id) })
-
-    return NextResponse.json({
-      success: true,
-      data: updatedOrder,
-      message: 'سفارش با موفقیت به‌روزرسانی شد'
-    })
-  } catch (error) {
-    console.error('Error updating order:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در به‌روزرسانی سفارش',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    )
-  } finally {
-    await client.close()
-  }
-}
-
-// DELETE /api/orders - حذف سفارش
+// DELETE - حذف سفارش
 export async function DELETE(request: NextRequest) {
   try {
+    await connectToDatabase()
+    const collection = db.collection(COLLECTION_NAME)
+    
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
-
+    
     if (!id) {
       return NextResponse.json(
         { success: false, message: 'شناسه سفارش اجباری است' },
@@ -286,14 +159,11 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    await client.connect()
-    const db = client.db('restoren')
+    const result = await collection.deleteOne({ _id: new ObjectId(id) })
     
-    const result = await db.collection('orders').deleteOne({ _id: new ObjectId(id) })
-
     if (result.deletedCount === 0) {
       return NextResponse.json(
-        { success: false, message: 'سفارش مورد نظر یافت نشد' },
+        { success: false, message: 'سفارش یافت نشد' },
         { status: 404 }
       )
     }
@@ -305,15 +175,8 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error('Error deleting order:', error)
     return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در حذف سفارش',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { success: false, message: 'خطا در حذف سفارش' },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
-

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Utensils, 
   Users, 
@@ -24,7 +24,8 @@ import {
   Package, 
   Edit,
   Square,
-  Home
+  Home,
+  RefreshCw
 } from 'lucide-react'
 
 interface MenuItem {
@@ -40,6 +41,7 @@ interface MenuItem {
 interface OrderItem extends MenuItem {
   quantity: number
   notes?: string
+  uniqueId?: string
 }
 
 interface Table {
@@ -51,7 +53,7 @@ interface Table {
 }
 
 interface DineInOrder {
-  id: string
+  _id: string
   orderNumber: string
   tableNumber: string
   customerName: string
@@ -68,6 +70,8 @@ interface DineInOrder {
   notes: string
   paymentMethod: 'cash' | 'card' | 'credit'
   priority: 'normal' | 'urgent'
+  createdAt: string
+  updatedAt: string
 }
 
 const menuItems: MenuItem[] = [
@@ -147,6 +151,75 @@ export default function DineInPage() {
   const [notes, setNotes] = useState('')
   const [priority, setPriority] = useState('normal')
   const [showOrderForm, setShowOrderForm] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [dineInOrders, setDineInOrders] = useState<DineInOrder[]>([])
+
+  // Load menu items from API
+  const loadMenuItems = async () => {
+    try {
+      const response = await fetch('/api/menu-items')
+      const result = await response.json()
+      if (result.success) {
+        setMenuItems(result.data)
+      } else {
+        console.error('Error loading menu items:', result.message)
+        // Fallback to sample data
+        setMenuItems([
+          { id: '1', name: 'کباب کوبیده', price: 120000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 25, description: 'کباب کوبیده سنتی با گوشت گوساله تازه' },
+          { id: '2', name: 'جوجه کباب', price: 135000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 20, description: 'جوجه کباب با سینه مرغ تازه و سس مخصوص' },
+          { id: '3', name: 'سالاد سزار', price: 45000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 10, description: 'سالاد سزار با کاهو تازه و پنیر پارمزان' },
+          { id: '4', name: 'نوشابه', price: 15000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 2, description: 'نوشابه گازدار سرد' },
+          { id: '5', name: 'دوغ محلی', price: 18000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 3, description: 'دوغ محلی تازه و خنک' },
+          { id: '6', name: 'میرزا قاسمی', price: 70000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 15, description: 'میرزا قاسمی با بادمجان کبابی و سیر' },
+          { id: '7', name: 'چلو گوشت', price: 180000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 35, description: 'چلو گوشت با گوشت گوساله و برنج ایرانی' },
+          { id: '8', name: 'بستنی سنتی', price: 35000, category: 'دسرها', image: '/api/placeholder/60/60', preparationTime: 5, description: 'بستنی سنتی با طعم زعفران و گلاب' },
+        ])
+      }
+    } catch (error) {
+      console.error('Error loading menu items:', error)
+    }
+  }
+
+  // Load dine-in orders from API
+  const loadDineInOrders = async () => {
+    try {
+      const response = await fetch('/api/dine-in-orders')
+      const result = await response.json()
+      if (result.success) {
+        setDineInOrders(result.data)
+        // Update tables with current orders
+        updateTablesWithOrders(result.data)
+      } else {
+        console.error('Error loading dine-in orders:', result.message)
+      }
+    } catch (error) {
+      console.error('Error loading dine-in orders:', error)
+    }
+  }
+
+  // Update tables with current orders
+  const updateTablesWithOrders = (orders: DineInOrder[]) => {
+    setTables(prevTables => 
+      prevTables.map(table => {
+        const currentOrder = orders.find(order => 
+          order.tableNumber === table.number && 
+          ['pending', 'preparing', 'ready'].includes(order.status)
+        )
+        return {
+          ...table,
+          status: currentOrder ? 'occupied' : 'available',
+          currentOrder: currentOrder || undefined
+        }
+      })
+    )
+  }
+
+  // Load data on component mount
+  useEffect(() => {
+    loadMenuItems()
+    loadDineInOrders()
+  }, [])
 
   const categories = ['all', 'غذاهای اصلی', 'پیش‌غذاها', 'نوشیدنی‌ها', 'دسرها']
 
@@ -157,27 +230,27 @@ export default function DineInPage() {
 
   const addToOrder = (item: MenuItem) => {
     setOrder(prevOrder => {
-      const existingItem = prevOrder.find(orderItem => orderItem.id === item.id)
-      if (existingItem) {
-        return prevOrder.map(orderItem =>
-          orderItem.id === item.id ? { ...orderItem, quantity: orderItem.quantity + 1 } : orderItem
-        )
+      // همیشه یک آیتم جدید اضافه می‌کنیم، حتی اگر همان محصول باشد
+      const newOrderItem = { 
+        ...item, 
+        quantity: 1,
+        uniqueId: `${item.id}-${Date.now()}-${Math.random()}` // شناسه یکتا برای هر انتخاب
       }
-      return [...prevOrder, { ...item, quantity: 1 }]
+      return [...prevOrder, newOrderItem]
     })
   }
 
-  const updateQuantity = (id: string, delta: number) => {
+  const updateQuantity = (uniqueId: string, delta: number) => {
     setOrder(prevOrder => {
       const updatedOrder = prevOrder.map(item =>
-        item.id === id ? { ...item, quantity: item.quantity + delta } : item
+        item.uniqueId === uniqueId ? { ...item, quantity: item.quantity + delta } : item
       ).filter(item => item.quantity > 0)
       return updatedOrder
     })
   }
 
-  const removeItem = (id: string) => {
-    setOrder(prevOrder => prevOrder.filter(item => item.id !== id))
+  const removeItem = (uniqueId: string) => {
+    setOrder(prevOrder => prevOrder.filter(item => item.uniqueId !== uniqueId))
   }
 
   const calculateEstimatedTime = () => {
@@ -194,7 +267,7 @@ export default function DineInPage() {
   const serviceCharge = subtotal * serviceChargeRate
   const total = subtotal + tax + serviceCharge - discount
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (order.length === 0) {
       alert('سبد خرید خالی است!')
       return
@@ -210,44 +283,68 @@ export default function DineInPage() {
       return
     }
     
-    const dineInOrder: DineInOrder = {
-      id: Date.now().toString(),
-      orderNumber: `DI-${Date.now().toString().slice(-6)}`,
-      tableNumber: selectedTable.number,
-      customerName,
-      customerPhone,
-      items: order,
-      subtotal,
-      tax,
-      serviceCharge,
-      discount,
-      total,
-      orderTime: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      estimatedReadyTime: new Date(Date.now() + calculateEstimatedTime() * 60000).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      status: 'pending',
-      notes,
-      paymentMethod: paymentMethod as 'cash' | 'card' | 'credit',
-      priority: priority as 'normal' | 'urgent'
+    setLoading(true)
+    
+    try {
+      const dineInOrder = {
+        orderNumber: `DI-${Date.now().toString().slice(-6)}`,
+        tableNumber: selectedTable.number,
+        customerName,
+        customerPhone,
+        items: order,
+        subtotal,
+        tax,
+        serviceCharge,
+        discount,
+        total,
+        estimatedReadyTime: new Date(Date.now() + calculateEstimatedTime() * 60000).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+        status: 'pending',
+        notes,
+        paymentMethod: paymentMethod as 'cash' | 'card' | 'credit',
+        priority: priority as 'normal' | 'urgent'
+      }
+
+      const response = await fetch('/api/dine-in-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(dineInOrder)
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        // Update table status
+        setTables(tables.map(table => 
+          table.id === selectedTable.id 
+            ? { ...table, status: 'occupied' as const, currentOrder: result.data }
+            : table
+        ))
+        
+        alert(`سفارش حضوری با موفقیت ثبت شد!\nشماره سفارش: ${dineInOrder.orderNumber}\nمیز: ${dineInOrder.tableNumber}\nزمان آماده‌سازی: ${dineInOrder.estimatedReadyTime}\nمبلغ کل: ${total.toLocaleString('fa-IR')} تومان`)
+        
+        // Reset form
+        setOrder([])
+        setCustomerName('')
+        setCustomerPhone('')
+        setDiscount(0)
+        setNotes('')
+        setPaymentMethod('cash')
+        setPriority('normal')
+        setSelectedTable(null)
+        
+        // Reload orders
+        loadDineInOrders()
+      } else {
+        alert('خطا در ثبت سفارش: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error creating dine-in order:', error)
+      alert('خطا در ثبت سفارش')
+    } finally {
+      setLoading(false)
     }
-    
-    // Update table status
-    setTables(tables.map(table => 
-      table.id === selectedTable.id 
-        ? { ...table, status: 'occupied' as const, currentOrder: dineInOrder }
-        : table
-    ))
-    
-    alert(`سفارش حضوری با موفقیت ثبت شد!\nشماره سفارش: ${dineInOrder.orderNumber}\nمیز: ${dineInOrder.tableNumber}\nزمان آماده‌سازی: ${dineInOrder.estimatedReadyTime}\nمبلغ کل: ${total.toLocaleString('fa-IR')} تومان`)
-    
-    // Reset form
-    setOrder([])
-    setCustomerName('')
-    setCustomerPhone('')
-    setDiscount(0)
-    setNotes('')
-    setPaymentMethod('cash')
-    setPriority('normal')
-    setSelectedTable(null)
   }
 
   const getTableStatusColor = (status: string) => {
@@ -352,55 +449,145 @@ export default function DineInPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Tables Section */}
-          <div className="lg:col-span-1 premium-card p-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">میزهای رستوران</h2>
-            <div className="grid grid-cols-2 gap-4">
-              {tables.map(table => (
-                <button
-                  key={table.id}
-                  onClick={() => {
-                    setSelectedTable(table)
-                    if (table.currentOrder) {
-                      setOrder(table.currentOrder.items)
-                      setCustomerName(table.currentOrder.customerName)
-                      setCustomerPhone(table.currentOrder.customerPhone)
-                      setNotes(table.currentOrder.notes)
-                      setPaymentMethod(table.currentOrder.paymentMethod)
-                      setPriority(table.currentOrder.priority)
-                    } else {
-                      setOrder([])
-                      setCustomerName('')
-                      setCustomerPhone('')
-                      setNotes('')
-                      setPaymentMethod('cash')
-                      setPriority('normal')
-                    }
-                  }}
-                  className={`p-4 rounded-lg border-2 transition-all duration-300 ${
-                    selectedTable?.id === table.id
-                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
-                      : 'border-gray-200 dark:border-gray-600 hover:border-primary-300 dark:hover:border-primary-600'
-                  }`}
-                >
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mx-auto mb-2">
-                      <Home className="w-6 h-6 text-gray-600 dark:text-gray-400" />
+          <div className="lg:col-span-1">
+            <div className="premium-card p-6 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border-0 shadow-xl">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold bg-gradient-to-r from-primary-600 to-purple-600 bg-clip-text text-transparent">
+                  میزهای رستوران
+                </h2>
+                <div className="flex items-center space-x-2 space-x-reverse">
+                  <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">آنلاین</span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                {tables.map(table => (
+                  <button
+                    key={table.id}
+                    onClick={() => {
+                      setSelectedTable(table)
+                      if (table.currentOrder) {
+                        setOrder(table.currentOrder.items)
+                        setCustomerName(table.currentOrder.customerName)
+                        setCustomerPhone(table.currentOrder.customerPhone)
+                        setNotes(table.currentOrder.notes)
+                        setPaymentMethod(table.currentOrder.paymentMethod)
+                        setPriority(table.currentOrder.priority)
+                      } else {
+                        setOrder([])
+                        setCustomerName('')
+                        setCustomerPhone('')
+                        setNotes('')
+                        setPaymentMethod('cash')
+                        setPriority('normal')
+                      }
+                    }}
+                    className={`group relative overflow-hidden rounded-2xl transition-all duration-500 transform hover:scale-105 aspect-square ${
+                      selectedTable?.id === table.id
+                        ? 'ring-4 ring-primary-500/50 shadow-2xl bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/50 dark:to-primary-800/50'
+                        : 'hover:shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm'
+                    }`}
+                  >
+                    {/* Background Pattern */}
+                    <div className="absolute inset-0 opacity-5 group-hover:opacity-10 transition-opacity duration-300">
+                      <div className="absolute inset-0 bg-gradient-to-br from-primary-400 to-purple-400"></div>
                     </div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white">میز {table.number}</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{table.capacity} نفر</p>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTableStatusColor(table.status)}`}>
-                      {getTableStatusText(table.status)}
-                    </span>
-                    {table.currentOrder && (
-                      <div className="mt-2">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getOrderStatusColor(table.currentOrder.status)}`}>
-                          {getOrderStatusText(table.currentOrder.status)}
-                        </span>
+                    
+                    <div className="relative p-4 h-full flex flex-col justify-between">
+                      <div className="text-center">
+                        {/* Table Number Badge */}
+                        <div className={`w-14 h-14 mx-auto mb-3 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                          table.status === 'available' 
+                            ? 'bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/20 dark:to-primary-800/20 group-hover:from-primary-100 group-hover:to-primary-200 dark:group-hover:from-primary-800/30 dark:group-hover:to-primary-700/30' 
+                            : table.status === 'occupied'
+                            ? 'bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/20 dark:to-primary-800/20 group-hover:from-primary-100 group-hover:to-primary-200 dark:group-hover:from-primary-800/30 dark:group-hover:to-primary-700/30'
+                            : 'bg-gradient-to-br from-primary-50 to-primary-100 dark:from-primary-900/20 dark:to-primary-800/20 group-hover:from-primary-100 group-hover:to-primary-200 dark:group-hover:from-primary-800/30 dark:group-hover:to-primary-700/30'
+                        }`}>
+                          <span className={`text-base font-bold transition-colors duration-300 ${
+                            table.status === 'available' 
+                              ? 'text-primary-600 dark:text-primary-400' 
+                              : table.status === 'occupied'
+                              ? 'text-primary-600 dark:text-primary-400'
+                              : 'text-primary-600 dark:text-primary-400'
+                          }`}>
+                            {table.number}
+                          </span>
+                        </div>
+                        
+                        {/* Table Number */}
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors duration-300">
+                          میز {table.number}
+                        </h3>
+                        
+                        {/* Capacity */}
+                        <div className="flex items-center justify-center space-x-1 space-x-reverse mb-3">
+                          <Users className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+                          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            {table.capacity} نفر
+                          </span>
+                        </div>
                       </div>
-                    )}
+                      
+                      {/* Status Section */}
+                      <div className="flex flex-col items-center space-y-1">
+                        {/* Status Badge */}
+                        <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wide transition-all duration-300 ${
+                          table.status === 'available' 
+                            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/25' 
+                            : table.status === 'occupied'
+                            ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/25'
+                            : 'bg-gradient-to-r from-gray-500 to-slate-500 text-white shadow-lg shadow-gray-500/25'
+                        }`}>
+                          {getTableStatusText(table.status)}
+                        </span>
+                        
+                        {/* Order Status */}
+                        {table.currentOrder && (
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wide transition-all duration-300 ${
+                            table.currentOrder.status === 'pending'
+                              ? 'bg-gradient-to-r from-yellow-500 to-amber-500 text-white shadow-lg shadow-yellow-500/25'
+                              : table.currentOrder.status === 'preparing'
+                              ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg shadow-blue-500/25'
+                              : table.currentOrder.status === 'ready'
+                              ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/25'
+                              : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25'
+                          }`}>
+                            {getOrderStatusText(table.currentOrder.status)}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Hover Effect */}
+                      <div className="absolute inset-0 bg-gradient-to-br from-primary-500/0 to-purple-500/0 group-hover:from-primary-500/5 group-hover:to-purple-500/5 transition-all duration-500 rounded-2xl"></div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              
+              {/* Table Summary */}
+              <div className="mt-6 p-4 bg-white/50 dark:bg-gray-800/50 rounded-xl backdrop-blur-sm">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                      {tables.filter(t => t.status === 'available').length}
+                    </div>
+                    <div className="text-xs text-gray-600 dark:text-gray-400">آزاد</div>
                   </div>
-                </button>
-              ))}
+                  <div>
+                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                      {tables.filter(t => t.status === 'occupied').length}
+                    </div>
+                    <div className="text-xs text-gray-600 dark:text-gray-400">اشغال</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+                      {tables.filter(t => t.status === 'reserved').length}
+                    </div>
+                    <div className="text-xs text-gray-600 dark:text-gray-400">رزرو</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -422,10 +609,15 @@ export default function DineInPage() {
                     </button>
                     <button
                       onClick={handleCheckout}
-                      className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      disabled={loading}
+                      className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <CheckCircle className="w-4 h-4" />
-                      <span>ثبت سفارش</span>
+                      {loading ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4" />
+                      )}
+                      <span>{loading ? 'در حال ثبت...' : 'ثبت سفارش'}</span>
                     </button>
                   </div>
                 </div>
@@ -436,7 +628,7 @@ export default function DineInPage() {
                     <h3 className="font-semibold text-gray-900 dark:text-white mb-3">سفارش جاری</h3>
                     <div className="space-y-3">
                       {order.map(item => (
-                        <div key={item.id} className="flex items-center justify-between bg-white dark:bg-gray-700 p-3 rounded-lg">
+                        <div key={item.uniqueId} className="flex items-center justify-between bg-white dark:bg-gray-700 p-3 rounded-lg">
                           <div className="flex items-center space-x-3 space-x-reverse">
                             <img src={item.image} alt={item.name} className="w-10 h-10 rounded object-cover" />
                             <div>
@@ -448,20 +640,20 @@ export default function DineInPage() {
                           </div>
                           <div className="flex items-center space-x-2 space-x-reverse">
                             <button
-                              onClick={() => updateQuantity(item.id, -1)}
+                              onClick={() => updateQuantity(item.uniqueId!, -1)}
                               className="p-1 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500"
                             >
                               <Minus className="w-4 h-4" />
                             </button>
                             <span className="font-medium text-gray-900 dark:text-white">{item.quantity}</span>
                             <button
-                              onClick={() => updateQuantity(item.id, 1)}
+                              onClick={() => updateQuantity(item.uniqueId!, 1)}
                               className="p-1 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500"
                             >
                               <Plus className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => removeItem(item.id)}
+                              onClick={() => removeItem(item.uniqueId!)}
                               className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
                             >
                               <Trash2 className="w-4 h-4" />

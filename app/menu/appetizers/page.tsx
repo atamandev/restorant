@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Coffee, 
   Plus, 
@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 
 interface AppetizerItem {
-  id: string
+  _id?: string
   name: string
   description: string
   price: number
@@ -38,149 +38,40 @@ interface AppetizerItem {
   calories?: number
   tags: string[]
   category: string
-  createdAt: string
-  updatedAt: string
+  createdAt?: Date
+  updatedAt?: Date
   salesCount: number
   rating: number
 }
 
-const initialAppetizers: AppetizerItem[] = [
-  {
-    id: '1',
-    name: 'سالاد سزار',
-    description: 'سالاد سزار با کاهو تازه، پنیر پارمزان و سس مخصوص',
-    price: 35000,
-    image: '/api/placeholder/200/150',
-    isAvailable: true,
-    preparationTime: 10,
-    ingredients: ['کاهو', 'پنیر پارمزان', 'سس سزار', 'نان تست'],
-    allergens: ['لبنیات', 'گلوتن', 'تخم مرغ'],
-    isPopular: true,
-    isVegetarian: true,
-    isSpicy: false,
-    calories: 180,
-    tags: ['سالاد', 'سالم', 'پیش غذا'],
-    category: 'پیش‌غذاها',
-    createdAt: '1403/01/15',
-    updatedAt: '1403/01/20',
-    salesCount: 45,
-    rating: 4.5
-  },
-  {
-    id: '2',
-    name: 'میرزا قاسمی',
-    description: 'میرزا قاسمی سنتی با بادمجان کبابی و سیر',
-    price: 45000,
-    image: '/api/placeholder/200/150',
-    isAvailable: true,
-    preparationTime: 15,
-    ingredients: ['بادمجان', 'سیر', 'گوجه فرنگی', 'ادویه‌های مخصوص'],
-    allergens: [],
-    isPopular: false,
-    isVegetarian: true,
-    isSpicy: false,
-    calories: 120,
-    tags: ['سنتی', 'گیاهی', 'میرزا قاسمی'],
-    category: 'پیش‌غذاها',
-    createdAt: '1403/01/15',
-    updatedAt: '1403/01/20',
-    salesCount: 28,
-    rating: 4.2
-  },
-  {
-    id: '3',
-    name: 'سالاد فصل',
-    description: 'سالاد فصل با سبزیجات تازه و سس مخصوص',
-    price: 25000,
-    image: '/api/placeholder/200/150',
-    isAvailable: true,
-    preparationTime: 8,
-    ingredients: ['سبزیجات فصل', 'سس مخصوص', 'ادویه‌ها'],
-    allergens: [],
-    isPopular: false,
-    isVegetarian: true,
-    isSpicy: false,
-    calories: 90,
-    tags: ['سالاد', 'فصلی', 'سالم'],
-    category: 'پیش‌غذاها',
-    createdAt: '1403/01/15',
-    updatedAt: '1403/01/20',
-    salesCount: 32,
-    rating: 4.0
-  },
-  {
-    id: '4',
-    name: 'کشک بادمجان',
-    description: 'کشک بادمجان سنتی با کشک محلی و بادمجان کبابی',
-    price: 55000,
-    image: '/api/placeholder/200/150',
-    isAvailable: false,
-    preparationTime: 20,
-    ingredients: ['بادمجان', 'کشک محلی', 'سیر', 'ادویه‌های مخصوص'],
-    allergens: ['لبنیات'],
-    isPopular: true,
-    isVegetarian: true,
-    isSpicy: false,
-    calories: 150,
-    tags: ['سنتی', 'کشک', 'بادمجان'],
-    category: 'پیش‌غذاها',
-    createdAt: '1403/01/15',
-    updatedAt: '1403/01/20',
-    salesCount: 38,
-    rating: 4.7
-  },
-  {
-    id: '5',
-    name: 'سالاد الویه',
-    description: 'سالاد الویه کلاسیک با سیب زمینی و مرغ',
-    price: 40000,
-    image: '/api/placeholder/200/150',
-    isAvailable: true,
-    preparationTime: 12,
-    ingredients: ['سیب زمینی', 'مرغ', 'تخم مرغ', 'سس مایونز'],
-    allergens: ['تخم مرغ', 'لبنیات'],
-    isPopular: false,
-    isVegetarian: false,
-    isSpicy: false,
-    calories: 220,
-    tags: ['الویه', 'کلاسیک', 'مرغ'],
-    category: 'پیش‌غذاها',
-    createdAt: '1403/01/15',
-    updatedAt: '1403/01/20',
-    salesCount: 25,
-    rating: 4.1
-  },
-  {
-    id: '6',
-    name: 'سالاد کلم',
-    description: 'سالاد کلم تازه با سس مخصوص',
-    price: 20000,
-    image: '/api/placeholder/200/150',
-    isAvailable: true,
-    preparationTime: 5,
-    ingredients: ['کلم', 'سس مخصوص', 'ادویه‌ها'],
-    allergens: [],
-    isPopular: false,
-    isVegetarian: true,
-    isSpicy: false,
-    calories: 60,
-    tags: ['سالاد', 'کلم', 'ساده'],
-    category: 'پیش‌غذاها',
-    createdAt: '1403/01/15',
-    updatedAt: '1403/01/20',
-    salesCount: 18,
-    rating: 3.8
-  }
-]
-
 export default function AppetizersPage() {
-  const [appetizers, setAppetizers] = useState<AppetizerItem[]>(initialAppetizers)
+  const [appetizers, setAppetizers] = useState<AppetizerItem[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingItem, setEditingItem] = useState<AppetizerItem | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterAvailability, setFilterAvailability] = useState('all')
   const [filterPopularity, setFilterPopularity] = useState('all')
   const [sortBy, setSortBy] = useState('name')
+  const [loading, setLoading] = useState(false)
+
+  const loadAppetizers = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/appetizers')
+      const result = await response.json()
+      if (result.success) {
+        setAppetizers(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading appetizers:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadAppetizers()
+  }, [])
 
   const [formData, setFormData] = useState({
     name: '',
@@ -219,40 +110,69 @@ export default function AppetizersPage() {
     }
   })
 
-  const handleSave = () => {
-    if (editingItem) {
-      const updatedItem = {
-        ...formData,
-        id: editingItem.id,
-        image: editingItem.image,
-        ingredients: formData.ingredients.split(',').map(i => i.trim()).filter(i => i),
-        allergens: formData.allergens.split(',').map(a => a.trim()).filter(a => a),
-        tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
-        category: 'پیش‌غذاها',
-        createdAt: editingItem.createdAt,
-        updatedAt: new Date().toLocaleDateString('fa-IR'),
-        salesCount: editingItem.salesCount,
-        rating: editingItem.rating
+  const handleSave = async () => {
+    try {
+      setLoading(true)
+      
+      if (editingItem) {
+        // Update existing item
+        const response = await fetch(`/api/appetizers/${editingItem._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(i => i.trim()).filter(i => i),
+            allergens: formData.allergens.split(',').map(a => a.trim()).filter(a => a),
+            tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadAppetizers()
+          setShowForm(false)
+          setEditingItem(null)
+          resetForm()
+        } else {
+          alert('خطا در به‌روزرسانی پیش‌غذا: ' + result.message)
+        }
+      } else {
+        // Create new item
+        const response = await fetch('/api/appetizers', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(i => i.trim()).filter(i => i),
+            allergens: formData.allergens.split(',').map(a => a.trim()).filter(a => a),
+            tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadAppetizers()
+          setShowForm(false)
+          resetForm()
+        } else {
+          alert('خطا در ایجاد پیش‌غذا: ' + result.message)
+        }
       }
-      setAppetizers(appetizers.map(item => item.id === editingItem.id ? updatedItem : item))
-    } else {
-      const newItem: AppetizerItem = {
-        ...formData,
-        id: Date.now().toString(),
-        image: '/api/placeholder/200/150',
-        ingredients: formData.ingredients.split(',').map(i => i.trim()).filter(i => i),
-        allergens: formData.allergens.split(',').map(a => a.trim()).filter(a => a),
-        tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
-        category: 'پیش‌غذاها',
-        createdAt: new Date().toLocaleDateString('fa-IR'),
-        updatedAt: new Date().toLocaleDateString('fa-IR'),
-        salesCount: 0,
-        rating: 0
-      }
-      setAppetizers([...appetizers, newItem])
+    } catch (error) {
+      console.error('Error saving appetizer:', error)
+      alert('خطا در ذخیره پیش‌غذا')
+    } finally {
+      setLoading(false)
     }
-    setShowForm(false)
-    setEditingItem(null)
+  }
+
+  const resetForm = () => {
     setFormData({
       name: '',
       description: '',
@@ -269,14 +189,55 @@ export default function AppetizersPage() {
     })
   }
 
-  const deleteItem = (id: string) => {
-    setAppetizers(appetizers.filter(item => item.id !== id))
+  const deleteItem = async (id: string) => {
+    if (!confirm('آیا مطمئن هستید که می‌خواهید این پیش‌غذا را حذف کنید؟')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/appetizers?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadAppetizers()
+      } else {
+        alert('خطا در حذف پیش‌غذا: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error deleting appetizer:', error)
+      alert('خطا در حذف پیش‌غذا')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const toggleAvailability = (id: string) => {
-    setAppetizers(appetizers.map(item => 
-      item.id === id ? { ...item, isAvailable: !item.isAvailable } : item
-    ))
+  const toggleAvailability = async (id: string, currentStatus: boolean) => {
+    try {
+      const response = await fetch('/api/appetizers/status', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({
+          id,
+          field: 'isAvailable',
+          value: !currentStatus
+        })
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadAppetizers()
+      } else {
+        alert('خطا در تغییر وضعیت: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error toggling availability:', error)
+      alert('خطا در تغییر وضعیت')
+    }
   }
 
   const getTotalItems = () => appetizers.length
@@ -424,125 +385,134 @@ export default function AppetizersPage() {
         </div>
 
         {/* Appetizers Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredAppetizers.map((item) => (
-            <div key={item.id} className="premium-card p-6 hover:shadow-glow transition-all duration-300">
-              {/* Item Image */}
-              <div className="relative mb-4">
-                <div className="w-full h-32 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-                  <Image className="w-8 h-8 text-gray-400" />
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری پیش‌غذاها...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredAppetizers.map((item) => (
+              <div key={item._id} className="premium-card p-6 hover:shadow-glow transition-all duration-300">
+                {/* Item Image */}
+                <div className="relative mb-4">
+                  <div className="w-full h-32 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                    <Image className="w-8 h-8 text-gray-400" />
+                  </div>
+                  <div className="absolute top-2 left-2 flex space-x-1 space-x-reverse">
+                    {item.isPopular && (
+                      <span className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 rounded-full text-xs font-medium">
+                        <Star className="inline-block w-3 h-3 ml-1" />
+                        محبوب
+                      </span>
+                    )}
+                    {item.isVegetarian && (
+                      <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
+                        گیاهی
+                      </span>
+                    )}
+                    {item.isSpicy && (
+                      <span className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full text-xs font-medium">
+                        تند
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => toggleAvailability(item._id!, item.isAvailable)}
+                    className={`absolute top-2 right-2 p-1 rounded-full ${
+                      item.isAvailable 
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' 
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                    }`}
+                  >
+                    {item.isAvailable ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
                 </div>
-                <div className="absolute top-2 left-2 flex space-x-1 space-x-reverse">
-                  {item.isPopular && (
-                    <span className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 rounded-full text-xs font-medium">
-                      <Star className="inline-block w-3 h-3 ml-1" />
-                      محبوب
-                    </span>
-                  )}
-                  {item.isVegetarian && (
-                    <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-xs font-medium">
-                      گیاهی
-                    </span>
-                  )}
-                  {item.isSpicy && (
-                    <span className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full text-xs font-medium">
-                      تند
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => toggleAvailability(item.id)}
-                  className={`absolute top-2 right-2 p-1 rounded-full ${
-                    item.isAvailable 
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' 
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                  }`}
-                >
-                  {item.isAvailable ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                </button>
-              </div>
 
-              {/* Item Info */}
-              <div className="mb-4">
-                <h3 className="font-semibold text-gray-900 dark:text-white mb-1">{item.name}</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-300 mb-2 line-clamp-2">{item.description}</p>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-lg font-bold text-primary-600 dark:text-primary-400">
-                    {item.price.toLocaleString('fa-IR')} تومان
-                  </span>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    {item.preparationTime} دقیقه
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-1 space-x-reverse">
-                    <Star className="w-4 h-4 text-yellow-500" />
-                    <span className="text-sm text-gray-600 dark:text-gray-300">
-                      {item.rating.toFixed(1)} ({item.salesCount} فروش)
+                {/* Item Info */}
+                <div className="mb-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">{item.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2 line-clamp-2">{item.description}</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-lg font-bold text-primary-600 dark:text-primary-400">
+                      {item.price.toLocaleString('fa-IR')} تومان
+                    </span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      {item.preparationTime} دقیقه
                     </span>
                   </div>
-                  {item.calories && (
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {item.calories} کالری
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Tags */}
-              {item.tags.length > 0 && (
-                <div className="mb-4">
-                  <div className="flex flex-wrap gap-1">
-                    {item.tags.slice(0, 3).map((tag, index) => (
-                      <span key={index} className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
-                        {tag}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-1 space-x-reverse">
+                      <Star className="w-4 h-4 text-yellow-500" />
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {item.rating.toFixed(1)} ({item.salesCount} فروش)
                       </span>
-                    ))}
-                    {item.tags.length > 3 && (
-                      <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs">
-                        +{item.tags.length - 3}
+                    </div>
+                    {item.calories && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {item.calories} کالری
                       </span>
                     )}
                   </div>
                 </div>
-              )}
 
-              {/* Action Buttons */}
-              <div className="flex items-center space-x-2 space-x-reverse">
-                <button
-                  onClick={() => {
-                    setEditingItem(item)
-                    setFormData({
-                      name: item.name,
-                      description: item.description,
-                      price: item.price,
-                      isAvailable: item.isAvailable,
-                      preparationTime: item.preparationTime,
-                      ingredients: item.ingredients.join(', '),
-                      allergens: item.allergens.join(', '),
-                      isPopular: item.isPopular,
-                      isVegetarian: item.isVegetarian,
-                      isSpicy: item.isSpicy,
-                      calories: item.calories || 0,
-                      tags: item.tags.join(', ')
-                    })
-                    setShowForm(true)
-                  }}
-                  className="flex-1 flex items-center justify-center space-x-2 space-x-reverse py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                >
-                  <Edit className="w-4 h-4" />
-                  <span>ویرایش</span>
-                </button>
-                <button
-                  onClick={() => deleteItem(item.id)}
-                  className="p-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {/* Tags */}
+                {item.tags.length > 0 && (
+                  <div className="mb-4">
+                    <div className="flex flex-wrap gap-1">
+                      {item.tags.slice(0, 3).map((tag, index) => (
+                        <span key={index} className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
+                          {tag}
+                        </span>
+                      ))}
+                      {item.tags.length > 3 && (
+                        <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs">
+                          +{item.tags.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex items-center space-x-2 space-x-reverse">
+                  <button
+                    onClick={() => {
+                      setEditingItem(item)
+                      setFormData({
+                        name: item.name,
+                        description: item.description,
+                        price: item.price,
+                        isAvailable: item.isAvailable,
+                        preparationTime: item.preparationTime,
+                        ingredients: item.ingredients.join(', '),
+                        allergens: item.allergens.join(', '),
+                        isPopular: item.isPopular,
+                        isVegetarian: item.isVegetarian,
+                        isSpicy: item.isSpicy,
+                        calories: item.calories || 0,
+                        tags: item.tags.join(', ')
+                      })
+                      setShowForm(true)
+                    }}
+                    className="flex-1 flex items-center justify-center space-x-2 space-x-reverse py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  >
+                    <Edit className="w-4 h-4" />
+                    <span>ویرایش</span>
+                  </button>
+                  <button
+                    onClick={() => deleteItem(item._id!)}
+                    className="p-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Form Modal */}
         {showForm && (
@@ -686,20 +656,7 @@ export default function AppetizersPage() {
                   onClick={() => {
                     setShowForm(false)
                     setEditingItem(null)
-                    setFormData({
-                      name: '',
-                      description: '',
-                      price: 0,
-                      isAvailable: true,
-                      preparationTime: 0,
-                      ingredients: '',
-                      allergens: '',
-                      isPopular: false,
-                      isVegetarian: false,
-                      isSpicy: false,
-                      calories: 0,
-                      tags: ''
-                    })
+                    resetForm()
                   }}
                   className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
                 >
@@ -707,10 +664,11 @@ export default function AppetizersPage() {
                 </button>
                 <button
                   onClick={handleSave}
-                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  disabled={loading}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" />
-                  <span>ذخیره</span>
+                  <span>{loading ? 'در حال ذخیره...' : 'ذخیره'}</span>
                 </button>
               </div>
             </div>

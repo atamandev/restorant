@@ -2,34 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
-const client = new MongoClient(MONGO_URI)
 
-// GET /api/menu-items - دریافت لیست آیتم‌های منو
+let client: MongoClient
+let clientPromise: Promise<MongoClient>
+
+if (!client) {
+  client = new MongoClient(MONGO_URI)
+  clientPromise = client.connect()
+}
+
 export async function GET(request: NextRequest) {
   try {
-    await client.connect()
+    const client = await clientPromise
     const db = client.db('restoren')
-    
+    const collection = db.collection('menu_items')
+
     const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '10')
-    const search = searchParams.get('search') || ''
     const category = searchParams.get('category')
     const isAvailable = searchParams.get('isAvailable')
     const isPopular = searchParams.get('isPopular')
-    
-    const skip = (page - 1) * limit
-    
-    // Build query
-    const query: any = {}
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { ingredients: { $regex: search, $options: 'i' } }
-      ]
-    }
-    if (category) {
+    const name = searchParams.get('name')
+    const sortBy = searchParams.get('sortBy') || 'name'
+    const sortOrder = searchParams.get('sortOrder') || 'asc'
+
+    let query: any = {}
+
+    if (category && category !== 'all') {
       query.category = category
     }
     if (isAvailable !== null && isAvailable !== undefined) {
@@ -38,226 +36,167 @@ export async function GET(request: NextRequest) {
     if (isPopular !== null && isPopular !== undefined) {
       query.isPopular = isPopular === 'true'
     }
-    
-    const menuItems = await db.collection('menu_items')
-      .find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray()
-    
-    const total = await db.collection('menu_items').countDocuments(query)
-    
+    if (name) {
+      query.name = { $regex: name, $options: 'i' }
+    }
+
+    let sortOptions: any = {}
+    switch (sortBy) {
+      case 'name':
+        sortOptions.name = sortOrder === 'desc' ? -1 : 1
+        break
+      case 'price':
+        sortOptions.price = sortOrder === 'desc' ? -1 : 1
+        break
+      case 'preparationTime':
+        sortOptions.preparationTime = sortOrder === 'desc' ? -1 : 1
+        break
+      case 'salesCount':
+        sortOptions.salesCount = sortOrder === 'desc' ? -1 : 1
+        break
+      case 'rating':
+        sortOptions.rating = sortOrder === 'desc' ? -1 : 1
+        break
+      case 'createdAt':
+        sortOptions.createdAt = sortOrder === 'desc' ? -1 : 1
+        break
+      default:
+        sortOptions.name = 1
+    }
+
+    const items = await collection.find(query).sort(sortOptions).toArray()
+
     return NextResponse.json({
       success: true,
-      data: menuItems,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      },
-      message: 'لیست آیتم‌های منو با موفقیت دریافت شد'
+      data: items
     })
   } catch (error) {
     console.error('Error fetching menu items:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در دریافت لیست آیتم‌های منو',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    )
-  } finally {
-    await client.close()
+    return NextResponse.json({
+      success: false,
+      message: 'خطا در دریافت آیتم‌های منو'
+    }, { status: 500 })
   }
 }
 
-// POST /api/menu-items - ایجاد آیتم منو جدید
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    console.log('Received body:', body)
-    
-    const { 
-      name, 
-      category, 
-      price, 
-      preparationTime, 
-      description, 
-      ingredients, 
-      allergens, 
-      isAvailable, 
-      isPopular, 
-      imageUrl 
-    } = body
-
-    // Validate required fields
-    if (!name || !category || price === undefined) {
-      return NextResponse.json(
-        { success: false, message: 'نام، دسته‌بندی و قیمت اجباری است' },
-        { status: 400 }
-      )
-    }
-
-    await client.connect()
+    const client = await clientPromise
     const db = client.db('restoren')
+    const collection = db.collection('menu_items')
+
+    const body = await request.json()
     
-    const menuItemData = {
-      name: String(name),
-      category: String(category),
-      price: parseFloat(price),
-      preparationTime: preparationTime ? parseInt(preparationTime) : 15,
-      description: description ? String(description) : '',
-      ingredients: Array.isArray(ingredients) ? ingredients.map(String) : [],
-      allergens: Array.isArray(allergens) ? allergens.map(String) : [],
-      isAvailable: isAvailable !== undefined ? Boolean(isAvailable) : true,
-      isPopular: isPopular !== undefined ? Boolean(isPopular) : false,
-      imageUrl: imageUrl ? String(imageUrl) : null,
+    const menuItem = {
+      ...body,
+      salesCount: body.salesCount || 0,
+      rating: body.rating || 0,
       createdAt: new Date(),
       updatedAt: new Date()
     }
 
-    console.log('Creating menu item with data:', menuItemData)
-
-    const result = await db.collection('menu_items').insertOne(menuItemData)
-    
-    const menuItem = await db.collection('menu_items').findOne({ _id: result.insertedId })
-
-    console.log('Menu item created successfully:', menuItem)
+    const result = await collection.insertOne(menuItem)
 
     return NextResponse.json({
       success: true,
-      data: menuItem,
-      message: 'آیتم منو با موفقیت ایجاد شد'
+      data: {
+        _id: result.insertedId,
+        ...menuItem
+      }
     })
   } catch (error) {
     console.error('Error creating menu item:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در ایجاد آیتم منو',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    )
-  } finally {
-    await client.close()
+    return NextResponse.json({
+      success: false,
+      message: 'خطا در ثبت آیتم منو'
+    }, { status: 500 })
   }
 }
 
-// PUT /api/menu-items - به‌روزرسانی آیتم منو
 export async function PUT(request: NextRequest) {
   try {
+    const client = await clientPromise
+    const db = client.db('restoren')
+    const collection = db.collection('menu_items')
+
     const body = await request.json()
-    console.log('Received update body:', body)
-    
     const { id, ...updateData } = body
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'شناسه آیتم منو اجباری است' },
-        { status: 400 }
-      )
+      return NextResponse.json({
+        success: false,
+        message: 'شناسه آیتم اجباری است'
+      }, { status: 400 })
     }
 
-    await client.connect()
-    const db = client.db('restoren')
-    
-    const updateFields: any = {
-      ...updateData,
-      updatedAt: new Date()
-    }
+    // Remove salesCount and rating from updateData if they exist
+    delete updateData.salesCount
+    delete updateData.rating
 
-    // Convert numeric fields
-    if (updateFields.price !== undefined) {
-      updateFields.price = parseFloat(updateFields.price)
-    }
-    if (updateFields.preparationTime !== undefined) {
-      updateFields.preparationTime = parseInt(updateFields.preparationTime)
-    }
-
-    console.log('Updating menu item with data:', updateFields)
-
-    const result = await db.collection('menu_items').updateOne(
+    const result = await collection.updateOne(
       { _id: new ObjectId(id) },
-      { $set: updateFields }
+      { 
+        $set: {
+          ...updateData,
+          updatedAt: new Date()
+        }
+      }
     )
 
-    console.log('Update result:', result)
-
     if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'آیتم منو مورد نظر یافت نشد' },
-        { status: 404 }
-      )
+      return NextResponse.json({
+        success: false,
+        message: 'آیتم یافت نشد'
+      }, { status: 404 })
     }
-
-    const updatedMenuItem = await db.collection('menu_items').findOne({ _id: new ObjectId(id) })
-
-    console.log('Updated menu item:', updatedMenuItem)
 
     return NextResponse.json({
       success: true,
-      data: updatedMenuItem,
-      message: 'آیتم منو با موفقیت به‌روزرسانی شد'
+      message: 'آیتم با موفقیت به‌روزرسانی شد'
     })
   } catch (error) {
     console.error('Error updating menu item:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در به‌روزرسانی آیتم منو',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    )
-  } finally {
-    await client.close()
+    return NextResponse.json({
+      success: false,
+      message: 'خطا در به‌روزرسانی آیتم'
+    }, { status: 500 })
   }
 }
 
-// DELETE /api/menu-items - حذف آیتم منو
 export async function DELETE(request: NextRequest) {
   try {
+    const client = await clientPromise
+    const db = client.db('restoren')
+    const collection = db.collection('menu_items')
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'شناسه آیتم منو اجباری است' },
-        { status: 400 }
-      )
+      return NextResponse.json({
+        success: false,
+        message: 'شناسه آیتم اجباری است'
+      }, { status: 400 })
     }
 
-    await client.connect()
-    const db = client.db('restoren')
-    
-    const result = await db.collection('menu_items').deleteOne({ _id: new ObjectId(id) })
+    const result = await collection.deleteOne({ _id: new ObjectId(id) })
 
     if (result.deletedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'آیتم منو مورد نظر یافت نشد' },
-        { status: 404 }
-      )
+      return NextResponse.json({
+        success: false,
+        message: 'آیتم یافت نشد'
+      }, { status: 404 })
     }
 
     return NextResponse.json({
       success: true,
-      message: 'آیتم منو با موفقیت حذف شد'
+      message: 'آیتم با موفقیت حذف شد'
     })
   } catch (error) {
     console.error('Error deleting menu item:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در حذف آیتم منو',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    )
-  } finally {
-    await client.close()
+    return NextResponse.json({
+      success: false,
+      message: 'خطا در حذف آیتم'
+    }, { status: 500 })
   }
 }

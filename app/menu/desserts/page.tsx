@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Star, 
   Search, 
@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 
 interface Dessert {
-  id: string
+  _id?: string
   name: string
   description: string
   price: number
@@ -33,114 +33,37 @@ interface Dessert {
   calories: number
   allergens: string[]
   sweetness: 'کم' | 'متوسط' | 'زیاد'
+  createdAt?: Date
+  updatedAt?: Date
 }
 
-const initialDesserts: Dessert[] = [
-  {
-    id: '1',
-    name: 'بستنی سنتی',
-    description: 'بستنی سنتی با طعم زعفران و گلاب',
-    price: 35000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 5,
-    ingredients: ['شیر', 'خامه', 'زعفران', 'گلاب', 'شکر'],
-    category: 'بستنی',
-    isAvailable: true,
-    rating: 4.8,
-    popularity: 92,
-    calories: 180,
-    allergens: ['لبنیات'],
-    sweetness: 'متوسط'
-  },
-  {
-    id: '2',
-    name: 'شیرینی تر',
-    description: 'شیرینی تر با خامه و توت فرنگی',
-    price: 45000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 10,
-    ingredients: ['آرد', 'خامه', 'توت فرنگی', 'شکر', 'تخم مرغ'],
-    category: 'شیرینی',
-    isAvailable: true,
-    rating: 4.6,
-    popularity: 85,
-    calories: 320,
-    allergens: ['گلوتن', 'لبنیات', 'تخم مرغ'],
-    sweetness: 'زیاد'
-  },
-  {
-    id: '3',
-    name: 'کیک شکلاتی',
-    description: 'کیک شکلاتی با گاناش و توت فرنگی',
-    price: 55000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 15,
-    ingredients: ['آرد', 'شکلات', 'کره', 'شکر', 'تخم مرغ', 'توت فرنگی'],
-    category: 'کیک',
-    isAvailable: true,
-    rating: 4.9,
-    popularity: 88,
-    calories: 450,
-    allergens: ['گلوتن', 'لبنیات', 'تخم مرغ'],
-    sweetness: 'زیاد'
-  },
-  {
-    id: '4',
-    name: 'پودینگ وانیل',
-    description: 'پودینگ وانیل با توت فرنگی تازه',
-    price: 25000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 8,
-    ingredients: ['شیر', 'وانیل', 'شکر', 'توت فرنگی', 'ژلاتین'],
-    category: 'پودینگ',
-    isAvailable: true,
-    rating: 4.4,
-    popularity: 78,
-    calories: 150,
-    allergens: ['لبنیات'],
-    sweetness: 'متوسط'
-  },
-  {
-    id: '5',
-    name: 'ترافل شکلاتی',
-    description: 'ترافل شکلاتی با پودر کاکائو',
-    price: 40000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 12,
-    ingredients: ['شکلات', 'خامه', 'کره', 'پودر کاکائو'],
-    category: 'ترافل',
-    isAvailable: false,
-    rating: 4.7,
-    popularity: 82,
-    calories: 280,
-    allergens: ['لبنیات'],
-    sweetness: 'زیاد'
-  },
-  {
-    id: '6',
-    name: 'ماکارون',
-    description: 'ماکارون با طعم وانیل و توت فرنگی',
-    price: 60000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 20,
-    ingredients: ['بادام', 'شکر', 'تخم مرغ', 'وانیل', 'توت فرنگی'],
-    category: 'ماکارون',
-    isAvailable: true,
-    rating: 4.8,
-    popularity: 90,
-    calories: 200,
-    allergens: ['آجیل', 'تخم مرغ'],
-    sweetness: 'زیاد'
-  }
-]
-
 export default function DessertsPage() {
-  const [desserts, setDesserts] = useState<Dessert[]>(initialDesserts)
+  const [desserts, setDesserts] = useState<Dessert[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [editingDessert, setEditingDessert] = useState<Dessert | null>(null)
   const [showDetails, setShowDetails] = useState<Dessert | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const loadDesserts = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/desserts')
+      const result = await response.json()
+      if (result.success) {
+        setDesserts(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading desserts:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadDesserts()
+  }, [])
 
   const [formData, setFormData] = useState({
     name: '',
@@ -163,31 +86,89 @@ export default function DessertsPage() {
     dessert.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleSave = () => {
-    if (editingDessert) {
-      const updatedDessert = {
-        ...formData,
-        id: editingDessert.id,
-        rating: editingDessert.rating,
-        popularity: editingDessert.popularity,
-        ingredients: formData.ingredients.split(',').map(ing => ing.trim()),
-        allergens: formData.allergens.split(',').map(all => all.trim())
+  const handleSave = async () => {
+    try {
+      setLoading(true)
+      
+      if (editingDessert) {
+        // Update existing item
+        const response = await fetch(`/api/desserts/${editingDessert._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(ing => ing.trim()).filter(ing => ing),
+            allergens: formData.allergens.split(',').map(all => all.trim()).filter(all => all),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadDesserts()
+          setShowForm(false)
+          setEditingDessert(null)
+          resetForm()
+        } else {
+          alert('خطا در به‌روزرسانی دسر: ' + result.message)
+        }
+      } else {
+        // Create new item
+        const response = await fetch('/api/desserts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(ing => ing.trim()).filter(ing => ing),
+            allergens: formData.allergens.split(',').map(all => all.trim()).filter(all => all),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadDesserts()
+          setShowForm(false)
+          resetForm()
+        } else {
+          alert('خطا در ایجاد دسر: ' + result.message)
+        }
       }
-      setDesserts(desserts.map(dessert => dessert.id === editingDessert.id ? updatedDessert : dessert))
-    } else {
-      const newDessert: Dessert = {
-        ...formData,
-        id: Date.now().toString(),
-        rating: 4.5,
-        popularity: 70,
-        ingredients: formData.ingredients.split(',').map(ing => ing.trim()),
-        allergens: formData.allergens.split(',').map(all => all.trim())
-      }
-      setDesserts([...desserts, newDessert])
+    } catch (error) {
+      console.error('Error saving dessert:', error)
+      alert('خطا در ذخیره دسر')
+    } finally {
+      setLoading(false)
     }
-    setShowForm(false)
-    setEditingDessert(null)
-    resetForm()
+  }
+
+  const deleteDessert = async (id: string) => {
+    if (!confirm('آیا از حذف این دسر مطمئن هستید؟')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/desserts?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadDesserts()
+      } else {
+        alert('خطا در حذف دسر: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error deleting dessert:', error)
+      alert('خطا در حذف دسر')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const openAddForm = () => {
@@ -212,12 +193,6 @@ export default function DessertsPage() {
       sweetness: dessert.sweetness
     })
     setShowForm(true)
-  }
-
-  const deleteDessert = (id: string) => {
-    if (confirm('آیا از حذف این دسر مطمئن هستید؟')) {
-      setDesserts(desserts.filter(dessert => dessert.id !== id))
-    }
   }
 
   const resetForm = () => {
@@ -341,89 +316,98 @@ export default function DessertsPage() {
         </div>
 
         {/* Desserts Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDesserts.map(dessert => (
-            <div key={dessert.id} className="premium-card p-6">
-              <div className="relative mb-4">
-                <img src={dessert.image} alt={dessert.name} className="w-full h-48 object-cover rounded-lg" />
-                <div className="absolute top-2 right-2 flex space-x-1 space-x-reverse">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    dessert.isAvailable 
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                  }`}>
-                    {dessert.isAvailable ? 'موجود' : 'ناموجود'}
-                  </span>
-                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
-                    {dessert.category}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{dessert.name}</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">{dessert.description}</p>
-                
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Star className="w-4 h-4 text-yellow-500" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{dessert.rating}</span>
-                  </div>
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Clock className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{dessert.preparationTime} دقیقه</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Package className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{dessert.calories} کالری</span>
-                  </div>
-                  <div className="flex items-center space-x-2 space-x-reverse">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری دسرها...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredDesserts.map(dessert => (
+              <div key={dessert._id} className="premium-card p-6">
+                <div className="relative mb-4">
+                  <img src={dessert.image} alt={dessert.name} className="w-full h-48 object-cover rounded-lg" />
+                  <div className="absolute top-2 right-2 flex space-x-1 space-x-reverse">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      dessert.sweetness === 'کم' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' :
-                      dessert.sweetness === 'متوسط' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' :
-                      'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      dessert.isAvailable 
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
                     }`}>
-                      شیرینی: {dessert.sweetness}
+                      {dessert.isAvailable ? 'موجود' : 'ناموجود'}
+                    </span>
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                      {dessert.category}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{dessert.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">{dessert.description}</p>
+                  
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Star className="w-4 h-4 text-yellow-500" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{dessert.rating}</span>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Clock className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{dessert.preparationTime} دقیقه</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Package className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{dessert.calories} کالری</span>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        dessert.sweetness === 'کم' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' :
+                        dessert.sweetness === 'متوسط' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' :
+                        'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      }`}>
+                        شیرینی: {dessert.sweetness}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
+                      {dessert.price.toLocaleString('fa-IR')} تومان
                     </span>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
-                    {dessert.price.toLocaleString('fa-IR')} تومان
-                  </span>
+                  <button
+                    onClick={() => setShowDetails(dessert)}
+                    className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>جزئیات</span>
+                  </button>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <button
+                      onClick={() => openEditForm(dessert)}
+                      className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteDessert(dessert._id!)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setShowDetails(dessert)}
-                  className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>جزئیات</span>
-                </button>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <button
-                    onClick={() => openEditForm(dessert)}
-                    className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => deleteDessert(dessert.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Add/Edit Form Modal */}
         {showForm && (
@@ -569,10 +553,11 @@ export default function DessertsPage() {
                 </button>
                 <button
                   onClick={handleSave}
-                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  disabled={loading}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" />
-                  <span>ذخیره</span>
+                  <span>{loading ? 'در حال ذخیره...' : 'ذخیره'}</span>
                 </button>
               </div>
             </div>

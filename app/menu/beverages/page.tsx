@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Coffee, 
   Search, 
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 
 interface Beverage {
-  id: string
+  _id?: string
   name: string
   description: string
   price: number
@@ -36,154 +36,37 @@ interface Beverage {
   allergens: string[]
   temperature: 'سرد' | 'گرم' | 'داغ'
   size: 'کوچک' | 'متوسط' | 'بزرگ'
+  createdAt?: Date
+  updatedAt?: Date
 }
 
-const initialBeverages: Beverage[] = [
-  {
-    id: '1',
-    name: 'نوشابه',
-    description: 'نوشابه گازدار سرد',
-    price: 15000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 2,
-    ingredients: ['آب', 'شکر', 'گاز', 'طعم‌دهنده'],
-    category: 'نوشیدنی گازدار',
-    isAvailable: true,
-    rating: 4.2,
-    popularity: 85,
-    calories: 140,
-    allergens: [],
-    temperature: 'سرد',
-    size: 'متوسط'
-  },
-  {
-    id: '2',
-    name: 'دوغ محلی',
-    description: 'دوغ محلی تازه و خنک',
-    price: 18000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 3,
-    ingredients: ['شیر', 'ماست', 'نمک', 'نعنا'],
-    category: 'نوشیدنی سنتی',
-    isAvailable: true,
-    rating: 4.6,
-    popularity: 78,
-    calories: 80,
-    allergens: ['لبنیات'],
-    temperature: 'سرد',
-    size: 'متوسط'
-  },
-  {
-    id: '3',
-    name: 'چای ایرانی',
-    description: 'چای ایرانی با طعم و عطر مخصوص',
-    price: 12000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 5,
-    ingredients: ['چای', 'آب', 'شکر'],
-    category: 'نوشیدنی گرم',
-    isAvailable: true,
-    rating: 4.8,
-    popularity: 95,
-    calories: 5,
-    allergens: [],
-    temperature: 'داغ',
-    size: 'کوچک'
-  },
-  {
-    id: '4',
-    name: 'قهوه ترک',
-    description: 'قهوه ترک با طعم قوی و غلیظ',
-    price: 25000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 8,
-    ingredients: ['قهوه', 'آب', 'شکر'],
-    category: 'نوشیدنی گرم',
-    isAvailable: true,
-    rating: 4.7,
-    popularity: 82,
-    calories: 15,
-    allergens: [],
-    temperature: 'داغ',
-    size: 'کوچک'
-  },
-  {
-    id: '5',
-    name: 'آب میوه طبیعی',
-    description: 'آب میوه طبیعی با میوه‌های تازه',
-    price: 22000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 6,
-    ingredients: ['میوه تازه', 'آب', 'شکر'],
-    category: 'نوشیدنی طبیعی',
-    isAvailable: true,
-    rating: 4.5,
-    popularity: 88,
-    calories: 120,
-    allergens: [],
-    temperature: 'سرد',
-    size: 'متوسط'
-  },
-  {
-    id: '6',
-    name: 'شیر موز',
-    description: 'شیر موز با موز تازه و شیر',
-    price: 28000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 7,
-    ingredients: ['شیر', 'موز', 'عسل', 'یخ'],
-    category: 'نوشیدنی طبیعی',
-    isAvailable: false,
-    rating: 4.4,
-    popularity: 75,
-    calories: 180,
-    allergens: ['لبنیات'],
-    temperature: 'سرد',
-    size: 'بزرگ'
-  },
-  {
-    id: '7',
-    name: 'کاپوچینو',
-    description: 'کاپوچینو با فوم شیر و قهوه',
-    price: 35000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 10,
-    ingredients: ['قهوه', 'شیر', 'فوم شیر', 'شکر'],
-    category: 'نوشیدنی گرم',
-    isAvailable: true,
-    rating: 4.6,
-    popularity: 80,
-    calories: 120,
-    allergens: ['لبنیات'],
-    temperature: 'گرم',
-    size: 'متوسط'
-  },
-  {
-    id: '8',
-    name: 'لیموناد',
-    description: 'لیموناد تازه با لیمو و نعنا',
-    price: 20000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 4,
-    ingredients: ['لیمو', 'آب', 'شکر', 'نعنا'],
-    category: 'نوشیدنی طبیعی',
-    isAvailable: true,
-    rating: 4.3,
-    popularity: 72,
-    calories: 90,
-    allergens: [],
-    temperature: 'سرد',
-    size: 'متوسط'
-  }
-]
-
 export default function BeveragesPage() {
-  const [beverages, setBeverages] = useState<Beverage[]>(initialBeverages)
+  const [beverages, setBeverages] = useState<Beverage[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [editingBeverage, setEditingBeverage] = useState<Beverage | null>(null)
   const [showDetails, setShowDetails] = useState<Beverage | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const loadBeverages = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/beverages')
+      const result = await response.json()
+      if (result.success) {
+        setBeverages(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading beverages:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadBeverages()
+  }, [])
 
   const [formData, setFormData] = useState({
     name: '',
@@ -207,31 +90,89 @@ export default function BeveragesPage() {
     beverage.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleSave = () => {
-    if (editingBeverage) {
-      const updatedBeverage = {
-        ...formData,
-        id: editingBeverage.id,
-        rating: editingBeverage.rating,
-        popularity: editingBeverage.popularity,
-        ingredients: formData.ingredients.split(',').map(ing => ing.trim()),
-        allergens: formData.allergens.split(',').map(all => all.trim())
+  const handleSave = async () => {
+    try {
+      setLoading(true)
+      
+      if (editingBeverage) {
+        // Update existing item
+        const response = await fetch(`/api/beverages/${editingBeverage._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(ing => ing.trim()).filter(ing => ing),
+            allergens: formData.allergens.split(',').map(all => all.trim()).filter(all => all),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadBeverages()
+          setShowForm(false)
+          setEditingBeverage(null)
+          resetForm()
+        } else {
+          alert('خطا در به‌روزرسانی نوشیدنی: ' + result.message)
+        }
+      } else {
+        // Create new item
+        const response = await fetch('/api/beverages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(ing => ing.trim()).filter(ing => ing),
+            allergens: formData.allergens.split(',').map(all => all.trim()).filter(all => all),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadBeverages()
+          setShowForm(false)
+          resetForm()
+        } else {
+          alert('خطا در ایجاد نوشیدنی: ' + result.message)
+        }
       }
-      setBeverages(beverages.map(beverage => beverage.id === editingBeverage.id ? updatedBeverage : beverage))
-    } else {
-      const newBeverage: Beverage = {
-        ...formData,
-        id: Date.now().toString(),
-        rating: 4.5,
-        popularity: 70,
-        ingredients: formData.ingredients.split(',').map(ing => ing.trim()),
-        allergens: formData.allergens.split(',').map(all => all.trim())
-      }
-      setBeverages([...beverages, newBeverage])
+    } catch (error) {
+      console.error('Error saving beverage:', error)
+      alert('خطا در ذخیره نوشیدنی')
+    } finally {
+      setLoading(false)
     }
-    setShowForm(false)
-    setEditingBeverage(null)
-    resetForm()
+  }
+
+  const deleteBeverage = async (id: string) => {
+    if (!confirm('آیا از حذف این نوشیدنی مطمئن هستید؟')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/beverages?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadBeverages()
+      } else {
+        alert('خطا در حذف نوشیدنی: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error deleting beverage:', error)
+      alert('خطا در حذف نوشیدنی')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const openAddForm = () => {
@@ -257,12 +198,6 @@ export default function BeveragesPage() {
       size: beverage.size
     })
     setShowForm(true)
-  }
-
-  const deleteBeverage = (id: string) => {
-    if (confirm('آیا از حذف این نوشیدنی مطمئن هستید؟')) {
-      setBeverages(beverages.filter(beverage => beverage.id !== id))
-    }
   }
 
   const resetForm = () => {
@@ -387,91 +322,100 @@ export default function BeveragesPage() {
         </div>
 
         {/* Beverages Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredBeverages.map(beverage => (
-            <div key={beverage.id} className="premium-card p-6">
-              <div className="relative mb-4">
-                <img src={beverage.image} alt={beverage.name} className="w-full h-48 object-cover rounded-lg" />
-                <div className="absolute top-2 right-2 flex space-x-1 space-x-reverse">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    beverage.isAvailable 
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                  }`}>
-                    {beverage.isAvailable ? 'موجود' : 'ناموجود'}
-                  </span>
-                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                    {beverage.category}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{beverage.name}</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">{beverage.description}</p>
-                
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Star className="w-4 h-4 text-yellow-500" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.rating}</span>
-                  </div>
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Clock className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.preparationTime} دقیقه</span>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری نوشیدنی‌ها...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredBeverages.map(beverage => (
+              <div key={beverage._id} className="premium-card p-6">
+                <div className="relative mb-4">
+                  <img src={beverage.image} alt={beverage.name} className="w-full h-48 object-cover rounded-lg" />
+                  <div className="absolute top-2 right-2 flex space-x-1 space-x-reverse">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      beverage.isAvailable 
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                    }`}>
+                      {beverage.isAvailable ? 'موجود' : 'ناموجود'}
+                    </span>
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                      {beverage.category}
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Package className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.calories} کالری</span>
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{beverage.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">{beverage.description}</p>
+                  
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Star className="w-4 h-4 text-yellow-500" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.rating}</span>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Clock className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.preparationTime} دقیقه</span>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Thermometer className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.temperature}</span>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Droplets className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">سایز: {beverage.size}</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Package className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.calories} کالری</span>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Thermometer className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{beverage.temperature}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Droplets className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">سایز: {beverage.size}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
+                      {beverage.price.toLocaleString('fa-IR')} تومان
+                    </span>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
-                    {beverage.price.toLocaleString('fa-IR')} تومان
-                  </span>
+                  <button
+                    onClick={() => setShowDetails(beverage)}
+                    className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>جزئیات</span>
+                  </button>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <button
+                      onClick={() => openEditForm(beverage)}
+                      className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteBeverage(beverage._id!)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setShowDetails(beverage)}
-                  className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>جزئیات</span>
-                </button>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <button
-                    onClick={() => openEditForm(beverage)}
-                    className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => deleteBeverage(beverage.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Add/Edit Form Modal */}
         {showForm && (
@@ -629,10 +573,11 @@ export default function BeveragesPage() {
                 </button>
                 <button
                   onClick={handleSave}
-                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  disabled={loading}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" />
-                  <span>ذخیره</span>
+                  <span>{loading ? 'در حال ذخیره...' : 'ذخیره'}</span>
                 </button>
               </div>
             </div>

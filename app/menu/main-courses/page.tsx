@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Utensils, 
   Search, 
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 
 interface MainCourse {
-  id: string
+  _id?: string
   name: string
   description: string
   price: number
@@ -34,108 +34,37 @@ interface MainCourse {
   popularity: number
   calories: number
   allergens: string[]
+  createdAt?: Date
+  updatedAt?: Date
 }
 
-const initialMainCourses: MainCourse[] = [
-  {
-    id: '1',
-    name: 'کباب کوبیده',
-    description: 'کباب کوبیده سنتی با گوشت گوساله تازه و ادویه‌های مخصوص',
-    price: 120000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 25,
-    ingredients: ['گوشت گوساله', 'پیاز', 'زعفران', 'نمک', 'فلفل'],
-    category: 'کباب',
-    isAvailable: true,
-    rating: 4.8,
-    popularity: 95,
-    calories: 450,
-    allergens: ['گلوتن']
-  },
-  {
-    id: '2',
-    name: 'جوجه کباب',
-    description: 'جوجه کباب با سینه مرغ تازه و سس مخصوص',
-    price: 135000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 20,
-    ingredients: ['سینه مرغ', 'ماست', 'زعفران', 'لیمو', 'ادویه‌جات'],
-    category: 'کباب',
-    isAvailable: true,
-    rating: 4.6,
-    popularity: 88,
-    calories: 380,
-    allergens: ['لبنیات']
-  },
-  {
-    id: '3',
-    name: 'چلو گوشت',
-    description: 'چلو گوشت با گوشت گوساله و برنج ایرانی',
-    price: 180000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 35,
-    ingredients: ['گوشت گوساله', 'برنج', 'پیاز', 'زعفران', 'ادویه‌جات'],
-    category: 'چلو',
-    isAvailable: true,
-    rating: 4.9,
-    popularity: 92,
-    calories: 520,
-    allergens: ['گلوتن']
-  },
-  {
-    id: '4',
-    name: 'قیمه نثار',
-    description: 'قیمه نثار با گوشت گوساله و لپه',
-    price: 95000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 30,
-    ingredients: ['گوشت گوساله', 'لپه', 'پیاز', 'رب گوجه', 'ادویه‌جات'],
-    category: 'خورش',
-    isAvailable: true,
-    rating: 4.5,
-    popularity: 75,
-    calories: 420,
-    allergens: ['گلوتن']
-  },
-  {
-    id: '5',
-    name: 'قرمه سبزی',
-    description: 'قرمه سبزی با گوشت گوساله و سبزیجات تازه',
-    price: 110000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 40,
-    ingredients: ['گوشت گوساله', 'سبزی قرمه', 'لوبیا قرمز', 'لیمو عمانی'],
-    category: 'خورش',
-    isAvailable: true,
-    rating: 4.7,
-    popularity: 82,
-    calories: 380,
-    allergens: ['گلوتن']
-  },
-  {
-    id: '6',
-    name: 'فسنجان',
-    description: 'فسنجان با گوشت گوساله و سس انار',
-    price: 150000,
-    image: '/api/placeholder/200/150',
-    preparationTime: 45,
-    ingredients: ['گوشت گوساله', 'گردو', 'رب انار', 'پیاز', 'شکر'],
-    category: 'خورش',
-    isAvailable: false,
-    rating: 4.9,
-    popularity: 78,
-    calories: 480,
-    allergens: ['آجیل']
-  }
-]
-
 export default function MainCoursesPage() {
-  const [mainCourses, setMainCourses] = useState<MainCourse[]>(initialMainCourses)
+  const [mainCourses, setMainCourses] = useState<MainCourse[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [editingCourse, setEditingCourse] = useState<MainCourse | null>(null)
   const [showDetails, setShowDetails] = useState<MainCourse | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const loadMainCourses = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/main-courses')
+      const result = await response.json()
+      if (result.success) {
+        setMainCourses(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading main courses:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadMainCourses()
+  }, [])
 
   const [formData, setFormData] = useState({
     name: '',
@@ -157,31 +86,89 @@ export default function MainCoursesPage() {
     course.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleSave = () => {
-    if (editingCourse) {
-      const updatedCourse = {
-        ...formData,
-        id: editingCourse.id,
-        rating: editingCourse.rating,
-        popularity: editingCourse.popularity,
-        ingredients: formData.ingredients.split(',').map(ing => ing.trim()),
-        allergens: formData.allergens.split(',').map(all => all.trim())
+  const handleSave = async () => {
+    try {
+      setLoading(true)
+      
+      if (editingCourse) {
+        // Update existing item
+        const response = await fetch(`/api/main-courses/${editingCourse._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(ing => ing.trim()).filter(ing => ing),
+            allergens: formData.allergens.split(',').map(all => all.trim()).filter(all => all),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadMainCourses()
+          setShowForm(false)
+          setEditingCourse(null)
+          resetForm()
+        } else {
+          alert('خطا در به‌روزرسانی غذا: ' + result.message)
+        }
+      } else {
+        // Create new item
+        const response = await fetch('/api/main-courses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            ...formData,
+            ingredients: formData.ingredients.split(',').map(ing => ing.trim()).filter(ing => ing),
+            allergens: formData.allergens.split(',').map(all => all.trim()).filter(all => all),
+            image: '/api/placeholder?width=200&height=150'
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          await loadMainCourses()
+          setShowForm(false)
+          resetForm()
+        } else {
+          alert('خطا در ایجاد غذا: ' + result.message)
+        }
       }
-      setMainCourses(mainCourses.map(course => course.id === editingCourse.id ? updatedCourse : course))
-    } else {
-      const newCourse: MainCourse = {
-        ...formData,
-        id: Date.now().toString(),
-        rating: 4.5,
-        popularity: 70,
-        ingredients: formData.ingredients.split(',').map(ing => ing.trim()),
-        allergens: formData.allergens.split(',').map(all => all.trim())
-      }
-      setMainCourses([...mainCourses, newCourse])
+    } catch (error) {
+      console.error('Error saving main course:', error)
+      alert('خطا در ذخیره غذا')
+    } finally {
+      setLoading(false)
     }
-    setShowForm(false)
-    setEditingCourse(null)
-    resetForm()
+  }
+
+  const deleteCourse = async (id: string) => {
+    if (!confirm('آیا از حذف این غذا مطمئن هستید؟')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/main-courses?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadMainCourses()
+      } else {
+        alert('خطا در حذف غذا: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error deleting main course:', error)
+      alert('خطا در حذف غذا')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const openAddForm = () => {
@@ -205,12 +192,6 @@ export default function MainCoursesPage() {
       allergens: course.allergens.join(', ')
     })
     setShowForm(true)
-  }
-
-  const deleteCourse = (id: string) => {
-    if (confirm('آیا از حذف این غذا مطمئن هستید؟')) {
-      setMainCourses(mainCourses.filter(course => course.id !== id))
-    }
   }
 
   const resetForm = () => {
@@ -333,84 +314,93 @@ export default function MainCoursesPage() {
         </div>
 
         {/* Main Courses Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredMainCourses.map(course => (
-            <div key={course.id} className="premium-card p-6">
-              <div className="relative mb-4">
-                <img src={course.image} alt={course.name} className="w-full h-48 object-cover rounded-lg" />
-                <div className="absolute top-2 right-2 flex space-x-1 space-x-reverse">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    course.isAvailable 
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                  }`}>
-                    {course.isAvailable ? 'موجود' : 'ناموجود'}
-                  </span>
-                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                    {course.category}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{course.name}</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">{course.description}</p>
-                
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Star className="w-4 h-4 text-yellow-500" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{course.rating}</span>
-                  </div>
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Clock className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{course.preparationTime} دقیقه</span>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری غذاهای اصلی...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredMainCourses.map(course => (
+              <div key={course._id} className="premium-card p-6">
+                <div className="relative mb-4">
+                  <img src={course.image} alt={course.name} className="w-full h-48 object-cover rounded-lg" />
+                  <div className="absolute top-2 right-2 flex space-x-1 space-x-reverse">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      course.isAvailable 
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                    }`}>
+                      {course.isAvailable ? 'موجود' : 'ناموجود'}
+                    </span>
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                      {course.category}
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Package className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{course.calories} کالری</span>
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{course.name}</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">{course.description}</p>
+                  
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Star className="w-4 h-4 text-yellow-500" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{course.rating}</span>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Clock className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{course.preparationTime} دقیقه</span>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <ChefHat className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{course.popularity}% محبوبیت</span>
+
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <Package className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{course.calories} کالری</span>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <ChefHat className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400">{course.popularity}% محبوبیت</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
+                      {course.price.toLocaleString('fa-IR')} تومان
+                    </span>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
-                    {course.price.toLocaleString('fa-IR')} تومان
-                  </span>
+                  <button
+                    onClick={() => setShowDetails(course)}
+                    className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>جزئیات</span>
+                  </button>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <button
+                      onClick={() => openEditForm(course)}
+                      className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteCourse(course._id!)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setShowDetails(course)}
-                  className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>جزئیات</span>
-                </button>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <button
-                    onClick={() => openEditForm(course)}
-                    className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => deleteCourse(course.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Add/Edit Form Modal */}
         {showForm && (
@@ -540,10 +530,11 @@ export default function MainCoursesPage() {
                 </button>
                 <button
                   onClick={handleSave}
-                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  disabled={loading}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" />
-                  <span>ذخیره</span>
+                  <span>{loading ? 'در حال ذخیره...' : 'ذخیره'}</span>
                 </button>
               </div>
             </div>

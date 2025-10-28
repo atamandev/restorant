@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   ChefHat, 
   Clock, 
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 
 interface KitchenOrder {
-  id: string
+  _id?: string
   orderNumber: string
   orderType: 'dine-in' | 'takeaway' | 'delivery'
   tableNumber?: string
@@ -37,6 +37,8 @@ interface KitchenOrder {
   priority: 'normal' | 'urgent'
   notes: string
   specialInstructions: string
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 interface KitchenOrderItem {
@@ -50,116 +52,32 @@ interface KitchenOrderItem {
   image: string
 }
 
-const sampleKitchenOrders: KitchenOrder[] = [
-  {
-    id: '1',
-    orderNumber: 'DI-001',
-    orderType: 'dine-in',
-    tableNumber: '2',
-    customerName: 'احمد محمدی',
-    customerPhone: '09123456789',
-    items: [
-      {
-        id: '1',
-        name: 'کباب کوبیده',
-        quantity: 2,
-        category: 'غذاهای اصلی',
-        preparationTime: 25,
-        status: 'preparing',
-        notes: 'بدون پیاز',
-        image: '/api/placeholder/60/60'
-      },
-      {
-        id: '2',
-        name: 'نوشابه',
-        quantity: 2,
-        category: 'نوشیدنی‌ها',
-        preparationTime: 2,
-        status: 'ready',
-        image: '/api/placeholder/60/60'
-      }
-    ],
-    orderTime: '14:30',
-    estimatedReadyTime: '15:00',
-    status: 'preparing',
-    priority: 'normal',
-    notes: 'میز 2 - مشتری منتظر است',
-    specialInstructions: 'کباب را خوب کباب کنید'
-  },
-  {
-    id: '2',
-    orderNumber: 'TW-002',
-    orderType: 'takeaway',
-    customerName: 'سارا کریمی',
-    customerPhone: '09123456790',
-    items: [
-      {
-        id: '3',
-        name: 'جوجه کباب',
-        quantity: 1,
-        category: 'غذاهای اصلی',
-        preparationTime: 20,
-        status: 'ready',
-        image: '/api/placeholder/60/60'
-      },
-      {
-        id: '4',
-        name: 'دوغ محلی',
-        quantity: 1,
-        category: 'نوشیدنی‌ها',
-        preparationTime: 3,
-        status: 'ready',
-        image: '/api/placeholder/60/60'
-      }
-    ],
-    orderTime: '14:25',
-    estimatedReadyTime: '14:50',
-    status: 'ready',
-    priority: 'normal',
-    notes: 'بیرون‌بر - مشتری منتظر است',
-    specialInstructions: 'جوجه را تازه کباب کنید'
-  },
-  {
-    id: '3',
-    orderNumber: 'DL-003',
-    orderType: 'delivery',
-    customerName: 'رضا حسینی',
-    customerPhone: '09123456791',
-    items: [
-      {
-        id: '5',
-        name: 'چلو گوشت',
-        quantity: 1,
-        category: 'غذاهای اصلی',
-        preparationTime: 35,
-        status: 'pending',
-        image: '/api/placeholder/60/60'
-      },
-      {
-        id: '6',
-        name: 'سالاد سزار',
-        quantity: 1,
-        category: 'پیش‌غذاها',
-        preparationTime: 10,
-        status: 'pending',
-        image: '/api/placeholder/60/60'
-      }
-    ],
-    orderTime: '14:20',
-    estimatedReadyTime: '15:00',
-    status: 'pending',
-    priority: 'urgent',
-    notes: 'ارسال - آدرس: تهران، خیابان ولیعصر',
-    specialInstructions: 'گوشت را نرم کباب کنید'
-  }
-]
-
 export default function KitchenOrdersPage() {
-  const [orders, setOrders] = useState<KitchenOrder[]>(sampleKitchenOrders)
+  const [orders, setOrders] = useState<KitchenOrder[]>([])
   const [selectedStatus, setSelectedStatus] = useState('all')
   const [selectedPriority, setSelectedPriority] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<KitchenOrder | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const loadOrders = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/kitchen-orders')
+      const result = await response.json()
+      if (result.success) {
+        setOrders(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading kitchen orders:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadOrders()
+  }, [])
 
   const filteredOrders = orders.filter(order => {
     const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus
@@ -169,32 +87,32 @@ export default function KitchenOrdersPage() {
     return matchesStatus && matchesPriority && matchesSearch
   })
 
-  const updateItemStatus = (orderId: string, itemId: string, newStatus: KitchenOrderItem['status']) => {
-    setOrders(orders.map(order => {
-      if (order.id === orderId) {
-        const updatedItems = order.items.map(item => 
-          item.id === itemId ? { ...item, status: newStatus } : item
-        )
-        const allItemsReady = updatedItems.every(item => item.status === 'ready' || item.status === 'completed')
-        const allItemsCompleted = updatedItems.every(item => item.status === 'completed')
-        
-        let newOrderStatus = order.status
-        if (allItemsCompleted) {
-          newOrderStatus = 'completed'
-        } else if (allItemsReady) {
-          newOrderStatus = 'ready'
-        } else if (updatedItems.some(item => item.status === 'preparing')) {
-          newOrderStatus = 'preparing'
-        }
-        
-        return {
-          ...order,
-          items: updatedItems,
-          status: newOrderStatus
-        }
+  const updateItemStatus = async (orderId: string, itemId: string, newStatus: KitchenOrderItem['status']) => {
+    try {
+      const response = await fetch('/api/kitchen-orders/item-status', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderId,
+          itemId,
+          status: newStatus
+        })
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        // Reload orders to get updated data
+        await loadOrders()
+      } else {
+        alert('خطا در به‌روزرسانی وضعیت: ' + result.message)
       }
-      return order
-    }))
+    } catch (error) {
+      console.error('Error updating item status:', error)
+      alert('خطا در به‌روزرسانی وضعیت')
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -355,143 +273,157 @@ export default function KitchenOrdersPage() {
 
         {/* Orders List */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredOrders.map(order => (
-            <div key={order.id} className="premium-card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3 space-x-reverse">
-                  <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center">
-                    <ChefHat className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{order.orderNumber}</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{order.customerName}</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getOrderTypeColor(order.orderType)}`}>
-                    {getOrderTypeText(order.orderType)}
-                  </span>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(order.priority)}`}>
-                    {order.priority === 'urgent' ? 'فوری' : 'عادی'}
-                  </span>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                    {getStatusText(order.status)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-3 mb-4">
-                <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
-                  <Clock className="w-4 h-4" />
-                  <span>سفارش: {order.orderTime}</span>
-                  <span>•</span>
-                  <span>آماده: {order.estimatedReadyTime}</span>
-                </div>
-                {order.tableNumber && (
-                  <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
-                    <Users className="w-4 h-4" />
-                    <span>میز: {order.tableNumber}</span>
-                  </div>
-                )}
-                <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
-                  <Phone className="w-4 h-4" />
-                  <span>{order.customerPhone}</span>
-                </div>
-                {order.orderType === 'delivery' && (
-                  <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
-                    <MapPin className="w-4 h-4" />
-                    <span>ارسال</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Order Items */}
-              <div className="space-y-3 mb-4">
-                <h4 className="font-medium text-gray-900 dark:text-white">آیتم‌های سفارش:</h4>
-                {order.items.map(item => (
-                  <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-                    <div className="flex items-center space-x-3 space-x-reverse">
-                      <img src={item.image} alt={item.name} className="w-10 h-10 rounded object-cover" />
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          {item.quantity} عدد • {item.preparationTime} دقیقه
-                        </p>
-                        {item.notes && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{item.notes}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2 space-x-reverse">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
-                        {getStatusText(item.status)}
-                      </span>
-                      <div className="flex space-x-1 space-x-reverse">
-                        <button
-                          onClick={() => updateItemStatus(order.id, item.id, 'preparing')}
-                          className={`p-1 rounded ${item.status === 'preparing' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-600'}`}
-                          title="شروع آماده‌سازی"
-                        >
-                          <Utensils className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => updateItemStatus(order.id, item.id, 'ready')}
-                          className={`p-1 rounded ${item.status === 'ready' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-600'}`}
-                          title="آماده"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => updateItemStatus(order.id, item.id, 'completed')}
-                          className={`p-1 rounded ${item.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                          title="تکمیل شده"
-                        >
-                          <XCircle className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Special Instructions */}
-              {order.specialInstructions && (
-                <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
-                  <div className="flex items-center space-x-2 space-x-reverse mb-1">
-                    <AlertCircle className="w-4 h-4 text-yellow-600" />
-                    <span className="text-sm font-medium text-yellow-800 dark:text-yellow-300">دستورات خاص:</span>
-                  </div>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-400">{order.specialInstructions}</p>
-                </div>
-              )}
-
-              {/* Notes */}
-              {order.notes && (
-                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
-                  <div className="flex items-center space-x-2 space-x-reverse mb-1">
-                    <Star className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-800 dark:text-blue-300">یادداشت:</span>
-                  </div>
-                  <p className="text-sm text-blue-700 dark:text-blue-400">{order.notes}</p>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end space-x-2 space-x-reverse">
-                <button
-                  onClick={() => setSelectedOrder(order)}
-                  className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>جزئیات</span>
-                </button>
-                <button className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors">
-                  <Printer className="w-4 h-4" />
-                  <span>چاپ</span>
-                </button>
+          {loading ? (
+            <div className="col-span-2 flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری سفارشات...</p>
               </div>
             </div>
-          ))}
+          ) : filteredOrders.length === 0 ? (
+            <div className="col-span-2 text-center py-12">
+              <ChefHat className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600 dark:text-gray-400">هیچ سفارشی یافت نشد</p>
+            </div>
+          ) : (
+            filteredOrders.map(order => (
+              <div key={order._id} className="premium-card p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3 space-x-reverse">
+                    <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center">
+                      <ChefHat className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{order.orderNumber}</h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{order.customerName}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getOrderTypeColor(order.orderType)}`}>
+                      {getOrderTypeText(order.orderType)}
+                    </span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(order.priority)}`}>
+                      {order.priority === 'urgent' ? 'فوری' : 'عادی'}
+                    </span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+                      {getStatusText(order.status)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 mb-4">
+                  <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
+                    <Clock className="w-4 h-4" />
+                    <span>سفارش: {order.orderTime}</span>
+                    <span>•</span>
+                    <span>آماده: {order.estimatedReadyTime}</span>
+                  </div>
+                  {order.tableNumber && (
+                    <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
+                      <Users className="w-4 h-4" />
+                      <span>میز: {order.tableNumber}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
+                    <Phone className="w-4 h-4" />
+                    <span>{order.customerPhone}</span>
+                  </div>
+                  {order.orderType === 'delivery' && (
+                    <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
+                      <MapPin className="w-4 h-4" />
+                      <span>ارسال</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Order Items */}
+                <div className="space-y-3 mb-4">
+                  <h4 className="font-medium text-gray-900 dark:text-white">آیتم‌های سفارش:</h4>
+                  {order.items.map(item => (
+                    <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+                      <div className="flex items-center space-x-3 space-x-reverse">
+                        <img src={item.image} alt={item.name} className="w-10 h-10 rounded object-cover" />
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            {item.quantity} عدد • {item.preparationTime} دقیقه
+                          </p>
+                          {item.notes && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{item.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 space-x-reverse">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
+                          {getStatusText(item.status)}
+                        </span>
+                        <div className="flex space-x-1 space-x-reverse">
+                          <button
+                            onClick={() => updateItemStatus(order._id!, item.id, 'preparing')}
+                            className={`p-1 rounded ${item.status === 'preparing' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-600'}`}
+                            title="شروع آماده‌سازی"
+                          >
+                            <Utensils className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => updateItemStatus(order._id!, item.id, 'ready')}
+                            className={`p-1 rounded ${item.status === 'ready' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-600'}`}
+                            title="آماده"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => updateItemStatus(order._id!, item.id, 'completed')}
+                            className={`p-1 rounded ${item.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                            title="تکمیل شده"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Special Instructions */}
+                {order.specialInstructions && (
+                  <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
+                    <div className="flex items-center space-x-2 space-x-reverse mb-1">
+                      <AlertCircle className="w-4 h-4 text-yellow-600" />
+                      <span className="text-sm font-medium text-yellow-800 dark:text-yellow-300">دستورات خاص:</span>
+                    </div>
+                    <p className="text-sm text-yellow-700 dark:text-yellow-400">{order.specialInstructions}</p>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {order.notes && (
+                  <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                    <div className="flex items-center space-x-2 space-x-reverse mb-1">
+                      <Star className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-800 dark:text-blue-300">یادداشت:</span>
+                    </div>
+                    <p className="text-sm text-blue-700 dark:text-blue-400">{order.notes}</p>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end space-x-2 space-x-reverse">
+                  <button
+                    onClick={() => setSelectedOrder(order)}
+                    className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>جزئیات</span>
+                  </button>
+                  <button className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors">
+                    <Printer className="w-4 h-4" />
+                    <span>چاپ</span>
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Order Details Modal */}

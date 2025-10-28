@@ -22,7 +22,8 @@ import {
   AlertCircle,
   BarChart3,
   PieChart,
-  Activity
+  Activity,
+  X
 } from 'lucide-react'
 
 interface CashFlowEntry {
@@ -133,6 +134,113 @@ export default function CashFlowPage() {
   const getTotalPayments = () => filteredData.filter(entry => entry.type === 'payment').reduce((sum, entry) => sum + entry.amount, 0)
   const getNetCashFlow = () => getTotalReceipts() - getTotalPayments()
   const getCurrentBalance = () => filteredData.length > 0 ? filteredData[filteredData.length - 1].balance : 0
+
+  // Export to CSV function
+  const exportToCSV = () => {
+    const headers = ['تاریخ', 'نوع', 'دسته‌بندی', 'توضیحات', 'مبلغ', 'روش پرداخت', 'مرجع', 'موجودی']
+    const csvContent = [
+      headers.join(','),
+      ...filteredData.map(entry => [
+        entry.date,
+        getTypeText(entry.type),
+        entry.category,
+        entry.description,
+        entry.amount,
+        getMethodText(entry.method),
+        entry.reference,
+        entry.balance
+      ].join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `cash-flow-report-${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  // Print report function
+  const printReport = () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="fa">
+      <head>
+        <meta charset="UTF-8">
+        <title>گزارش جریان نقدی</title>
+        <style>
+          body { font-family: 'Tahoma', sans-serif; margin: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .header h1 { color: #333; margin-bottom: 10px; }
+          .header p { color: #666; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
+          th { background-color: #f5f5f5; font-weight: bold; }
+          .summary { background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+          .summary h3 { margin-top: 0; }
+          .receipt { color: green; }
+          .payment { color: red; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>گزارش جریان نقدی</h1>
+          <p>تاریخ تولید: ${new Date().toLocaleDateString('fa-IR')}</p>
+          <p>تعداد تراکنش‌ها: ${filteredData.length}</p>
+        </div>
+        
+        <div class="summary">
+          <h3>خلاصه گزارش</h3>
+          <p>کل دریافت‌ها: <span class="receipt">${getTotalReceipts().toLocaleString('fa-IR')} تومان</span></p>
+          <p>کل پرداخت‌ها: <span class="payment">${getTotalPayments().toLocaleString('fa-IR')} تومان</span></p>
+          <p>جریان نقدی خالص: <strong>${getNetCashFlow().toLocaleString('fa-IR')} تومان</strong></p>
+          <p>موجودی فعلی: <strong>${getCurrentBalance().toLocaleString('fa-IR')} تومان</strong></p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>تاریخ</th>
+              <th>نوع</th>
+              <th>دسته‌بندی</th>
+              <th>توضیحات</th>
+              <th>مبلغ</th>
+              <th>روش پرداخت</th>
+              <th>مرجع</th>
+              <th>موجودی</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredData.map(entry => `
+              <tr>
+                <td>${entry.date}</td>
+                <td class="${entry.type === 'receipt' ? 'receipt' : 'payment'}">${getTypeText(entry.type)}</td>
+                <td>${entry.category}</td>
+                <td>${entry.description}</td>
+                <td>${entry.amount.toLocaleString('fa-IR')}</td>
+                <td>${getMethodText(entry.method)}</td>
+                <td>${entry.reference}</td>
+                <td>${entry.balance.toLocaleString('fa-IR')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+    printWindow.close()
+  }
 
   const getTypeIcon = (type: string) => {
     return type === 'receipt' ? 
@@ -313,11 +421,17 @@ export default function CashFlowPage() {
               </select>
             </div>
             <div className="flex items-center space-x-2 space-x-reverse">
-              <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
+              <button 
+                onClick={exportToCSV}
+                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
                 <Download className="w-4 h-4" />
                 <span>صادر کردن</span>
               </button>
-              <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
+              <button 
+                onClick={printReport}
+                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
                 <Printer className="w-4 h-4" />
                 <span>چاپ گزارش</span>
               </button>

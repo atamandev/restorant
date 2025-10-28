@@ -153,10 +153,7 @@ const menuItems: MenuItem[] = [
     name: 'سفارشات',
     icon: ShoppingCart,
     subItems: [
-      { id: 'pending', name: 'در انتظار', icon: Clock, href: '/orders/pending' },
-      { id: 'preparing', name: 'در حال آماده‌سازی', icon: ChefHat, href: '/orders/preparing' },
-      { id: 'ready', name: 'آماده', icon: CheckCircle, href: '/orders/ready' },
-      { id: 'completed', name: 'تکمیل شده', icon: Star, href: '/orders/completed' }
+      { id: 'management', name: 'مدیریت سفارشات', icon: BarChart3, href: '/orders/management' }
     ]
   },
   {
@@ -166,7 +163,6 @@ const menuItems: MenuItem[] = [
     href: '/customers',
     subItems: [
       { id: 'customer-list', name: 'لیست مشتریان', icon: Users, href: '/customers/list' },
-      { id: 'add-customer', name: 'افزودن مشتری جدید', icon: Plus, href: '/customers/add' },
       { id: 'customer-feedback', name: 'بازخورد مشتریان', icon: Star, href: '/customers/feedback' },
       { id: 'loyalty-program', name: 'باشگاه مشتریان', icon: Award, href: '/customers/loyalty' }
     ]
@@ -181,7 +177,6 @@ const menuItems: MenuItem[] = [
       { id: 'invoices', name: 'فاکتورها', icon: FileText, href: '/accounting/invoices' },
       { id: 'bank-accounts', name: 'مدیریت بانک‌ها و حساب‌های بانکی', icon: Banknote, href: '/accounting/bank-accounts' },
       { id: 'cheques', name: 'مدیریت چک‌ها', icon: CreditCard, href: '/accounting/cheques' },
-      { id: 'cash-drawers', name: 'مدیریت کشو پول (Cash Drawer)', icon: DollarSign, href: '/accounting/cash-drawers' },
       { id: 'cash-flow', name: 'گزارش جریان نقدی', icon: TrendingUp, href: '/accounting/cash-flow' },
       { id: 'balance-sheet', name: 'ترازنامه', icon: FileSpreadsheet, href: '/accounting/balance-sheet' },
       { id: 'ledgers', name: 'دفاتر مالی (روزنامه/کل/معین)', icon: BookOpen, href: '/accounting/ledgers' }

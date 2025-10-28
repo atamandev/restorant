@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Clock, 
   User, 
@@ -35,7 +35,7 @@ interface OrderItem {
 }
 
 interface PendingOrder {
-  id: string
+  _id?: string
   orderNumber: string
   customerName: string
   customerPhone: string
@@ -54,107 +54,12 @@ interface PendingOrder {
   notes: string
   paymentMethod: 'cash' | 'card' | 'credit'
   priority: 'normal' | 'high' | 'urgent'
+  createdAt?: Date
+  updatedAt?: Date
 }
 
-const initialOrders: PendingOrder[] = [
-  {
-    id: '1',
-    orderNumber: 'ORD-001',
-    customerName: 'احمد محمدی',
-    customerPhone: '09123456789',
-    customerAddress: 'تهران، خیابان ولیعصر، پلاک 123',
-    orderType: 'delivery',
-    items: [
-      { id: '1', name: 'کباب کوبیده', quantity: 2, price: 120000, notes: 'بدون پیاز' },
-      { id: '2', name: 'نوشابه', quantity: 2, price: 15000 },
-      { id: '3', name: 'سالاد سزار', quantity: 1, price: 45000 }
-    ],
-    subtotal: 300000,
-    tax: 27000,
-    serviceCharge: 0,
-    discount: 0,
-    total: 327000,
-    orderTime: '14:30',
-    estimatedTime: '15:15',
-    status: 'pending',
-    notes: 'سفارش فوری - مشتری منتظر است',
-    paymentMethod: 'cash',
-    priority: 'urgent'
-  },
-  {
-    id: '2',
-    orderNumber: 'ORD-002',
-    customerName: 'سارا کریمی',
-    customerPhone: '09123456790',
-    orderType: 'dine-in',
-    tableNumber: '5',
-    items: [
-      { id: '4', name: 'جوجه کباب', quantity: 1, price: 135000 },
-      { id: '5', name: 'دوغ محلی', quantity: 1, price: 18000 },
-      { id: '6', name: 'بستنی سنتی', quantity: 1, price: 35000 }
-    ],
-    subtotal: 188000,
-    tax: 16920,
-    serviceCharge: 18800,
-    discount: 10000,
-    total: 213720,
-    orderTime: '14:25',
-    estimatedTime: '15:00',
-    status: 'confirmed',
-    notes: 'میز 5 - مشتری VIP',
-    paymentMethod: 'card',
-    priority: 'high'
-  },
-  {
-    id: '3',
-    orderNumber: 'ORD-003',
-    customerName: 'رضا حسینی',
-    customerPhone: '09123456791',
-    orderType: 'takeaway',
-    items: [
-      { id: '7', name: 'چلو گوشت', quantity: 1, price: 180000 },
-      { id: '8', name: 'نوشابه', quantity: 1, price: 15000 }
-    ],
-    subtotal: 195000,
-    tax: 17550,
-    serviceCharge: 0,
-    discount: 0,
-    total: 212550,
-    orderTime: '14:20',
-    estimatedTime: '14:50',
-    status: 'preparing',
-    notes: 'بیرون‌بر - مشتری منتظر است',
-    paymentMethod: 'cash',
-    priority: 'normal'
-  },
-  {
-    id: '4',
-    orderNumber: 'ORD-004',
-    customerName: 'مریم نوری',
-    customerPhone: '09123456792',
-    customerAddress: 'تهران، خیابان انقلاب، پلاک 321',
-    orderType: 'delivery',
-    items: [
-      { id: '9', name: 'میرزا قاسمی', quantity: 1, price: 70000 },
-      { id: '10', name: 'نوشابه', quantity: 1, price: 15000 },
-      { id: '11', name: 'سالاد سزار', quantity: 1, price: 45000 }
-    ],
-    subtotal: 130000,
-    tax: 11700,
-    serviceCharge: 0,
-    discount: 5000,
-    total: 136700,
-    orderTime: '14:15',
-    estimatedTime: '15:00',
-    status: 'pending',
-    notes: 'ارسال به آدرس مشخص شده',
-    paymentMethod: 'card',
-    priority: 'normal'
-  }
-]
-
 export default function PendingOrdersPage() {
-  const [orders, setOrders] = useState<PendingOrder[]>(initialOrders)
+  const [orders, setOrders] = useState<PendingOrder[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
@@ -162,6 +67,26 @@ export default function PendingOrdersPage() {
   const [sortBy, setSortBy] = useState('orderTime')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const loadOrders = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/pending-orders')
+      const result = await response.json()
+      if (result.success) {
+        setOrders(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading orders:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadOrders()
+  }, [])
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -196,10 +121,33 @@ export default function PendingOrdersPage() {
     return sortOrder === 'asc' ? comparison : -comparison
   })
 
-  const updateOrderStatus = (orderId: string, newStatus: PendingOrder['status']) => {
-    setOrders(orders.map(order => 
-      order.id === orderId ? { ...order, status: newStatus } : order
-    ))
+  const updateOrderStatus = async (orderId: string, newStatus: PendingOrder['status']) => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/pending-orders/status', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({
+          id: orderId,
+          field: 'status',
+          value: newStatus
+        })
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        await loadOrders()
+      } else {
+        alert('خطا در به‌روزرسانی وضعیت سفارش: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error)
+      alert('خطا در به‌روزرسانی وضعیت سفارش')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -387,168 +335,190 @@ export default function PendingOrdersPage() {
         </div>
 
         {/* Orders List */}
-        <div className="space-y-4">
-          {filteredOrders.map(order => (
-            <div key={order.id} className="premium-card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-4 space-x-reverse">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <span className="text-lg font-bold text-gray-900 dark:text-white">{order.orderNumber}</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                      {getStatusText(order.status)}
-                    </span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(order.priority)}`}>
-                      {getPriorityText(order.priority)}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
-                    {getOrderTypeIcon(order.orderType)}
-                    <span>{getOrderTypeText(order.orderType)}</span>
-                    {order.tableNumber && <span>میز {order.tableNumber}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <button
-                    onClick={() => setSelectedOrder(order)}
-                    className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-                  <button className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors">
-                    <Printer className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Customer Info */}
-                <div>
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">اطلاعات مشتری</h4>
-                  <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                    <div className="flex items-center space-x-2 space-x-reverse">
-                      <User className="w-4 h-4" />
-                      <span>{order.customerName}</span>
-                    </div>
-                    <div className="flex items-center space-x-2 space-x-reverse">
-                      <Phone className="w-4 h-4" />
-                      <span>{order.customerPhone}</span>
-                    </div>
-                    {order.customerAddress && (
-                      <div className="flex items-center space-x-2 space-x-reverse">
-                        <MapPin className="w-4 h-4" />
-                        <span>{order.customerAddress}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Order Items */}
-                <div>
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">آیتم‌های سفارش</h4>
-                  <div className="space-y-2">
-                    {order.items.map(item => (
-                      <div key={item.id} className="flex items-center justify-between text-sm">
-                        <div>
-                          <span className="text-gray-900 dark:text-white">{item.name}</span>
-                          {item.notes && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{item.notes}</p>
-                          )}
-                        </div>
-                        <div className="text-gray-600 dark:text-gray-400">
-                          {item.quantity} × {item.price.toLocaleString('fa-IR')}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Order Summary */}
-                <div>
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">خلاصه سفارش</h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">زمان سفارش:</span>
-                      <span className="text-gray-900 dark:text-white">{order.orderTime}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">زمان تخمینی:</span>
-                      <span className="text-gray-900 dark:text-white">{order.estimatedTime}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">جمع کل:</span>
-                      <span className="text-gray-900 dark:text-white">{order.subtotal.toLocaleString('fa-IR')} تومان</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">مالیات:</span>
-                      <span className="text-gray-900 dark:text-white">{order.tax.toLocaleString('fa-IR')} تومان</span>
-                    </div>
-                    {order.serviceCharge > 0 && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">حق سرویس:</span>
-                        <span className="text-gray-900 dark:text-white">{order.serviceCharge.toLocaleString('fa-IR')} تومان</span>
-                      </div>
-                    )}
-                    {order.discount > 0 && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">تخفیف:</span>
-                        <span className="text-gray-900 dark:text-white">-{order.discount.toLocaleString('fa-IR')} تومان</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-600/30 pt-2">
-                      <span className="font-medium text-gray-900 dark:text-white">مبلغ نهایی:</span>
-                      <span className="font-bold text-gray-900 dark:text-white">{order.total.toLocaleString('fa-IR')} تومان</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Order Notes */}
-              {order.notes && (
-                <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <MessageSquare className="w-4 h-4 text-yellow-600" />
-                    <span className="text-sm text-yellow-800 dark:text-yellow-300">{order.notes}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end space-x-3 space-x-reverse mt-4 pt-4 border-t border-gray-200 dark:border-gray-600/30">
-                {order.status === 'pending' && (
-                  <button
-                    onClick={() => updateOrderStatus(order.id, 'confirmed')}
-                    className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    <span>تایید سفارش</span>
-                  </button>
-                )}
-                {order.status === 'confirmed' && (
-                  <button
-                    onClick={() => updateOrderStatus(order.id, 'preparing')}
-                    className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
-                  >
-                    <ChefHat className="w-4 h-4" />
-                    <span>شروع آماده‌سازی</span>
-                  </button>
-                )}
-                {order.status === 'preparing' && (
-                  <button
-                    onClick={() => updateOrderStatus(order.id, 'ready')}
-                    className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    <span>آماده شد</span>
-                  </button>
-                )}
-                <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                  <Printer className="w-4 h-4" />
-                  <span>چاپ</span>
-                </button>
-              </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری سفارشات...</p>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {filteredOrders.map(order => (
+              <div key={order._id} className="premium-card p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-4 space-x-reverse">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <span className="text-lg font-bold text-gray-900 dark:text-white">{order.orderNumber}</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+                        {getStatusText(order.status)}
+                      </span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(order.priority)}`}>
+                        {getPriorityText(order.priority)}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
+                      {getOrderTypeIcon(order.orderType)}
+                      <span>{getOrderTypeText(order.orderType)}</span>
+                      {order.tableNumber && <span>میز {order.tableNumber}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <button
+                      onClick={() => setSelectedOrder(order)}
+                      className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors">
+                      <Printer className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Customer Info */}
+                  <div>
+                    <h4 className="font-medium text-gray-900 dark:text-white mb-2">اطلاعات مشتری</h4>
+                    <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                      <div className="flex items-center space-x-2 space-x-reverse">
+                        <User className="w-4 h-4" />
+                        <span>{order.customerName}</span>
+                      </div>
+                      <div className="flex items-center space-x-2 space-x-reverse">
+                        <Phone className="w-4 h-4" />
+                        <span>{order.customerPhone}</span>
+                      </div>
+                      {order.customerAddress && (
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          <MapPin className="w-4 h-4" />
+                          <span>{order.customerAddress}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Order Items */}
+                  <div>
+                    <h4 className="font-medium text-gray-900 dark:text-white mb-2">آیتم‌های سفارش</h4>
+                    <div className="space-y-2">
+                      {order.items.map(item => (
+                        <div key={item.id} className="flex items-center justify-between text-sm">
+                          <div>
+                            <span className="text-gray-900 dark:text-white">{item.name}</span>
+                            {item.notes && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">{item.notes}</p>
+                            )}
+                          </div>
+                          <div className="text-gray-600 dark:text-gray-400">
+                            {item.quantity} × {item.price.toLocaleString('fa-IR')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Order Summary */}
+                  <div>
+                    <h4 className="font-medium text-gray-900 dark:text-white mb-2">خلاصه سفارش</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">زمان سفارش:</span>
+                        <span className="text-gray-900 dark:text-white">{order.orderTime}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">زمان تخمینی:</span>
+                        <span className="text-gray-900 dark:text-white">{order.estimatedTime}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">جمع کل:</span>
+                        <span className="text-gray-900 dark:text-white">{order.subtotal.toLocaleString('fa-IR')} تومان</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">مالیات:</span>
+                        <span className="text-gray-900 dark:text-white">{order.tax.toLocaleString('fa-IR')} تومان</span>
+                      </div>
+                      {order.serviceCharge > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">حق سرویس:</span>
+                          <span className="text-gray-900 dark:text-white">{order.serviceCharge.toLocaleString('fa-IR')} تومان</span>
+                        </div>
+                      )}
+                      {order.discount > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">تخفیف:</span>
+                          <span className="text-gray-900 dark:text-white">-{order.discount.toLocaleString('fa-IR')} تومان</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-600/30 pt-2">
+                        <span className="font-medium text-gray-900 dark:text-white">مبلغ نهایی:</span>
+                        <span className="font-bold text-gray-900 dark:text-white">{order.total.toLocaleString('fa-IR')} تومان</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Order Notes */}
+                {order.notes && order.status !== 'ready' && (
+                  <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <MessageSquare className="w-4 h-4 text-yellow-600" />
+                      <span className="text-sm text-yellow-800 dark:text-yellow-300">{order.notes}</span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Ready Order Message */}
+                {order.status === 'ready' && (
+                  <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <span className="text-sm text-green-800 dark:text-green-300">سفارش آماده است - مشتری می‌تواند تحویل بگیرد</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end space-x-3 space-x-reverse mt-4 pt-4 border-t border-gray-200 dark:border-gray-600/30">
+                  {order.status === 'pending' && (
+                    <button
+                      onClick={() => updateOrderStatus(order._id!, 'confirmed')}
+                      disabled={loading}
+                      className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>تایید سفارش</span>
+                    </button>
+                  )}
+                  {order.status === 'confirmed' && (
+                    <button
+                      onClick={() => updateOrderStatus(order._id!, 'preparing')}
+                      disabled={loading}
+                      className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ChefHat className="w-4 h-4" />
+                      <span>شروع آماده‌سازی</span>
+                    </button>
+                  )}
+                  {order.status === 'preparing' && (
+                    <button
+                      onClick={() => updateOrderStatus(order._id!, 'ready')}
+                      disabled={loading}
+                      className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>آماده شد</span>
+                    </button>
+                  )}
+                  <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    <Printer className="w-4 h-4" />
+                    <span>چاپ</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Order Detail Modal */}
         {selectedOrder && (
@@ -680,10 +650,20 @@ export default function PendingOrdersPage() {
                 </div>
               </div>
 
-              {selectedOrder.notes && (
+              {selectedOrder.notes && selectedOrder.status !== 'ready' && (
                 <div className="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
                   <h4 className="font-medium text-gray-900 dark:text-white mb-2">یادداشت‌ها</h4>
                   <p className="text-sm text-yellow-800 dark:text-yellow-300">{selectedOrder.notes}</p>
+                </div>
+              )}
+              
+              {selectedOrder.status === 'ready' && (
+                <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/30 rounded-lg">
+                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">وضعیت سفارش</h4>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <p className="text-sm text-green-800 dark:text-green-300">سفارش آماده است - مشتری می‌تواند تحویل بگیرد</p>
+                  </div>
                 </div>
               )}
             </div>
