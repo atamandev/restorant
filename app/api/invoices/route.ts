@@ -237,3 +237,4 @@ async function generateInvoiceNumber(type: string): Promise<string> {
     return `${type === 'sales' ? 'SINV' : 'PINV'}-${Date.now()}`
   }
 }
+

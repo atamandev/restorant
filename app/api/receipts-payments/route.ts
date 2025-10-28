@@ -223,3 +223,4 @@ async function generateTransactionNumber(type: string): Promise<string> {
     return `${type === 'receipt' ? 'REC' : 'PAY'}-${Date.now()}`
   }
 }
+

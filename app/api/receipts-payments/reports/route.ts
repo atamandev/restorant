@@ -228,3 +228,4 @@ async function getCashFlowReport(collection: any, filter: any) {
     data: cashFlow
   })
 }
+

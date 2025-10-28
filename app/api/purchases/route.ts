@@ -224,3 +224,4 @@ async function generatePurchaseInvoiceNumber(): Promise<string> {
     return `PINV-${Date.now()}`
   }
 }
+
