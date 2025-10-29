@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
   // تنظیمات فونت
   webpack: (config) => {
     config.module.rules.push({

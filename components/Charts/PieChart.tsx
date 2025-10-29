@@ -22,7 +22,41 @@ export default function PieChart({ data }: PieChartProps) {
     return () => clearTimeout(timer)
   }, [])
 
-  const total = data.reduce((sum, item) => sum + item.value, 0)
+  // بررسی وجود داده
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-xl p-8">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium">هیچ داده‌ای برای نمایش وجود ندارد</p>
+        </div>
+      </div>
+    )
+  }
+
+  const total = data.reduce((sum, item) => sum + (item.value || 0), 0)
+  
+  if (total === 0) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-xl p-8">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium">هیچ داده‌ای برای نمایش وجود ندارد</p>
+        </div>
+      </div>
+    )
+  }
+  
   let cumulativePercentage = 0
 
   const createPath = (percentage: number, index: number) => {

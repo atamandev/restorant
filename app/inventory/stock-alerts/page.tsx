@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   AlertTriangle,
   Package,
@@ -35,138 +35,58 @@ import {
   ShoppingCart,
   AlertCircle,
   Zap,
-  Target
+  Target,
+  Save,
+  X,
+  CheckCircle2
 } from 'lucide-react'
 
-interface StockAlert {
-  id: string
+interface StockAlertData {
+  _id: string
+  itemId: string
   itemName: string
   itemCode: string
   category: string
   warehouse: string
+  type: 'low_stock' | 'out_of_stock' | 'expiry' | 'overstock'
+  severity: 'low' | 'medium' | 'high' | 'critical'
   currentStock: number
   minStock: number
   maxStock: number
-  unit: string
-  unitPrice: number
-  totalValue: number
-  alertType: 'low_stock' | 'critical_stock' | 'out_of_stock' | 'overstock'
-  alertLevel: 'warning' | 'critical' | 'urgent'
-  lastMovement: string
-  daysSinceLastMovement: number
-  suggestedAction: string
-  status: 'active' | 'resolved' | 'ignored'
+  expiryDate?: string
+  daysToExpiry?: number
+  message: string
+  status: 'active' | 'resolved' | 'dismissed'
+  priority: 'low' | 'normal' | 'high' | 'urgent'
+  assignedTo?: string
+  resolvedBy?: string
+  resolvedAt?: string
+  resolution?: string
+  notes: string
   createdAt: string
+  updatedAt: string
 }
 
-const mockStockAlerts: StockAlert[] = [
-  {
-    id: '1',
-    itemName: 'گوشت گوساله',
-    itemCode: 'MEAT-001',
-    category: 'مواد اولیه',
-    warehouse: 'انبار اصلی',
-    currentStock: 8,
-    minStock: 15,
-    maxStock: 50,
-    unit: 'کیلوگرم',
-    unitPrice: 180000,
-    totalValue: 1440000,
-    alertType: 'low_stock',
-    alertLevel: 'warning',
-    lastMovement: '1403/09/14',
-    daysSinceLastMovement: 2,
-    suggestedAction: 'سفارش فوری 20 کیلوگرم گوشت گوساله',
-    status: 'active',
-    createdAt: '1403/09/15'
-  },
-  {
-    id: '2',
-    itemName: 'روغن آفتابگردان',
-    itemCode: 'OIL-001',
-    category: 'مواد اولیه',
-    warehouse: 'انبار مواد اولیه',
-    currentStock: 2,
-    minStock: 10,
-    maxStock: 30,
-    unit: 'لیتر',
-    unitPrice: 25000,
-    totalValue: 50000,
-    alertType: 'critical_stock',
-    alertLevel: 'critical',
-    lastMovement: '1403/09/13',
-    daysSinceLastMovement: 3,
-    suggestedAction: 'خرید فوری 25 لیتر روغن آفتابگردان',
-    status: 'active',
-    createdAt: '1403/09/15'
-  },
-  {
-    id: '3',
-    itemName: 'پیاز',
-    itemCode: 'VEG-001',
-    category: 'سبزیجات',
-    warehouse: 'انبار اصلی',
-    currentStock: 0,
-    minStock: 5,
-    maxStock: 20,
-    unit: 'کیلوگرم',
-    unitPrice: 8000,
-    totalValue: 0,
-    alertType: 'out_of_stock',
-    alertLevel: 'urgent',
-    lastMovement: '1403/09/12',
-    daysSinceLastMovement: 4,
-    suggestedAction: 'خرید اضطراری 15 کیلوگرم پیاز',
-    status: 'active',
-    createdAt: '1403/09/15'
-  },
-  {
-    id: '4',
-    itemName: 'برنج ایرانی',
-    itemCode: 'RICE-001',
-    category: 'مواد اولیه',
-    warehouse: 'انبار مواد اولیه',
-    currentStock: 120,
-    minStock: 20,
-    maxStock: 100,
-    unit: 'کیلوگرم',
-    unitPrice: 45000,
-    totalValue: 5400000,
-    alertType: 'overstock',
-    alertLevel: 'warning',
-    lastMovement: '1403/09/15',
-    daysSinceLastMovement: 1,
-    suggestedAction: 'بررسی تاریخ انقضا و استفاده از موجودی اضافی',
-    status: 'active',
-    createdAt: '1403/09/15'
-  },
-  {
-    id: '5',
-    itemName: 'نمک',
-    itemCode: 'SALT-001',
-    category: 'مواد اولیه',
-    warehouse: 'انبار اصلی',
-    currentStock: 3,
-    minStock: 8,
-    maxStock: 25,
-    unit: 'کیلوگرم',
-    unitPrice: 5000,
-    totalValue: 15000,
-    alertType: 'low_stock',
-    alertLevel: 'warning',
-    lastMovement: '1403/09/10',
-    daysSinceLastMovement: 6,
-    suggestedAction: 'سفارش 10 کیلوگرم نمک',
-    status: 'resolved',
-    createdAt: '1403/09/15'
-  }
-]
+interface StockAlertStats {
+  totalAlerts: number
+  activeAlerts: number
+  resolvedAlerts: number
+  dismissedAlerts: number
+  criticalAlerts: number
+  highAlerts: number
+  mediumAlerts: number
+  lowAlerts: number
+  lowStockAlerts: number
+  outOfStockAlerts: number
+  expiryAlerts: number
+  overstockAlerts: number
+}
 
 const getAlertTypeColor = (type: string) => {
   switch (type) {
     case 'low_stock': return 'text-yellow-600 dark:text-yellow-400'
-    case 'critical_stock': return 'text-orange-600 dark:text-orange-400'
     case 'out_of_stock': return 'text-red-600 dark:text-red-400'
+    case 'expiry': return 'text-orange-600 dark:text-orange-400'
     case 'overstock': return 'text-blue-600 dark:text-blue-400'
     default: return 'text-gray-600 dark:text-gray-400'
   }
@@ -175,27 +95,19 @@ const getAlertTypeColor = (type: string) => {
 const getAlertTypeBadge = (type: string) => {
   switch (type) {
     case 'low_stock': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">موجودی کم</span>
-    case 'critical_stock': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">موجودی بحرانی</span>
     case 'out_of_stock': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">تمام شده</span>
+    case 'expiry': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">انقضا</span>
     case 'overstock': return <span className="status-badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">موجودی اضافی</span>
     default: return null
   }
 }
 
-const getAlertLevelColor = (level: string) => {
-  switch (level) {
-    case 'warning': return 'text-yellow-600 dark:text-yellow-400'
-    case 'critical': return 'text-orange-600 dark:text-orange-400'
-    case 'urgent': return 'text-red-600 dark:text-red-400'
-    default: return 'text-gray-600 dark:text-gray-400'
-  }
-}
-
-const getAlertLevelBadge = (level: string) => {
-  switch (level) {
-    case 'warning': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">هشدار</span>
-    case 'critical': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">بحرانی</span>
-    case 'urgent': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">فوری</span>
+const getSeverityBadge = (severity: string) => {
+  switch (severity) {
+    case 'low': return <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">کم</span>
+    case 'medium': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">متوسط</span>
+    case 'high': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">بالا</span>
+    case 'critical': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">بحرانی</span>
     default: return null
   }
 }
@@ -204,68 +116,404 @@ const getStatusBadge = (status: string) => {
   switch (status) {
     case 'active': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">فعال</span>
     case 'resolved': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">حل شده</span>
-    case 'ignored': return <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">نادیده گرفته</span>
+    case 'dismissed': return <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">نادیده گرفته</span>
+    default: return null
+  }
+}
+
+const getPriorityBadge = (priority: string) => {
+  switch (priority) {
+    case 'low': return <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">کم</span>
+    case 'normal': return <span className="status-badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">عادی</span>
+    case 'high': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">بالا</span>
+    case 'urgent': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">فوری</span>
     default: return null
   }
 }
 
 export default function StockAlertsPage() {
-  const [alerts, setAlerts] = useState<StockAlert[]>(mockStockAlerts)
+  const [alerts, setAlerts] = useState<StockAlertData[]>([])
+  const [stats, setStats] = useState<StockAlertStats>({
+    totalAlerts: 0,
+    activeAlerts: 0,
+    resolvedAlerts: 0,
+    dismissedAlerts: 0,
+    criticalAlerts: 0,
+    highAlerts: 0,
+    mediumAlerts: 0,
+    lowAlerts: 0,
+    lowStockAlerts: 0,
+    outOfStockAlerts: 0,
+    expiryAlerts: 0,
+    overstockAlerts: 0
+  })
+  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
-  const [filterLevel, setFilterLevel] = useState('all')
+  const [filterSeverity, setFilterSeverity] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterWarehouse, setFilterWarehouse] = useState('all')
+  const [selectedAlert, setSelectedAlert] = useState<StockAlertData | null>(null)
+  const [showAlertModal, setShowAlertModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingAlert, setEditingAlert] = useState<StockAlertData | null>(null)
+  const [showPurchaseOrderModal, setShowPurchaseOrderModal] = useState(false)
+  const [showMinStockModal, setShowMinStockModal] = useState(false)
+  const [showReportModal, setShowReportModal] = useState(false)
+  const [reportData, setReportData] = useState<any>(null)
+  const [actionLoading, setActionLoading] = useState(false)
 
+  // فرم ایجاد/ویرایش هشدار
+  const [formData, setFormData] = useState({
+    itemId: '',
+    itemName: '',
+    itemCode: '',
+    category: '',
+    warehouse: '',
+    type: 'low_stock',
+    severity: 'medium',
+    currentStock: 0,
+    minStock: 0,
+    maxStock: 0,
+    expiryDate: '',
+    daysToExpiry: 0,
+    message: '',
+    status: 'active',
+    priority: 'normal',
+    assignedTo: '',
+    notes: ''
+  })
+
+  // بارگذاری داده‌ها
+  const fetchAlerts = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/stock-alerts')
+      const data = await response.json()
+      
+      if (data.success) {
+        setAlerts(data.data)
+        setStats(data.stats)
+      }
+    } catch (error) {
+      console.error('Error fetching stock alerts:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ایجاد هشدار جدید
+  const handleCreateAlert = async () => {
+    try {
+      const response = await fetch('/api/stock-alerts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('هشدار با موفقیت ایجاد شد')
+        setShowCreateModal(false)
+        resetForm()
+        fetchAlerts()
+      } else {
+        alert('خطا در ایجاد هشدار: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error creating stock alert:', error)
+      alert('خطا در ایجاد هشدار')
+    }
+  }
+
+  // به‌روزرسانی هشدار
+  const handleUpdateAlert = async () => {
+    if (!editingAlert) return
+
+    try {
+      const response = await fetch(`/api/stock-alerts/${editingAlert._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('هشدار با موفقیت به‌روزرسانی شد')
+        setShowAlertModal(false)
+        setEditingAlert(null)
+        resetForm()
+        fetchAlerts()
+      } else {
+        alert('خطا در به‌روزرسانی هشدار: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error updating stock alert:', error)
+      alert('خطا در به‌روزرسانی هشدار')
+    }
+  }
+
+  // حذف هشدار
+  const handleDeleteAlert = async (alertId: string) => {
+    if (!confirm('آیا از حذف این هشدار اطمینان دارید؟')) return
+
+    try {
+      const response = await fetch(`/api/stock-alerts/${alertId}`, {
+        method: 'DELETE',
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('هشدار با موفقیت حذف شد')
+        fetchAlerts()
+      } else {
+        alert('خطا در حذف هشدار: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting stock alert:', error)
+      alert('خطا در حذف هشدار')
+    }
+  }
+
+  // تغییر وضعیت هشدار
+  const handleStatusChange = async (alertId: string, newStatus: string, resolution?: string) => {
+    try {
+      const response = await fetch(`/api/stock-alerts/${alertId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          status: newStatus,
+          resolution: resolution || '',
+          resolvedBy: 'کاربر فعلی',
+          notes: `وضعیت به ${newStatus} تغییر یافت`
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert(`وضعیت هشدار به ${newStatus} تغییر یافت`)
+        fetchAlerts()
+      } else {
+        alert('خطا در تغییر وضعیت: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error changing status:', error)
+      alert('خطا در تغییر وضعیت')
+    }
+  }
+
+  // اضافه کردن داده‌های نمونه
+  const handleAddSampleData = async () => {
+    try {
+      const response = await fetch('/api/add-sample-stock-alerts', {
+        method: 'POST',
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('داده‌های نمونه با موفقیت اضافه شد')
+        fetchAlerts()
+      } else {
+        alert('خطا در اضافه کردن داده‌های نمونه: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error adding sample data:', error)
+      alert('خطا در اضافه کردن داده‌های نمونه')
+    }
+  }
+
+  // بازنشانی فرم
+  const resetForm = () => {
+    setFormData({
+      itemId: '',
+      itemName: '',
+      itemCode: '',
+      category: '',
+      warehouse: '',
+      type: 'low_stock',
+      severity: 'medium',
+      currentStock: 0,
+      minStock: 0,
+      maxStock: 0,
+      expiryDate: '',
+      daysToExpiry: 0,
+      message: '',
+      status: 'active',
+      priority: 'normal',
+      assignedTo: '',
+      notes: ''
+    })
+  }
+
+  // شروع ویرایش
+  const handleEditAlert = (alert: StockAlertData) => {
+    setEditingAlert(alert)
+    setFormData({
+      itemId: alert.itemId,
+      itemName: alert.itemName,
+      itemCode: alert.itemCode,
+      category: alert.category,
+      warehouse: alert.warehouse,
+      type: alert.type,
+      severity: alert.severity,
+      currentStock: alert.currentStock,
+      minStock: alert.minStock,
+      maxStock: alert.maxStock,
+      expiryDate: alert.expiryDate || '',
+      daysToExpiry: alert.daysToExpiry || 0,
+      message: alert.message,
+      status: alert.status,
+      priority: alert.priority,
+      assignedTo: alert.assignedTo || '',
+      notes: alert.notes
+    })
+    setShowAlertModal(true)
+  }
+
+  // مشاهده جزئیات هشدار
+  const handleViewAlert = (alert: StockAlertData) => {
+    setSelectedAlert(alert)
+    setShowAlertModal(true)
+  }
+
+  // فیلتر هشدارها
   const filteredAlerts = alerts.filter(alert =>
     (searchTerm === '' || 
       alert.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       alert.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      alert.category.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterType === 'all' || alert.alertType === filterType) &&
-    (filterLevel === 'all' || alert.alertLevel === filterLevel) &&
+      alert.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      alert.warehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      alert.message.toLowerCase().includes(searchTerm.toLowerCase())) &&
+    (filterType === 'all' || alert.type === filterType) &&
+    (filterSeverity === 'all' || alert.severity === filterSeverity) &&
     (filterStatus === 'all' || alert.status === filterStatus) &&
     (filterWarehouse === 'all' || alert.warehouse === filterWarehouse)
   )
 
-  const totalAlerts = alerts.length
-  const activeAlerts = alerts.filter(a => a.status === 'active').length
-  const urgentAlerts = alerts.filter(a => a.alertLevel === 'urgent' && a.status === 'active').length
-  const criticalAlerts = alerts.filter(a => a.alertLevel === 'critical' && a.status === 'active').length
-  const resolvedAlerts = alerts.filter(a => a.status === 'resolved').length
+  // ایجاد سفارش خرید فوری
+  const handleQuickPurchaseOrder = async () => {
+    try {
+      setActionLoading(true)
+      // در حال حاضر API خودش آیتم‌های کم‌موجود را پیدا می‌کند
+      // اما اگر هشدارهای فعال وجود دارد، آن‌ها را ارسال می‌کنیم
+      const activeLowStockAlerts = alerts.filter(
+        alert => alert.status === 'active' && 
+        (alert.type === 'low_stock' || alert.type === 'out_of_stock')
+      )
 
-  const handleResolveAlert = (alertId: string) => {
-    setAlerts(prev => prev.map(alert => 
-      alert.id === alertId 
-        ? { ...alert, status: 'resolved' as const }
-        : alert
-    ))
-    alert('هشدار حل شد.')
+      const alertIds = activeLowStockAlerts.length > 0 
+        ? activeLowStockAlerts.map(alert => alert._id)
+        : []
+      
+      const response = await fetch('/api/stock-alerts/quick-purchase-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          alertIds: alertIds.length > 0 ? alertIds : undefined,
+          supplierName: 'تامین‌کننده عمومی',
+          notes: 'سفارش فوری برای آیتم‌های کم‌موجود'
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert(`سفارش خرید ${data.data.orderNumber} برای ${data.data.totalItems} آیتم با موفقیت ایجاد شد`)
+        setShowPurchaseOrderModal(false)
+        fetchAlerts()
+        // اگر از آیتم‌های موجودی استفاده شده، لیست موجودی را هم به‌روزرسانی کن
+        if (alertIds.length === 0) {
+          // می‌توانید در اینجا لیست موجودی را هم refresh کنید
+        }
+      } else {
+        alert('خطا در ایجاد سفارش خرید: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error creating purchase order:', error)
+      alert('خطا در ایجاد سفارش خرید')
+    } finally {
+      setActionLoading(false)
+    }
   }
 
-  const handleIgnoreAlert = (alertId: string) => {
-    setAlerts(prev => prev.map(alert => 
-      alert.id === alertId 
-        ? { ...alert, status: 'ignored' as const }
-        : alert
-    ))
-    alert('هشدار نادیده گرفته شد.')
+  // تنظیم حداقل موجودی
+  const handleUpdateMinStock = async (strategy: string, factor?: number) => {
+    try {
+      setActionLoading(true)
+      
+      const response = await fetch('/api/stock-alerts/update-min-stock', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          strategy,
+          adjustmentFactor: factor
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert(`${data.data.updatedCount} آیتم با موفقیت به‌روزرسانی شد`)
+        setShowMinStockModal(false)
+        fetchAlerts()
+      } else {
+        alert('خطا در تنظیم حداقل موجودی: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error updating min stock:', error)
+      alert('خطا در تنظیم حداقل موجودی')
+    } finally {
+      setActionLoading(false)
+    }
   }
 
-  const handleCreatePurchaseOrder = (alert: StockAlert) => {
-    alert(`سفارش خرید برای ${alert.itemName} ایجاد شد.`)
+  // دریافت گزارش تحلیلی
+  const handleGetAnalyticalReport = async () => {
+    try {
+      setActionLoading(true)
+      
+      const response = await fetch('/api/stock-alerts/analytical-report?period=30')
+      const data = await response.json()
+      
+      if (data.success) {
+        setReportData(data.data)
+        setShowReportModal(true)
+      } else {
+        alert('خطا در دریافت گزارش: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error fetching report:', error)
+      alert('خطا در دریافت گزارش')
+    } finally {
+      setActionLoading(false)
+    }
   }
 
-  const handleExport = () => {
-    alert('گزارش هشدارهای موجودی به صورت Excel صادر شد.')
-  }
+  useEffect(() => {
+    fetchAlerts()
+  }, [])
 
-  const handlePrint = () => {
-    window.print()
-  }
-
-  const handleRefresh = () => {
-    alert('هشدارهای موجودی بروزرسانی شد.')
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    )
   }
 
   return (
@@ -279,23 +527,24 @@ export default function StockAlertsPage() {
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
           <button
-            onClick={handleRefresh}
+            onClick={() => setShowCreateModal(true)}
             className="premium-button flex items-center space-x-2 space-x-reverse"
           >
+            <Plus className="w-5 h-5" />
+            <span>هشدار جدید</span>
+          </button>
+          <button
+            onClick={handleAddSampleData}
+            className="premium-button flex items-center space-x-2 space-x-reverse"
+          >
+            <Bell className="w-5 h-5" />
+            <span>داده نمونه</span>
+          </button>
+          <button
+            onClick={fetchAlerts}
+            className="premium-button p-3"
+          >
             <RefreshCw className="w-5 h-5" />
-            <span>بروزرسانی</span>
-          </button>
-          <button
-            onClick={handlePrint}
-            className="premium-button p-3"
-          >
-            <Printer className="w-5 h-5" />
-          </button>
-          <button
-            onClick={handleExport}
-            className="premium-button p-3"
-          >
-            <Download className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -307,7 +556,7 @@ export default function StockAlertsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل هشدارها</h3>
             <Bell className="w-6 h-6 text-primary-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalAlerts}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalAlerts}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">هشدار ثبت شده</p>
         </div>
 
@@ -316,16 +565,16 @@ export default function StockAlertsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">هشدارهای فعال</h3>
             <AlertTriangle className="w-6 h-6 text-warning-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{activeAlerts}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.activeAlerts}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">نیاز به اقدام</p>
         </div>
 
         <div className="premium-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">هشدارهای فوری</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">هشدارهای بحرانی</h3>
             <AlertCircle className="w-6 h-6 text-danger-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{urgentAlerts}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.criticalAlerts}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">اولویت بالا</p>
         </div>
 
@@ -334,19 +583,19 @@ export default function StockAlertsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">حل شده</h3>
             <CheckCircle className="w-6 h-6 text-success-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{resolvedAlerts}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.resolvedAlerts}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">هشدار حل شده</p>
         </div>
       </div>
 
-      {/* Urgent Alerts Banner */}
-      {urgentAlerts > 0 && (
+      {/* Critical Alerts Banner */}
+      {stats.criticalAlerts > 0 && (
         <div className="premium-card p-4 border-red-200 bg-red-50 dark:bg-red-900/20">
           <div className="flex items-center space-x-3 space-x-reverse">
             <AlertCircle className="w-6 h-6 text-red-600" />
             <div>
               <p className="font-semibold text-red-800 dark:text-red-300">
-                {urgentAlerts} هشدار فوری نیاز به اقدام فوری دارد!
+                {stats.criticalAlerts} هشدار بحرانی نیاز به اقدام فوری دارد!
               </p>
               <p className="text-sm text-red-600 dark:text-red-400">
                 لطفاً فوراً این هشدارها را بررسی و اقدامات لازم را انجام دهید.
@@ -376,19 +625,20 @@ export default function StockAlertsPage() {
           >
             <option value="all">همه انواع</option>
             <option value="low_stock">موجودی کم</option>
-            <option value="critical_stock">موجودی بحرانی</option>
             <option value="out_of_stock">تمام شده</option>
+            <option value="expiry">انقضا</option>
             <option value="overstock">موجودی اضافی</option>
           </select>
           <select
             className="premium-input"
-            value={filterLevel}
-            onChange={(e) => setFilterLevel(e.target.value)}
+            value={filterSeverity}
+            onChange={(e) => setFilterSeverity(e.target.value)}
           >
             <option value="all">همه سطوح</option>
-            <option value="warning">هشدار</option>
+            <option value="low">کم</option>
+            <option value="medium">متوسط</option>
+            <option value="high">بالا</option>
             <option value="critical">بحرانی</option>
-            <option value="urgent">فوری</option>
           </select>
           <select
             className="premium-input"
@@ -398,7 +648,7 @@ export default function StockAlertsPage() {
             <option value="all">همه وضعیت‌ها</option>
             <option value="active">فعال</option>
             <option value="resolved">حل شده</option>
-            <option value="ignored">نادیده گرفته</option>
+            <option value="dismissed">نادیده گرفته</option>
           </select>
           <select
             className="premium-input"
@@ -407,8 +657,11 @@ export default function StockAlertsPage() {
           >
             <option value="all">همه انبارها</option>
             <option value="انبار اصلی">انبار اصلی</option>
+            <option value="انبار سرد">انبار سرد</option>
+            <option value="انبار خشک">انبار خشک</option>
             <option value="انبار مواد اولیه">انبار مواد اولیه</option>
             <option value="انبار محصولات نهایی">انبار محصولات نهایی</option>
+            <option value="انبار اضطراری">انبار اضطراری</option>
           </select>
         </div>
 
@@ -423,16 +676,16 @@ export default function StockAlertsPage() {
                 <th className="px-4 py-3">موجودی فعلی</th>
                 <th className="px-4 py-3">حداقل</th>
                 <th className="px-4 py-3">نوع هشدار</th>
-                <th className="px-4 py-3">سطح</th>
+                <th className="px-4 py-3">شدت</th>
+                <th className="px-4 py-3">اولویت</th>
                 <th className="px-4 py-3">وضعیت</th>
-                <th className="px-4 py-3">آخرین حرکت</th>
-                <th className="px-4 py-3">اقدام پیشنهادی</th>
+                <th className="px-4 py-3">تاریخ ایجاد</th>
                 <th className="px-4 py-3 rounded-l-lg">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredAlerts.map(alert => (
-                <tr key={alert.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                <tr key={alert._id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-3 space-x-reverse">
                       <Package className="w-5 h-5 text-primary-600" />
@@ -444,46 +697,43 @@ export default function StockAlertsPage() {
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono">{alert.itemCode}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{alert.warehouse}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{alert.currentStock} {alert.unit}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{alert.minStock} {alert.unit}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{alert.currentStock}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{alert.minStock}</td>
                   <td className="px-4 py-3">
-                    {getAlertTypeBadge(alert.alertType)}
+                    {getAlertTypeBadge(alert.type)}
                   </td>
                   <td className="px-4 py-3">
-                    {getAlertLevelBadge(alert.alertLevel)}
+                    {getSeverityBadge(alert.severity)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {getPriorityBadge(alert.priority)}
                   </td>
                   <td className="px-4 py-3">
                     {getStatusBadge(alert.status)}
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
-                    <div>
-                      <p className="text-sm">{alert.lastMovement}</p>
-                      <p className="text-xs text-gray-500">{alert.daysSinceLastMovement} روز پیش</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
-                    <p className="text-sm max-w-xs truncate">{alert.suggestedAction}</p>
+                    {new Date(alert.createdAt).toLocaleDateString('fa-IR')}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-2 space-x-reverse">
+                      <button
+                        onClick={() => handleViewAlert(alert)}
+                        className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                        title="مشاهده جزئیات"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
                       {alert.status === 'active' && (
                         <>
                           <button
-                            onClick={() => handleCreatePurchaseOrder(alert)}
+                            onClick={() => handleStatusChange(alert._id, 'resolved', 'هشدار حل شد')}
                             className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                            title="ایجاد سفارش خرید"
-                          >
-                            <ShoppingCart className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleResolveAlert(alert.id)}
-                            className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
                             title="حل کردن"
                           >
                             <CheckCircle className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleIgnoreAlert(alert.id)}
+                            onClick={() => handleStatusChange(alert._id, 'dismissed')}
                             className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-900/30 transition-colors"
                             title="نادیده گرفتن"
                           >
@@ -491,8 +741,19 @@ export default function StockAlertsPage() {
                           </button>
                         </>
                       )}
-                      <button className="p-1 rounded-full text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors">
-                        <Eye className="w-4 h-4" />
+                      <button
+                        onClick={() => handleEditAlert(alert)}
+                        className="p-1 rounded-full text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
+                        title="ویرایش"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAlert(alert._id)}
+                        className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                        title="حذف"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
@@ -503,6 +764,118 @@ export default function StockAlertsPage() {
         </div>
       </div>
 
+      {/* Alert Details Modal */}
+      {showAlertModal && selectedAlert && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                جزئیات هشدار {selectedAlert.itemName}
+              </h2>
+              <button
+                onClick={() => setShowAlertModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Alert Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="premium-card p-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">اطلاعات آیتم</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">نام آیتم:</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.itemName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">کد:</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.itemCode}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">دسته‌بندی:</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.category}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">انبار:</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.warehouse}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="premium-card p-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">اطلاعات هشدار</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">نوع:</span>
+                    {getAlertTypeBadge(selectedAlert.type)}
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">شدت:</span>
+                    {getSeverityBadge(selectedAlert.severity)}
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">اولویت:</span>
+                    {getPriorityBadge(selectedAlert.priority)}
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">وضعیت:</span>
+                    {getStatusBadge(selectedAlert.status)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Stock Info */}
+            <div className="premium-card p-4 mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">اطلاعات موجودی</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{selectedAlert.currentStock}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">موجودی فعلی</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{selectedAlert.minStock}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">حداقل</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{selectedAlert.maxStock}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">حداکثر</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Message */}
+            <div className="premium-card p-4 mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">پیام هشدار</h3>
+              <p className="text-gray-700 dark:text-gray-300">{selectedAlert.message}</p>
+            </div>
+
+            {/* Notes */}
+            {selectedAlert.notes && (
+              <div className="premium-card p-4 mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">یادداشت‌ها</h3>
+                <p className="text-gray-700 dark:text-gray-300">{selectedAlert.notes}</p>
+              </div>
+            )}
+
+            {/* Resolution */}
+            {selectedAlert.resolution && (
+              <div className="premium-card p-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">راه‌حل</h3>
+                <p className="text-gray-700 dark:text-gray-300">{selectedAlert.resolution}</p>
+                {selectedAlert.resolvedBy && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                    حل شده توسط: {selectedAlert.resolvedBy} - {selectedAlert.resolvedAt && new Date(selectedAlert.resolvedAt).toLocaleDateString('fa-IR')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="premium-card p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
@@ -510,21 +883,33 @@ export default function StockAlertsPage() {
           <span>اقدامات سریع</span>
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300">
+          <button
+            onClick={() => setShowPurchaseOrderModal(true)}
+            disabled={actionLoading}
+            className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <ShoppingCart className="w-8 h-8 text-green-600" />
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">سفارش خرید فوری</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">ایجاد سفارش برای آیتم‌های کم‌موجود</p>
             </div>
           </button>
-          <button className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300">
+          <button
+            onClick={() => setShowMinStockModal(true)}
+            disabled={actionLoading}
+            className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Target className="w-8 h-8 text-blue-600" />
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">تنظیم حداقل موجودی</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">بهینه‌سازی سطوح هشدار</p>
             </div>
           </button>
-          <button className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300">
+          <button
+            onClick={handleGetAnalyticalReport}
+            disabled={actionLoading}
+            className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <TrendingUp className="w-8 h-8 text-purple-600" />
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">گزارش تحلیلی</h3>
@@ -533,6 +918,335 @@ export default function StockAlertsPage() {
           </button>
         </div>
       </div>
+
+      {/* Purchase Order Modal */}
+      {showPurchaseOrderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">سفارش خرید فوری</h2>
+              <button
+                onClick={() => setShowPurchaseOrderModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <p className="text-gray-700 dark:text-gray-300">
+                سیستم به صورت خودکار آیتم‌های کم‌موجود را پیدا کرده و سفارش خرید ایجاد می‌کند.
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                این شامل هشدارهای فعال و آیتم‌های موجودی که زیر حداقل هستند می‌شود.
+              </p>
+              <div className="flex items-center justify-end space-x-3 space-x-reverse">
+                <button
+                  onClick={() => setShowPurchaseOrderModal(false)}
+                  className="premium-button bg-gray-500 hover:bg-gray-600"
+                >
+                  لغو
+                </button>
+                <button
+                  onClick={handleQuickPurchaseOrder}
+                  disabled={actionLoading}
+                  className="premium-button flex items-center space-x-2 space-x-reverse"
+                >
+                  {actionLoading ? (
+                    <>
+                      <Loader className="w-5 h-5 animate-spin" />
+                      <span>در حال ایجاد...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-5 h-5" />
+                      <span>ایجاد سفارش</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Min Stock Modal */}
+      {showMinStockModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">تنظیم حداقل موجودی</h2>
+              <button
+                onClick={() => setShowMinStockModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <p className="text-gray-700 dark:text-gray-300 mb-4">روش تنظیم را انتخاب کنید:</p>
+              <button
+                onClick={() => handleUpdateMinStock('auto')}
+                disabled={actionLoading}
+                className="w-full premium-button text-right"
+              >
+                تنظیم خودکار (بر اساس موجودی فعلی)
+              </button>
+              <button
+                onClick={() => handleUpdateMinStock('percentage', 1.2)}
+                disabled={actionLoading}
+                className="w-full premium-button text-right"
+              >
+                افزایش 20% همه حداقل‌ها
+              </button>
+              <button
+                onClick={() => setShowMinStockModal(false)}
+                className="w-full premium-button bg-gray-500 hover:bg-gray-600"
+              >
+                لغو
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReportModal && reportData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">گزارش تحلیلی</h2>
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Header Info */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">گزارش تحلیلی موجودی</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    دوره زمانی: {reportData.period} روز گذشته
+                  </p>
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  {reportData.generatedAt && new Date(reportData.generatedAt).toLocaleDateString('fa-IR')}
+                </div>
+              </div>
+
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="premium-card p-4">
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                    {reportData.summary?.totalAlerts || 0}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">کل هشدارها</p>
+                </div>
+                <div className="premium-card p-4">
+                  <p className="text-2xl font-bold text-warning-600">
+                    {reportData.summary?.activeAlerts || 0}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">فعال</p>
+                </div>
+                <div className="premium-card p-4">
+                  <p className="text-2xl font-bold text-success-600">
+                    {reportData.summary?.resolvedAlerts || 0}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">حل شده</p>
+                </div>
+                <div className="premium-card p-4">
+                  <p className="text-2xl font-bold text-primary-600">
+                    {reportData.inventoryStats?.totalItems || 0}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">کل آیتم‌ها</p>
+                </div>
+              </div>
+
+              {/* Inventory Stats */}
+              {reportData.inventoryStats && (
+                <div className="premium-card p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">آمار موجودی</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">
+                        {reportData.inventoryStats.totalItems || 0}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">کل آیتم‌ها</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold text-warning-600">
+                        {reportData.inventoryStats.lowStockItems || 0}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">کم‌موجود</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold text-danger-600">
+                        {reportData.inventoryStats.outOfStockItems || 0}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">تمام شده</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold text-success-600">
+                        {(reportData.inventoryStats.totalValue || 0).toLocaleString('fa-IR')}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">ارزش کل (تومان)</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Alerts by Type */}
+              {reportData.alertsByType && reportData.alertsByType.length > 0 && (
+                <div className="premium-card p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">هشدارها بر اساس نوع</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right">
+                      <thead>
+                        <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
+                          <th className="px-4 py-2 rounded-r-lg">نوع</th>
+                          <th className="px-4 py-2">تعداد کل</th>
+                          <th className="px-4 py-2">فعال</th>
+                          <th className="px-4 py-2 rounded-l-lg">حل شده</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.alertsByType.map((item: any, index: number) => (
+                          <tr key={index} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                            <td className="px-4 py-2">
+                              {getAlertTypeBadge(item._id)}
+                            </td>
+                            <td className="px-4 py-2 font-medium">{item.count}</td>
+                            <td className="px-4 py-2 text-warning-600">{item.active}</td>
+                            <td className="px-4 py-2 text-success-600">{item.resolved}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Alerts by Severity */}
+              {reportData.alertsBySeverity && reportData.alertsBySeverity.length > 0 && (
+                <div className="premium-card p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">هشدارها بر اساس شدت</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {reportData.alertsBySeverity.map((item: any, index: number) => (
+                      <div key={index} className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        {getSeverityBadge(item._id)}
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">{item.count}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Alerts by Warehouse */}
+              {reportData.alertsByWarehouse && reportData.alertsByWarehouse.length > 0 && (
+                <div className="premium-card p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">هشدارها بر اساس انبار</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right">
+                      <thead>
+                        <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
+                          <th className="px-4 py-2 rounded-r-lg">انبار</th>
+                          <th className="px-4 py-2">تعداد کل</th>
+                          <th className="px-4 py-2 rounded-l-lg">فعال</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.alertsByWarehouse.map((item: any, index: number) => (
+                          <tr key={index} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                            <td className="px-4 py-2">{item._id || 'نامشخص'}</td>
+                            <td className="px-4 py-2 font-medium">{item.count}</td>
+                            <td className="px-4 py-2 text-warning-600">{item.active}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Top Alerted Items */}
+              {reportData.topAlertedItems && reportData.topAlertedItems.length > 0 && (
+                <div className="premium-card p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">آیتم‌های با بیشترین هشدار</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right">
+                      <thead>
+                        <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
+                          <th className="px-4 py-2 rounded-r-lg">نام آیتم</th>
+                          <th className="px-4 py-2">کد</th>
+                          <th className="px-4 py-2">تعداد هشدار</th>
+                          <th className="px-4 py-2 rounded-l-lg">فعال</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.topAlertedItems.map((item: any, index: number) => (
+                          <tr key={index} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                            <td className="px-4 py-2 font-medium">{item.itemName}</td>
+                            <td className="px-4 py-2 font-mono text-sm">{item.itemCode}</td>
+                            <td className="px-4 py-2">{item.alertCount}</td>
+                            <td className="px-4 py-2">
+                              {item.activeAlerts > 0 ? (
+                                <span className="text-warning-600 font-semibold">{item.activeAlerts}</span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Alerts Trend */}
+              {reportData.alertsTrend && reportData.alertsTrend.length > 0 && (
+                <div className="premium-card p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">روند هشدارها در طول زمان</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right">
+                      <thead>
+                        <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
+                          <th className="px-4 py-2 rounded-r-lg">تاریخ</th>
+                          <th className="px-4 py-2">کل</th>
+                          <th className="px-4 py-2">فعال</th>
+                          <th className="px-4 py-2 rounded-l-lg">حل شده</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.alertsTrend.slice(-10).map((item: any, index: number) => (
+                          <tr key={index} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                            <td className="px-4 py-2">{item._id}</td>
+                            <td className="px-4 py-2">{item.count}</td>
+                            <td className="px-4 py-2 text-warning-600">{item.active}</td>
+                            <td className="px-4 py-2 text-success-600">{item.resolved}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {(!reportData.summary || reportData.summary.totalAlerts === 0) && 
+               (!reportData.inventoryStats || reportData.inventoryStats.totalItems === 0) && (
+                <div className="premium-card p-8 text-center">
+                  <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-400">هیچ داده‌ای برای نمایش وجود ندارد</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

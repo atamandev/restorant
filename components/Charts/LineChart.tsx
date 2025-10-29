@@ -21,16 +21,32 @@ export default function LineChart({ data }: LineChartProps) {
     return () => clearTimeout(timer)
   }, [])
 
-  const maxValue = Math.max(...data.map(d => Math.max(d.sales, d.profit)))
-  const minValue = Math.min(...data.map(d => Math.min(d.sales, d.profit)))
-  const range = maxValue - minValue
+  // بررسی وجود داده
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-xl p-8">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium">هیچ داده‌ای برای نمایش وجود ندارد</p>
+        </div>
+      </div>
+    )
+  }
+
+  const maxValue = Math.max(...data.map(d => Math.max(d.sales || 0, d.profit || 0)))
+  const minValue = Math.min(...data.map(d => Math.min(d.sales || 0, d.profit || 0)))
+  const range = maxValue - minValue || 1
 
   const getY = (value: number) => {
-    return 200 - ((value - minValue) / range) * 180
+    return 220 - ((value - minValue) / range) * 200
   }
 
   const getX = (index: number) => {
-    return (index / (data.length - 1)) * 400
+    return (index / (data.length - 1 || 1)) * 420
   }
 
   const formatValue = (value: number) => {
@@ -46,10 +62,11 @@ export default function LineChart({ data }: LineChartProps) {
 
   return (
     <div className="w-full h-full relative">
-      {/* Background Gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary-50/30 via-transparent to-accent-50/30 dark:from-primary-900/20 dark:via-transparent dark:to-accent-900/20 rounded-xl"></div>
+      {/* Background with multiple gradients */}
+      <div className="absolute inset-0 bg-gradient-to-br from-primary-50/40 via-transparent to-accent-50/40 dark:from-primary-900/20 dark:via-transparent dark:to-accent-900/20 rounded-xl"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-500/5 via-transparent to-transparent rounded-xl"></div>
       
-      <svg viewBox="0 0 500 280" className="w-full h-full relative z-10">
+      <svg viewBox="0 0 500 300" className="w-full h-full relative z-10">
         {/* Grid lines with gradient */}
         <defs>
           <linearGradient id="gridGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -73,77 +90,82 @@ export default function LineChart({ data }: LineChartProps) {
           </filter>
         </defs>
 
-        {/* Grid lines */}
+        {/* Grid lines with animation */}
         {[0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio, index) => (
-          <g key={ratio}>
+          <g key={ratio} style={{ opacity: animationProgress }}>
             <line
-              x1="60"
-              y1={40 + ratio * 200}
-              x2="460"
-              y2={40 + ratio * 200}
+              x1="70"
+              y1={50 + ratio * 200}
+              x2="470"
+              y2={50 + ratio * 200}
               stroke="url(#gridGradient)"
-              strokeWidth="1"
+              strokeWidth="1.5"
+              strokeDasharray="5 5"
               className="text-gray-200 dark:text-gray-700"
             />
             <text
-              x="50"
-              y={45 + ratio * 200}
+              x="60"
+              y={55 + ratio * 200}
               textAnchor="end"
-              className="text-xs fill-gray-500 dark:fill-gray-400 font-medium"
+              className="text-xs fill-gray-500 dark:fill-gray-400 font-semibold"
             >
               {formatValue(maxValue - ratio * range)}
             </text>
           </g>
         ))}
 
-        {/* Sales area fill */}
+        {/* Sales area fill with smooth curve */}
         <path
-          d={`M ${60 + getX(0)},${40 + getY(data[0].sales)} ${data.map((d, i) => `L ${60 + getX(i)},${40 + getY(d.sales)}`).join(' ')} L ${60 + getX(data.length - 1)},${240} L ${60 + getX(0)},${240} Z`}
+          d={`M ${70 + getX(0)},${50 + getY(data[0].sales)} ${data.map((d, i) => `L ${70 + getX(i)},${50 + getY(d.sales)}`).join(' ')} L ${70 + getX(data.length - 1)},${250} L ${70 + getX(0)},${250} Z`}
           fill="url(#salesGradient)"
-          opacity={animationProgress * 0.3}
+          opacity={animationProgress * 0.35}
+          className="transition-opacity duration-1000"
         />
 
-        {/* Profit area fill */}
+        {/* Profit area fill with smooth curve */}
         <path
-          d={`M ${60 + getX(0)},${40 + getY(data[0].profit)} ${data.map((d, i) => `L ${60 + getX(i)},${40 + getY(d.profit)}`).join(' ')} L ${60 + getX(data.length - 1)},${240} L ${60 + getX(0)},${240} Z`}
+          d={`M ${70 + getX(0)},${50 + getY(data[0].profit)} ${data.map((d, i) => `L ${70 + getX(i)},${50 + getY(d.profit)}`).join(' ')} L ${70 + getX(data.length - 1)},${250} L ${70 + getX(0)},${250} Z`}
           fill="url(#profitGradient)"
-          opacity={animationProgress * 0.2}
+          opacity={animationProgress * 0.25}
+          className="transition-opacity duration-1000"
         />
 
-        {/* Sales line */}
+        {/* Sales line with glow effect */}
         <polyline
           fill="none"
           stroke="#10B981"
-          strokeWidth="4"
+          strokeWidth="5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray={`${data.length * 50} ${data.length * 50}`}
-          strokeDashoffset={data.length * 50 * (1 - animationProgress)}
-          points={data.map((d, i) => `${getX(i) + 60},${getY(d.sales) + 40}`).join(' ')}
+          strokeDasharray={`${data.length * 60} ${data.length * 60}`}
+          strokeDashoffset={data.length * 60 * (1 - animationProgress)}
+          points={data.map((d, i) => `${getX(i) + 70},${getY(d.sales) + 50}`).join(' ')}
           filter="url(#glow)"
+          className="transition-all duration-1000"
         />
 
-        {/* Profit line */}
+        {/* Profit line with glow effect */}
         <polyline
           fill="none"
           stroke="#3B82F6"
-          strokeWidth="4"
+          strokeWidth="5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray={`${data.length * 50} ${data.length * 50}`}
-          strokeDashoffset={data.length * 50 * (1 - animationProgress)}
-          points={data.map((d, i) => `${getX(i) + 60},${getY(d.profit) + 40}`).join(' ')}
+          strokeDasharray={`${data.length * 60} ${data.length * 60}`}
+          strokeDashoffset={data.length * 60 * (1 - animationProgress)}
+          points={data.map((d, i) => `${getX(i) + 70},${getY(d.profit) + 50}`).join(' ')}
           filter="url(#glow)"
+          className="transition-all duration-1000"
         />
 
-        {/* Data points */}
+        {/* Data points with modern styling */}
         {data.map((d, i) => (
-          <g key={i}>
-            {/* Sales point */}
+          <g key={i} style={{ opacity: animationProgress }}>
+            {/* Sales point with glow */}
             <circle
-              cx={getX(i) + 60}
-              cy={getY(d.sales) + 40}
-              r={hoveredPoint === i ? "8" : "6"}
+              cx={getX(i) + 70}
+              cy={getY(d.sales) + 50}
+              r={hoveredPoint === i ? "10" : "7"}
               fill="#10B981"
               stroke="white"
               strokeWidth="3"
@@ -151,16 +173,28 @@ export default function LineChart({ data }: LineChartProps) {
               onMouseEnter={() => setHoveredPoint(i)}
               onMouseLeave={() => setHoveredPoint(null)}
               style={{
-                opacity: animationProgress,
-                transform: `scale(${animationProgress})`
+                filter: hoveredPoint === i ? 'url(#glow)' : 'none',
+                transform: `scale(${animationProgress})`,
+                transition: 'all 0.3s ease'
               }}
             />
-            
-            {/* Profit point */}
+            {/* Outer glow ring */}
             <circle
-              cx={getX(i) + 60}
-              cy={getY(d.profit) + 40}
-              r={hoveredPoint === i ? "8" : "6"}
+              cx={getX(i) + 70}
+              cy={getY(d.sales) + 50}
+              r={hoveredPoint === i ? "14" : "10"}
+              fill="none"
+              stroke="#10B981"
+              strokeWidth="2"
+              opacity={hoveredPoint === i ? 0.4 : 0.2}
+              className="transition-all duration-300"
+            />
+            
+            {/* Profit point with glow */}
+            <circle
+              cx={getX(i) + 70}
+              cy={getY(d.profit) + 50}
+              r={hoveredPoint === i ? "10" : "7"}
               fill="#3B82F6"
               stroke="white"
               strokeWidth="3"
@@ -168,103 +202,126 @@ export default function LineChart({ data }: LineChartProps) {
               onMouseEnter={() => setHoveredPoint(i)}
               onMouseLeave={() => setHoveredPoint(null)}
               style={{
-                opacity: animationProgress,
-                transform: `scale(${animationProgress})`
+                filter: hoveredPoint === i ? 'url(#glow)' : 'none',
+                transform: `scale(${animationProgress})`,
+                transition: 'all 0.3s ease'
               }}
+            />
+            {/* Outer glow ring */}
+            <circle
+              cx={getX(i) + 70}
+              cy={getY(d.profit) + 50}
+              r={hoveredPoint === i ? "14" : "10"}
+              fill="none"
+              stroke="#3B82F6"
+              strokeWidth="2"
+              opacity={hoveredPoint === i ? 0.4 : 0.2}
+              className="transition-all duration-300"
             />
 
             {/* Month labels */}
             <text
-              x={getX(i) + 60}
-              y="270"
+              x={getX(i) + 70}
+              y="280"
               textAnchor="middle"
-              className="text-xs fill-gray-600 dark:fill-gray-300 font-medium"
+              className="text-sm fill-gray-700 dark:fill-gray-200 font-semibold"
               style={{
-                opacity: animationProgress,
                 transform: `translateY(${(1 - animationProgress) * 20}px)`
               }}
             >
               {d.month}
             </text>
 
-            {/* Hover tooltip */}
+            {/* Modern hover tooltip */}
             {hoveredPoint === i && (
               <g>
-                {/* Tooltip background */}
+                {/* Tooltip background with blur */}
                 <rect
-                  x={getX(i) + 40}
-                  y="10"
-                  width="120"
-                  height="60"
-                  rx="8"
-                  fill="rgba(0, 0, 0, 0.8)"
-                  className="backdrop-blur-sm"
+                  x={getX(i) + 20}
+                  y="15"
+                  width="140"
+                  height="70"
+                  rx="12"
+                  fill="rgba(15, 23, 42, 0.95)"
+                  className="backdrop-blur-md"
                 />
                 {/* Sales info */}
+                <circle cx={getX(i) + 40} cy="35" r="4" fill="#10B981" />
                 <text
-                  x={getX(i) + 100}
-                  y="30"
-                  textAnchor="middle"
-                  className="text-xs fill-white font-medium"
+                  x={getX(i) + 50}
+                  y="38"
+                  className="text-xs fill-gray-300 font-medium"
                 >
-                  فروش: {d.sales.toLocaleString()} تومان
+                  فروش
+                </text>
+                <text
+                  x={getX(i) + 90}
+                  y="38"
+                  textAnchor="middle"
+                  className="text-xs fill-white font-bold"
+                >
+                  {formatValue(d.sales || 0)}
                 </text>
                 {/* Profit info */}
+                <circle cx={getX(i) + 40} cy="55" r="4" fill="#3B82F6" />
                 <text
-                  x={getX(i) + 100}
-                  y="50"
-                  textAnchor="middle"
-                  className="text-xs fill-white font-medium"
+                  x={getX(i) + 50}
+                  y="58"
+                  className="text-xs fill-gray-300 font-medium"
                 >
-                  سود: {d.profit.toLocaleString()} تومان
+                  سود
+                </text>
+                <text
+                  x={getX(i) + 90}
+                  y="58"
+                  textAnchor="middle"
+                  className="text-xs fill-white font-bold"
+                >
+                  {formatValue(d.profit || 0)}
                 </text>
                 {/* Tooltip arrow */}
                 <polygon
-                  points={`${getX(i) + 100},65 ${getX(i) + 95},75 ${getX(i) + 105},75`}
-                  fill="rgba(0, 0, 0, 0.8)"
+                  points={`${getX(i) + 90},80 ${getX(i) + 85},90 ${getX(i) + 95},90`}
+                  fill="rgba(15, 23, 42, 0.95)"
                 />
               </g>
             )}
           </g>
         ))}
 
-        {/* Legend */}
-        <g transform="translate(60, 20)">
-          <g className="cursor-pointer">
-            <circle cx="0" cy="0" r="4" fill="#10B981" />
-            <text x="12" y="4" className="text-sm fill-gray-700 dark:fill-gray-200 font-medium">فروش</text>
+        {/* Modern Legend */}
+        <g transform="translate(70, 25)" style={{ opacity: animationProgress }}>
+          <g className="cursor-pointer transition-transform hover:scale-110">
+            <circle cx="0" cy="0" r="5" fill="#10B981" />
+            <circle cx="0" cy="0" r="8" fill="none" stroke="#10B981" strokeWidth="2" opacity="0.3" />
+            <text x="15" y="4" className="text-sm fill-gray-700 dark:fill-gray-200 font-semibold">فروش</text>
           </g>
-          <g className="cursor-pointer" transform="translate(80, 0)">
-            <circle cx="0" cy="0" r="4" fill="#3B82F6" />
-            <text x="12" y="4" className="text-sm fill-gray-700 dark:fill-gray-200 font-medium">سود</text>
+          <g className="cursor-pointer transition-transform hover:scale-110" transform="translate(100, 0)">
+            <circle cx="0" cy="0" r="5" fill="#3B82F6" />
+            <circle cx="0" cy="0" r="8" fill="none" stroke="#3B82F6" strokeWidth="2" opacity="0.3" />
+            <text x="15" y="4" className="text-sm fill-gray-700 dark:fill-gray-200 font-semibold">سود</text>
           </g>
         </g>
-
-        {/* Chart title */}
-        <text
-          x="250"
-          y="20"
-          textAnchor="middle"
-          className="text-lg fill-gray-800 dark:fill-gray-100 font-bold"
-        >
-          روند فروش و سود سالانه
-        </text>
       </svg>
 
       {/* Floating stats */}
-      <div className="absolute top-4 right-4 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
-        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">بیشترین فروش</div>
-        <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
-          {Math.max(...data.map(d => d.sales)).toLocaleString()} تومان
-        </div>
-      </div>
+      {data.length > 0 && (
+        <>
+          <div className="absolute top-4 right-4 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">بیشترین فروش</div>
+            <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
+              {Math.max(...data.map(d => d.sales || 0)).toLocaleString()} تومان
+            </div>
+          </div>
 
-      <div className="absolute top-4 left-4 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
-        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">بیشترین سود</div>
-        <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
-          {Math.max(...data.map(d => d.profit)).toLocaleString()} تومان
-        </div>
-      </div>
+          <div className="absolute top-4 left-4 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 shadow-lg">
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">بیشترین سود</div>
+            <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
+              {Math.max(...data.map(d => d.profit || 0)).toLocaleString()} تومان
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

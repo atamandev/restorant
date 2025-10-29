@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   ClipboardList,
   BarChart3,
@@ -35,7 +35,9 @@ import {
   Zap,
   Database,
   FileSpreadsheet,
-  BookOpen
+  BookOpen,
+  Trash2,
+  Loader
 } from 'lucide-react'
 
 interface InventoryReport {
@@ -71,111 +73,6 @@ interface MovementData {
   netMovement: number
 }
 
-const mockReports: InventoryReport[] = [
-  {
-    id: '1',
-    name: 'گزارش سطح موجودی',
-    type: 'stock_level',
-    description: 'گزارش کامل سطح موجودی تمام انبارها',
-    generatedDate: '1403/09/15',
-    period: 'ماه جاری',
-    totalItems: 150,
-    totalValue: 25000000,
-    status: 'ready',
-    fileSize: '2.5 MB',
-    downloadCount: 12
-  },
-  {
-    id: '2',
-    name: 'گزارش گردش موجودی',
-    type: 'movement',
-    description: 'تحلیل گردش موجودی‌ها در 30 روز گذشته',
-    generatedDate: '1403/09/14',
-    period: '30 روز گذشته',
-    totalItems: 85,
-    totalValue: 18000000,
-    status: 'ready',
-    fileSize: '1.8 MB',
-    downloadCount: 8
-  },
-  {
-    id: '3',
-    name: 'گزارش ارزش موجودی',
-    type: 'valuation',
-    description: 'ارزش‌گذاری موجودی‌ها بر اساس روش FIFO',
-    generatedDate: '1403/09/13',
-    period: 'ماه جاری',
-    totalItems: 150,
-    totalValue: 25000000,
-    status: 'ready',
-    fileSize: '3.2 MB',
-    downloadCount: 15
-  },
-  {
-    id: '4',
-    name: 'گزارش گردش کالا',
-    type: 'turnover',
-    description: 'نرخ گردش کالا و تحلیل ABC',
-    generatedDate: '1403/09/12',
-    period: '3 ماه گذشته',
-    totalItems: 120,
-    totalValue: 22000000,
-    status: 'generating',
-    fileSize: '0 MB',
-    downloadCount: 0
-  },
-  {
-    id: '5',
-    name: 'گزارش کهنگی موجودی',
-    type: 'aging',
-    description: 'تحلیل کهنگی و انقضای موجودی‌ها',
-    generatedDate: '1403/09/11',
-    period: '6 ماه گذشته',
-    totalItems: 95,
-    totalValue: 15000000,
-    status: 'ready',
-    fileSize: '2.1 MB',
-    downloadCount: 6
-  }
-]
-
-const mockStockLevelData: StockLevelData[] = [
-  {
-    warehouse: 'انبار اصلی',
-    totalItems: 75,
-    totalValue: 12000000,
-    lowStockItems: 8,
-    criticalStockItems: 2,
-    overstockItems: 3,
-    turnoverRate: 4.2
-  },
-  {
-    warehouse: 'انبار مواد اولیه',
-    totalItems: 45,
-    totalValue: 8000000,
-    lowStockItems: 5,
-    criticalStockItems: 1,
-    overstockItems: 2,
-    turnoverRate: 6.8
-  },
-  {
-    warehouse: 'انبار محصولات نهایی',
-    totalItems: 30,
-    totalValue: 5000000,
-    lowStockItems: 2,
-    criticalStockItems: 0,
-    overstockItems: 1,
-    turnoverRate: 3.5
-  }
-]
-
-const mockMovementData: MovementData[] = [
-  { date: '1403/09/15', receipts: 1500000, issues: 1200000, transfers: 300000, adjustments: 50000, netMovement: 350000 },
-  { date: '1403/09/14', receipts: 2000000, issues: 1800000, transfers: 200000, adjustments: 0, netMovement: 0 },
-  { date: '1403/09/13', receipts: 800000, issues: 1500000, transfers: 100000, adjustments: -100000, netMovement: -700000 },
-  { date: '1403/09/12', receipts: 1200000, issues: 1000000, transfers: 150000, adjustments: 25000, netMovement: 375000 },
-  { date: '1403/09/11', receipts: 1800000, issues: 1600000, transfers: 250000, adjustments: 0, netMovement: 450000 }
-]
 
 const getReportTypeColor = (type: string) => {
   switch (type) {
@@ -209,12 +106,96 @@ const getStatusBadge = (status: string) => {
 }
 
 export default function InventoryReportsPage() {
-  const [reports, setReports] = useState<InventoryReport[]>(mockReports)
+  const [reports, setReports] = useState<InventoryReport[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [selectedPeriod, setSelectedPeriod] = useState('current_month')
   const [activeTab, setActiveTab] = useState<'reports' | 'analytics' | 'charts'>('reports')
+  const [loading, setLoading] = useState(false)
+  const [stockLevelData, setStockLevelData] = useState<StockLevelData[]>([])
+  const [movementData, setMovementData] = useState<MovementData[]>([])
+  const [stats, setStats] = useState({
+    totalReports: 0,
+    readyReports: 0,
+    generatingReports: 0,
+    totalDownloads: 0
+  })
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '-'
+    const date = new Date(dateString)
+    return date.toLocaleDateString('fa-IR')
+  }
+
+  // بارگذاری گزارشات
+  const fetchReports = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (searchTerm) params.append('search', searchTerm)
+      if (filterType !== 'all') params.append('type', filterType)
+      if (filterStatus !== 'all') params.append('status', filterStatus)
+      if (selectedPeriod !== 'current_month') params.append('period', selectedPeriod)
+
+      const response = await fetch(`/api/inventory-reports?${params.toString()}`)
+      const data = await response.json()
+      if (data.success) {
+        setReports(data.data.map((r: any) => ({
+          ...r,
+          id: r._id || r.id,
+          generatedDate: formatDate(r.generatedDate)
+        })))
+        if (data.stats) {
+          setStats(data.stats)
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching reports:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [searchTerm, filterType, filterStatus, selectedPeriod])
+
+  // بارگذاری تحلیل سطح موجودی
+  const fetchStockLevelAnalytics = useCallback(async () => {
+    try {
+      const response = await fetch('/api/inventory-reports/analytics/stock-level')
+      const data = await response.json()
+      if (data.success) {
+        setStockLevelData(data.data)
+      }
+    } catch (error) {
+      console.error('Error fetching stock level analytics:', error)
+    }
+  }, [])
+
+  // بارگذاری تحلیل گردش موجودی
+  const fetchMovementAnalytics = useCallback(async () => {
+    try {
+      const response = await fetch('/api/inventory-reports/analytics/movement?days=30')
+      const data = await response.json()
+      if (data.success) {
+        setMovementData(data.data.map((d: any) => ({
+          ...d,
+          date: formatDate(d.date)
+        })))
+      }
+    } catch (error) {
+      console.error('Error fetching movement analytics:', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchReports()
+  }, [fetchReports])
+
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      fetchStockLevelAnalytics()
+      fetchMovementAnalytics()
+    }
+  }, [activeTab, fetchStockLevelAnalytics, fetchMovementAnalytics])
 
   const filteredReports = reports.filter(report =>
     (searchTerm === '' || 
@@ -224,24 +205,103 @@ export default function InventoryReportsPage() {
     (filterStatus === 'all' || report.status === filterStatus)
   )
 
-  const totalReports = reports.length
-  const readyReports = reports.filter(r => r.status === 'ready').length
-  const generatingReports = reports.filter(r => r.status === 'generating').length
-  const totalDownloads = reports.reduce((sum, r) => sum + r.downloadCount, 0)
-
-  const handleGenerateReport = (type: string) => {
-    alert(`گزارش ${type} در حال تولید است...`)
+  const handleGenerateReport = async (type: string) => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/inventory-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type,
+          period: selectedPeriod,
+          generate: true
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchReports()
+        alert('گزارش با موفقیت تولید شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error generating report:', error)
+      alert('خطا در تولید گزارش')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleDownloadReport = (reportId: string) => {
-    const report = reports.find(r => r.id === reportId)
-    if (report) {
-      alert(`گزارش ${report.name} دانلود شد.`)
-      setReports(prev => prev.map(r => 
-        r.id === reportId 
-          ? { ...r, downloadCount: r.downloadCount + 1 }
-          : r
-      ))
+  const handleDownloadReport = async (reportId: string) => {
+    try {
+      const response = await fetch(`/api/inventory-reports/${reportId}/download`, {
+        method: 'POST'
+      })
+      const data = await response.json()
+      if (data.success) {
+        // به‌روزرسانی گزارش با تعداد جدید دانلود
+        setReports(prev => prev.map(r => 
+          r.id === reportId 
+            ? { ...r, downloadCount: data.data.downloadCount || r.downloadCount + 1 }
+            : r
+        ))
+        
+        // در اینجا می‌توانید فایل را دانلود کنید
+        // برای نمونه، ما فقط پیام می‌دهیم
+        alert(`گزارش ${data.data.name} آماده دانلود است.`)
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error downloading report:', error)
+      alert('خطا در دانلود گزارش')
+    }
+  }
+
+  const handleAddSampleData = async () => {
+    if (!confirm('آیا می‌خواهید داده‌های نمونه اضافه شوند؟')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const response = await fetch('/api/add-sample-inventory-reports', {
+        method: 'POST'
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchReports()
+        alert(`داده‌های نمونه با موفقیت اضافه شد:\n- ${data.data.reports} گزارش`)
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error adding sample data:', error)
+      alert('خطا در اضافه کردن داده‌های نمونه')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (!confirm('آیا مطمئن هستید که می‌خواهید این گزارش را حذف کنید؟')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/inventory-reports/${reportId}`, {
+        method: 'DELETE'
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchReports()
+        alert('گزارش با موفقیت حذف شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting report:', error)
+      alert('خطا در حذف گزارش')
     }
   }
 
@@ -271,6 +331,13 @@ export default function InventoryReportsPage() {
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
           <button
+            onClick={handleAddSampleData}
+            className="premium-button flex items-center space-x-2 space-x-reverse"
+          >
+            <Database className="w-5 h-5" />
+            <span>داده نمونه</span>
+          </button>
+          <button
             onClick={handlePrint}
             className="premium-button p-3"
           >
@@ -292,7 +359,7 @@ export default function InventoryReportsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل گزارشات</h3>
             <ClipboardList className="w-6 h-6 text-primary-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalReports}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalReports}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">گزارش تولید شده</p>
         </div>
 
@@ -301,7 +368,7 @@ export default function InventoryReportsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">آماده دانلود</h3>
             <CheckCircle className="w-6 h-6 text-success-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{readyReports}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.readyReports}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">گزارش آماده</p>
         </div>
 
@@ -310,7 +377,7 @@ export default function InventoryReportsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">در حال تولید</h3>
             <RefreshCw className="w-6 h-6 text-warning-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{generatingReports}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.generatingReports}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">گزارش در حال تولید</p>
         </div>
 
@@ -319,7 +386,7 @@ export default function InventoryReportsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل دانلودها</h3>
             <Download className="w-6 h-6 text-accent-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalDownloads}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalDownloads}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">بار دانلود شده</p>
         </div>
       </div>
@@ -413,6 +480,11 @@ export default function InventoryReportsPage() {
             </div>
 
             {/* Reports Table */}
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
+              </div>
+            ) : (
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-right whitespace-nowrap">
                 <thead>
@@ -431,7 +503,14 @@ export default function InventoryReportsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredReports.map(report => (
+                  {filteredReports.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                        هیچ گزارشی یافت نشد. برای شروع، داده‌های نمونه اضافه کنید.
+                      </td>
+                    </tr>
+                  ) : (
+                  filteredReports.map(report => (
                     <tr key={report.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-3 space-x-reverse">
@@ -450,7 +529,14 @@ export default function InventoryReportsPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate">{report.description}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{report.generatedDate}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{report.period}</td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                        {report.period === 'current_month' ? 'ماه جاری' :
+                         report.period === 'last_month' ? 'ماه گذشته' :
+                         report.period === 'last_3_months' ? '3 ماه گذشته' :
+                         report.period === 'last_6_months' ? '6 ماه گذشته' :
+                         report.period === 'last_year' ? 'سال گذشته' :
+                         report.period}
+                      </td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{report.totalItems}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{report.totalValue.toLocaleString('fa-IR')} تومان</td>
                       <td className="px-4 py-3">
@@ -481,13 +567,22 @@ export default function InventoryReportsPage() {
                           <button className="p-1 rounded-full text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors">
                             <Eye className="w-4 h-4" />
                           </button>
+                          <button
+                            onClick={() => handleDeleteReport(report.id)}
+                            className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  ))
+                  )}
                 </tbody>
               </table>
             </div>
+            )}
           </>
         )}
 
@@ -514,7 +609,14 @@ export default function InventoryReportsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {mockStockLevelData.map((data, index) => (
+                    {stockLevelData.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                          داده‌ای برای نمایش وجود ندارد
+                        </td>
+                      </tr>
+                    ) : (
+                    stockLevelData.map((data, index) => (
                       <tr key={index} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                         <td className="px-4 py-3 text-gray-900 dark:text-white">{data.warehouse}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{data.totalItems}</td>
@@ -522,9 +624,10 @@ export default function InventoryReportsPage() {
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{data.lowStockItems}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{data.criticalStockItems}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{data.overstockItems}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{data.turnoverRate}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{data.turnoverRate.toFixed(2)}</td>
                       </tr>
-                    ))}
+                    ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -549,7 +652,14 @@ export default function InventoryReportsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {mockMovementData.map((data, index) => (
+                    {movementData.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                          داده‌ای برای نمایش وجود ندارد
+                        </td>
+                      </tr>
+                    ) : (
+                    movementData.map((data, index) => (
                       <tr key={index} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                         <td className="px-4 py-3 text-gray-900 dark:text-white">{data.date}</td>
                         <td className="px-4 py-3 text-green-600 dark:text-green-400">{data.receipts.toLocaleString('fa-IR')}</td>
@@ -560,7 +670,8 @@ export default function InventoryReportsPage() {
                           {data.netMovement.toLocaleString('fa-IR')}
                         </td>
                       </tr>
-                    ))}
+                    ))
+                    )}
                   </tbody>
                 </table>
               </div>

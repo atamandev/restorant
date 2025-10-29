@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   History,
   Package,
@@ -38,28 +38,36 @@ import {
   Database,
   FileSpreadsheet,
   BookOpen,
-  ClipboardList
+  ClipboardList,
+  Loader
 } from 'lucide-react'
 
 interface LedgerEntry {
+  _id?: string
   id: string
+  itemId: string
+  itemName: string
+  itemCode: string
   date: string
   documentNumber: string
   documentType: 'receipt' | 'issue' | 'transfer_in' | 'transfer_out' | 'adjustment' | 'count'
   description: string
   warehouse: string
-  user: string
+  userId?: string
+  user?: string
   quantityIn: number
   quantityOut: number
   unitPrice: number
   totalValue: number
   runningBalance: number
   runningValue: number
+  averagePrice: number
   reference: string
   notes: string
 }
 
 interface Item {
+  _id?: string
   id: string
   name: string
   code: string
@@ -71,129 +79,7 @@ interface Item {
   valuationMethod: 'fifo' | 'weighted_average' | 'lifo'
 }
 
-const mockItems: Item[] = [
-  {
-    id: '1',
-    name: 'برنج ایرانی',
-    code: 'RICE-001',
-    category: 'مواد اولیه',
-    unit: 'کیلوگرم',
-    currentStock: 50,
-    currentValue: 2250000,
-    averagePrice: 45000,
-    valuationMethod: 'weighted_average'
-  },
-  {
-    id: '2',
-    name: 'گوشت گوساله',
-    code: 'MEAT-001',
-    category: 'مواد اولیه',
-    unit: 'کیلوگرم',
-    currentStock: 8,
-    currentValue: 1440000,
-    averagePrice: 180000,
-    valuationMethod: 'fifo'
-  },
-  {
-    id: '3',
-    name: 'روغن آفتابگردان',
-    code: 'OIL-001',
-    category: 'مواد اولیه',
-    unit: 'لیتر',
-    currentStock: 2,
-    currentValue: 50000,
-    averagePrice: 25000,
-    valuationMethod: 'weighted_average'
-  }
-]
-
-const mockLedgerEntries: LedgerEntry[] = [
-  {
-    id: '1',
-    date: '1403/09/15',
-    documentNumber: 'REC-001',
-    documentType: 'receipt',
-    description: 'خرید برنج ایرانی',
-    warehouse: 'انبار اصلی',
-    user: 'احمد محمدی',
-    quantityIn: 20,
-    quantityOut: 0,
-    unitPrice: 45000,
-    totalValue: 900000,
-    runningBalance: 20,
-    runningValue: 900000,
-    reference: 'PO-001',
-    notes: 'خرید از تامین‌کننده اصلی'
-  },
-  {
-    id: '2',
-    date: '1403/09/15',
-    documentNumber: 'ISS-001',
-    documentType: 'issue',
-    description: 'مصرف در آشپزخانه',
-    warehouse: 'انبار اصلی',
-    user: 'فاطمه کریمی',
-    quantityIn: 0,
-    quantityOut: 5,
-    unitPrice: 45000,
-    totalValue: 225000,
-    runningBalance: 15,
-    runningValue: 675000,
-    reference: 'KIT-001',
-    notes: 'مصرف برای تهیه غذا'
-  },
-  {
-    id: '3',
-    date: '1403/09/14',
-    documentNumber: 'REC-002',
-    documentType: 'receipt',
-    description: 'خرید گوشت گوساله',
-    warehouse: 'انبار اصلی',
-    user: 'رضا حسینی',
-    quantityIn: 10,
-    quantityOut: 0,
-    unitPrice: 180000,
-    totalValue: 1800000,
-    runningBalance: 10,
-    runningValue: 1800000,
-    reference: 'PO-002',
-    notes: 'خرید گوشت تازه'
-  },
-  {
-    id: '4',
-    date: '1403/09/14',
-    documentNumber: 'ISS-002',
-    documentType: 'issue',
-    description: 'مصرف در آشپزخانه',
-    warehouse: 'انبار اصلی',
-    user: 'فاطمه کریمی',
-    quantityIn: 0,
-    quantityOut: 2,
-    unitPrice: 180000,
-    totalValue: 360000,
-    runningBalance: 8,
-    runningValue: 1440000,
-    reference: 'KIT-002',
-    notes: 'مصرف برای کباب'
-  },
-  {
-    id: '5',
-    date: '1403/09/13',
-    documentNumber: 'ADJ-001',
-    documentType: 'adjustment',
-    description: 'تعدیل موجودی',
-    warehouse: 'انبار اصلی',
-    user: 'مدیر انبار',
-    quantityIn: 0,
-    quantityOut: 1,
-    unitPrice: 25000,
-    totalValue: 25000,
-    runningBalance: 2,
-    runningValue: 50000,
-    reference: 'AUD-001',
-    notes: 'تعدیل پس از انبارگردانی'
-  }
-]
+// Mock data removed - using real API now
 
 const getDocumentTypeColor = (type: string) => {
   switch (type) {
@@ -241,8 +127,8 @@ const getValuationMethodText = (method: string) => {
 }
 
 export default function ItemLedgerPage() {
-  const [items, setItems] = useState<Item[]>(mockItems)
-  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>(mockLedgerEntries)
+  const [items, setItems] = useState<Item[]>([])
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([])
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterWarehouse, setFilterWarehouse] = useState('all')
@@ -250,6 +136,78 @@ export default function ItemLedgerPage() {
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
   const [showItemModal, setShowItemModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    totalItems: 0,
+    totalValue: 0,
+    lowStockItems: 0,
+    outOfStockItems: 0
+  })
+
+  // بارگذاری آیتم‌ها
+  const fetchItems = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/item-ledger/items')
+      const data = await response.json()
+      
+      if (data.success) {
+        setItems(data.data)
+        setStats(data.stats)
+      }
+    } catch (error) {
+      console.error('Error fetching items:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // بارگذاری ورودی‌های دفتر کل
+  const fetchLedgerEntries = async (itemId?: string) => {
+    try {
+      const params = new URLSearchParams()
+      if (itemId) params.append('itemId', itemId)
+      if (filterWarehouse !== 'all') params.append('warehouse', filterWarehouse)
+      if (filterDocumentType !== 'all') params.append('documentType', filterDocumentType)
+      if (filterDateFrom) params.append('dateFrom', filterDateFrom)
+      if (filterDateTo) params.append('dateTo', filterDateTo)
+
+      const response = await fetch(`/api/item-ledger?${params.toString()}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        // تبدیل _id به id برای سازگاری
+        const entries = data.data.map((entry: any) => ({
+          ...entry,
+          id: entry._id || entry.id
+        }))
+        setLedgerEntries(entries)
+      }
+    } catch (error) {
+      console.error('Error fetching ledger entries:', error)
+    }
+  }
+
+  // اضافه کردن داده‌های نمونه
+  const handleAddSampleData = async () => {
+    try {
+      const response = await fetch('/api/add-sample-item-ledger', {
+        method: 'POST',
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('داده‌های نمونه با موفقیت اضافه شد')
+        fetchItems()
+      } else {
+        alert('خطا در اضافه کردن داده‌های نمونه: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error adding sample data:', error)
+      alert('خطا در اضافه کردن داده‌های نمونه')
+    }
+  }
 
   const filteredItems = items.filter(item =>
     searchTerm === '' || 
@@ -258,22 +216,29 @@ export default function ItemLedgerPage() {
     item.category.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const filteredLedgerEntries = ledgerEntries.filter(entry =>
-    (selectedItem === null || entry.id === selectedItem.id) &&
-    (filterWarehouse === 'all' || entry.warehouse === filterWarehouse) &&
-    (filterDocumentType === 'all' || entry.documentType === filterDocumentType) &&
-    (filterDateFrom === '' || entry.date >= filterDateFrom) &&
-    (filterDateTo === '' || entry.date <= filterDateTo)
-  )
+  const filteredLedgerEntries = ledgerEntries.filter(entry => {
+    const itemId = selectedItem ? String(selectedItem.id || selectedItem._id) : null
+    return (
+      (selectedItem === null || entry.itemId === itemId) &&
+      (filterWarehouse === 'all' || entry.warehouse === filterWarehouse) &&
+      (filterDocumentType === 'all' || entry.documentType === filterDocumentType) &&
+      (filterDateFrom === '' || entry.date >= filterDateFrom) &&
+      (filterDateTo === '' || entry.date <= filterDateTo)
+    )
+  })
 
-  const totalItems = items.length
-  const totalValue = items.reduce((sum, item) => sum + item.currentValue, 0)
+  const totalItems = stats.totalItems || items.length
+  const totalValue = stats.totalValue || items.reduce((sum, item) => sum + item.currentValue, 0)
   const totalTransactions = ledgerEntries.length
   const averagePrice = items.length > 0 ? items.reduce((sum, item) => sum + item.averagePrice, 0) / items.length : 0
 
-  const handleSelectItem = (item: Item) => {
+  const handleSelectItem = async (item: Item) => {
     setSelectedItem(item)
-    setShowItemModal(true)
+    const itemId = item.id || item._id
+    if (itemId) {
+      await fetchLedgerEntries(String(itemId))
+      setShowItemModal(true)
+    }
   }
 
   const handleExport = () => {
@@ -284,8 +249,35 @@ export default function ItemLedgerPage() {
     window.print()
   }
 
-  const handleRefresh = () => {
-    alert('کاردکس کالا بروزرسانی شد.')
+  const handleRefresh = async () => {
+    await fetchItems()
+    if (selectedItem) {
+      const itemId = selectedItem.id || selectedItem._id
+      if (itemId) {
+        await fetchLedgerEntries(String(itemId))
+      }
+    }
+  }
+
+  useEffect(() => {
+    fetchItems()
+  }, [])
+
+  useEffect(() => {
+    if (selectedItem) {
+      const itemId = selectedItem.id || selectedItem._id
+      if (itemId) {
+        fetchLedgerEntries(String(itemId))
+      }
+    }
+  }, [filterWarehouse, filterDocumentType, filterDateFrom, filterDateTo, selectedItem])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    )
   }
 
   return (
@@ -298,6 +290,13 @@ export default function ItemLedgerPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
+          <button
+            onClick={handleAddSampleData}
+            className="premium-button flex items-center space-x-2 space-x-reverse"
+          >
+            <Plus className="w-5 h-5" />
+            <span>داده نمونه</span>
+          </button>
           <button
             onClick={handleRefresh}
             className="premium-button flex items-center space-x-2 space-x-reverse"
@@ -435,7 +434,7 @@ export default function ItemLedgerPage() {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredItems.map(item => (
-                <tr key={item.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                <tr key={item.id || item._id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-3 space-x-reverse">
                       <Package className="w-5 h-5 text-primary-600" />
@@ -445,11 +444,11 @@ export default function ItemLedgerPage() {
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono">{item.code}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.category}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unit}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.currentStock}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.currentValue.toLocaleString('fa-IR')} تومان</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.averagePrice.toLocaleString('fa-IR')} تومان</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.currentStock || 0}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{(item.currentValue || 0).toLocaleString('fa-IR')} تومان</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{(item.averagePrice || 0).toLocaleString('fa-IR')} تومان</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
-                    <span className="text-xs">{getValuationMethodText(item.valuationMethod)}</span>
+                    <span className="text-xs">{getValuationMethodText(item.valuationMethod || 'weighted_average')}</span>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-2 space-x-reverse">
@@ -553,6 +552,7 @@ export default function ItemLedgerPage() {
                       <th className="px-4 py-3">نوع سند</th>
                       <th className="px-4 py-3">شرح</th>
                       <th className="px-4 py-3">انبار</th>
+                      <th className="px-4 py-3">کاربر</th>
                       <th className="px-4 py-3">ورودی</th>
                       <th className="px-4 py-3">خروجی</th>
                       <th className="px-4 py-3">قیمت واحد</th>
@@ -565,8 +565,10 @@ export default function ItemLedgerPage() {
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                     {filteredLedgerEntries.map(entry => (
-                      <tr key={entry.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                        <td className="px-4 py-3 text-gray-900 dark:text-white">{entry.date}</td>
+                      <tr key={entry._id || entry.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                        <td className="px-4 py-3 text-gray-900 dark:text-white">
+                          {entry.date ? new Date(entry.date).toLocaleDateString('fa-IR') : entry.date}
+                        </td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono">{entry.documentNumber}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2 space-x-reverse">
@@ -576,16 +578,25 @@ export default function ItemLedgerPage() {
                         </td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.description}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.warehouse}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.user || entry.userId || '-'}</td>
                         <td className="px-4 py-3 text-green-600 dark:text-green-400">
                           {entry.quantityIn > 0 ? entry.quantityIn : '-'}
                         </td>
                         <td className="px-4 py-3 text-red-600 dark:text-red-400">
                           {entry.quantityOut > 0 ? entry.quantityOut : '-'}
                         </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.unitPrice.toLocaleString('fa-IR')}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.totalValue.toLocaleString('fa-IR')}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">{entry.runningBalance}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">{entry.runningValue.toLocaleString('fa-IR')}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                          {(entry.unitPrice || 0).toLocaleString('fa-IR')}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                          {(entry.totalValue || 0).toLocaleString('fa-IR')}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">
+                          {entry.runningBalance || 0}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">
+                          {(entry.runningValue || 0).toLocaleString('fa-IR')}
+                        </td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.reference}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate">{entry.notes}</td>
                       </tr>

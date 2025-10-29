@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Warehouse,
   Package,
@@ -30,30 +30,40 @@ import {
   DollarSign,
   Activity,
   FileText,
-  Bell
+  Bell,
+  Thermometer,
+  Droplets,
+  Phone,
+  Mail,
+  Save,
+  Loader
 } from 'lucide-react'
 
-interface Warehouse {
-  id: string
-  name: string
+interface WarehouseData {
+  _id: string
   code: string
+  name: string
+  type: 'main' | 'storage' | 'cold' | 'dry'
   location: string
-  manager: string
-  managerPhone: string
+  address: string
   capacity: number
-  currentStock: number
+  usedCapacity: number
+  availableCapacity: number
+  temperature?: number
+  humidity?: number
+  manager: string
+  phone: string
+  email: string
+  description: string
   status: 'active' | 'inactive' | 'maintenance'
+  isActive: boolean
   createdAt: string
-  lastUpdated: string
-  totalItems: number
-  lowStockItems: number
-  criticalStockItems: number
+  updatedAt: string
 }
 
 interface InventoryItem {
-  id: string
+  _id: string
   name: string
-  code: string
   category: string
   currentStock: number
   minStock: number
@@ -61,119 +71,18 @@ interface InventoryItem {
   unit: string
   unitPrice: number
   totalValue: number
-  lastMovement: string
-  status: 'normal' | 'low' | 'critical' | 'out_of_stock'
+  isLowStock: boolean
+  lastUpdated: string
 }
 
-const mockWarehouses: Warehouse[] = [
-  {
-    id: '1',
-    name: 'انبار اصلی',
-    code: 'WH-001',
-    location: 'تهران، خیابان ولیعصر',
-    manager: 'احمد محمدی',
-    managerPhone: '09123456789',
-    capacity: 1000,
-    currentStock: 750,
-    status: 'active',
-    createdAt: '1403/01/01',
-    lastUpdated: '1403/09/15',
-    totalItems: 150,
-    lowStockItems: 12,
-    criticalStockItems: 3
-  },
-  {
-    id: '2',
-    name: 'انبار مواد اولیه',
-    code: 'WH-002',
-    location: 'تهران، شهرک صنعتی',
-    manager: 'فاطمه کریمی',
-    managerPhone: '09123456790',
-    capacity: 500,
-    currentStock: 320,
-    status: 'active',
-    createdAt: '1403/02/15',
-    lastUpdated: '1403/09/14',
-    totalItems: 85,
-    lowStockItems: 8,
-    criticalStockItems: 2
-  },
-  {
-    id: '3',
-    name: 'انبار محصولات نهایی',
-    code: 'WH-003',
-    location: 'تهران، منطقه 12',
-    manager: 'رضا حسینی',
-    managerPhone: '09123456791',
-    capacity: 800,
-    currentStock: 450,
-    status: 'maintenance',
-    createdAt: '1403/03/01',
-    lastUpdated: '1403/09/10',
-    totalItems: 95,
-    lowStockItems: 5,
-    criticalStockItems: 1
-  }
-]
-
-const mockInventoryItems: InventoryItem[] = [
-  {
-    id: '1',
-    name: 'برنج ایرانی',
-    code: 'RICE-001',
-    category: 'مواد اولیه',
-    currentStock: 50,
-    minStock: 20,
-    maxStock: 100,
-    unit: 'کیلوگرم',
-    unitPrice: 45000,
-    totalValue: 2250000,
-    lastMovement: '1403/09/15',
-    status: 'normal'
-  },
-  {
-    id: '2',
-    name: 'گوشت گوساله',
-    code: 'MEAT-001',
-    category: 'مواد اولیه',
-    currentStock: 8,
-    minStock: 15,
-    maxStock: 50,
-    unit: 'کیلوگرم',
-    unitPrice: 180000,
-    totalValue: 1440000,
-    lastMovement: '1403/09/14',
-    status: 'low'
-  },
-  {
-    id: '3',
-    name: 'روغن آفتابگردان',
-    code: 'OIL-001',
-    category: 'مواد اولیه',
-    currentStock: 2,
-    minStock: 10,
-    maxStock: 30,
-    unit: 'لیتر',
-    unitPrice: 25000,
-    totalValue: 50000,
-    lastMovement: '1403/09/13',
-    status: 'critical'
-  },
-  {
-    id: '4',
-    name: 'پیاز',
-    code: 'VEG-001',
-    category: 'سبزیجات',
-    currentStock: 0,
-    minStock: 5,
-    maxStock: 20,
-    unit: 'کیلوگرم',
-    unitPrice: 8000,
-    totalValue: 0,
-    lastMovement: '1403/09/12',
-    status: 'out_of_stock'
-  }
-]
+interface WarehouseStats {
+  totalWarehouses: number
+  activeWarehouses: number
+  inactiveWarehouses: number
+  maintenanceWarehouses: number
+  totalCapacity: number
+  totalUsedCapacity: number
+}
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -193,77 +102,255 @@ const getStatusBadge = (status: string) => {
   }
 }
 
-const getStockStatusColor = (status: string) => {
-  switch (status) {
-    case 'normal': return 'text-green-600 dark:text-green-400'
-    case 'low': return 'text-yellow-600 dark:text-yellow-400'
-    case 'critical': return 'text-orange-600 dark:text-orange-400'
-    case 'out_of_stock': return 'text-red-600 dark:text-red-400'
-    default: return 'text-gray-600 dark:text-gray-400'
-  }
-}
-
-const getStockStatusBadge = (status: string) => {
-  switch (status) {
-    case 'normal': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">عادی</span>
-    case 'low': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">کم</span>
-    case 'critical': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">بحرانی</span>
-    case 'out_of_stock': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">تمام شده</span>
+const getTypeBadge = (type: string) => {
+  switch (type) {
+    case 'main': return <span className="status-badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">اصلی</span>
+    case 'storage': return <span className="status-badge bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">ذخیره</span>
+    case 'cold': return <span className="status-badge bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300">سرد</span>
+    case 'dry': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">خشک</span>
     default: return null
   }
 }
 
 export default function WarehousesPage() {
-  const [warehouses, setWarehouses] = useState<Warehouse[]>(mockWarehouses)
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>(mockInventoryItems)
+  const [warehouses, setWarehouses] = useState<WarehouseData[]>([])
+  const [stats, setStats] = useState<WarehouseStats>({
+    totalWarehouses: 0,
+    activeWarehouses: 0,
+    inactiveWarehouses: 0,
+    maintenanceWarehouses: 0,
+    totalCapacity: 0,
+    totalUsedCapacity: 0
+  })
+  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
-  const [filterWarehouse, setFilterWarehouse] = useState('all')
-  const [selectedWarehouse, setSelectedWarehouse] = useState<Warehouse | null>(null)
+  const [filterType, setFilterType] = useState('all')
+  const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseData | null>(null)
   const [showWarehouseModal, setShowWarehouseModal] = useState(false)
   const [showInventoryModal, setShowInventoryModal] = useState(false)
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingWarehouse, setEditingWarehouse] = useState<WarehouseData | null>(null)
 
+  // فرم ایجاد/ویرایش انبار
+  const [formData, setFormData] = useState({
+    name: '',
+    type: 'main',
+    location: '',
+    address: '',
+    capacity: 0,
+    usedCapacity: 0,
+    temperature: '',
+    humidity: '',
+    manager: '',
+    phone: '',
+    email: '',
+    description: '',
+    status: 'active'
+  })
+
+  // بارگذاری داده‌ها
+  const fetchWarehouses = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/warehouses')
+      const data = await response.json()
+      
+      if (data.success) {
+        setWarehouses(data.data)
+        setStats(data.stats)
+      }
+    } catch (error) {
+      console.error('Error fetching warehouses:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // بارگذاری آیتم‌های موجودی انبار
+  const fetchWarehouseInventory = async (warehouseId: string) => {
+    try {
+      const response = await fetch(`/api/warehouses/${warehouseId}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setInventoryItems(data.data.inventoryItems || [])
+      }
+    } catch (error) {
+      console.error('Error fetching warehouse inventory:', error)
+    }
+  }
+
+  // ایجاد انبار جدید
+  const handleCreateWarehouse = async () => {
+    try {
+      const response = await fetch('/api/warehouses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('انبار با موفقیت ایجاد شد')
+        setShowCreateModal(false)
+        resetForm()
+        fetchWarehouses()
+      } else {
+        alert('خطا در ایجاد انبار: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error creating warehouse:', error)
+      alert('خطا در ایجاد انبار')
+    }
+  }
+
+  // به‌روزرسانی انبار
+  const handleUpdateWarehouse = async () => {
+    if (!editingWarehouse) return
+
+    try {
+      const response = await fetch(`/api/warehouses/${editingWarehouse._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('انبار با موفقیت به‌روزرسانی شد')
+        setShowWarehouseModal(false)
+        setEditingWarehouse(null)
+        resetForm()
+        fetchWarehouses()
+      } else {
+        alert('خطا در به‌روزرسانی انبار: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error updating warehouse:', error)
+      alert('خطا در به‌روزرسانی انبار')
+    }
+  }
+
+  // حذف انبار
+  const handleDeleteWarehouse = async (warehouseId: string) => {
+    if (!confirm('آیا از حذف این انبار اطمینان دارید؟')) return
+
+    try {
+      const response = await fetch(`/api/warehouses/${warehouseId}`, {
+        method: 'DELETE',
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('انبار با موفقیت حذف شد')
+        fetchWarehouses()
+      } else {
+        alert('خطا در حذف انبار: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting warehouse:', error)
+      alert('خطا در حذف انبار')
+    }
+  }
+
+  // اضافه کردن داده‌های نمونه
+  const handleAddSampleData = async () => {
+    try {
+      const response = await fetch('/api/add-sample-warehouses', {
+        method: 'POST',
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('داده‌های نمونه با موفقیت اضافه شد')
+        fetchWarehouses()
+      } else {
+        alert('خطا در اضافه کردن داده‌های نمونه: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error adding sample data:', error)
+      alert('خطا در اضافه کردن داده‌های نمونه')
+    }
+  }
+
+  // بازنشانی فرم
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      type: 'main',
+      location: '',
+      address: '',
+      capacity: 0,
+      usedCapacity: 0,
+      temperature: '',
+      humidity: '',
+      manager: '',
+      phone: '',
+      email: '',
+      description: '',
+      status: 'active'
+    })
+  }
+
+  // شروع ویرایش
+  const handleEditWarehouse = (warehouse: WarehouseData) => {
+    setEditingWarehouse(warehouse)
+    setFormData({
+      name: warehouse.name,
+      type: warehouse.type,
+      location: warehouse.location,
+      address: warehouse.address,
+      capacity: warehouse.capacity,
+      usedCapacity: warehouse.usedCapacity,
+      temperature: warehouse.temperature?.toString() || '',
+      humidity: warehouse.humidity?.toString() || '',
+      manager: warehouse.manager,
+      phone: warehouse.phone,
+      email: warehouse.email,
+      description: warehouse.description,
+      status: warehouse.status
+    })
+    setShowWarehouseModal(true)
+  }
+
+  // مشاهده موجودی انبار
+  const handleViewInventory = async (warehouse: WarehouseData) => {
+    setSelectedWarehouse(warehouse)
+    await fetchWarehouseInventory(warehouse._id)
+    setShowInventoryModal(true)
+  }
+
+  // فیلتر انبارها
   const filteredWarehouses = warehouses.filter(warehouse =>
     (searchTerm === '' || 
       warehouse.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       warehouse.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      warehouse.location.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterStatus === 'all' || warehouse.status === filterStatus)
+      warehouse.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      warehouse.manager.toLowerCase().includes(searchTerm.toLowerCase())) &&
+    (filterStatus === 'all' || warehouse.status === filterStatus) &&
+    (filterType === 'all' || warehouse.type === filterType)
   )
 
-  const filteredInventoryItems = inventoryItems.filter(item =>
-    (searchTerm === '' || 
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.category.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterWarehouse === 'all' || selectedWarehouse?.id === filterWarehouse)
-  )
+  useEffect(() => {
+    fetchWarehouses()
+  }, [])
 
-  const totalWarehouses = warehouses.length
-  const activeWarehouses = warehouses.filter(w => w.status === 'active').length
-  const totalItems = warehouses.reduce((sum, w) => sum + w.totalItems, 0)
-  const lowStockItems = warehouses.reduce((sum, w) => sum + w.lowStockItems, 0)
-  const criticalStockItems = warehouses.reduce((sum, w) => sum + w.criticalStockItems, 0)
-
-  const handleCreateWarehouse = () => {
-    setShowWarehouseModal(true)
-  }
-
-  const handleViewInventory = (warehouse: Warehouse) => {
-    setSelectedWarehouse(warehouse)
-    setShowInventoryModal(true)
-  }
-
-  const handleTransfer = (warehouse: Warehouse) => {
-    alert(`انتقال از انبار ${warehouse.name} شروع شد.`)
-  }
-
-  const handleExport = () => {
-    alert('گزارش انبارها به صورت Excel صادر شد.')
-  }
-
-  const handlePrint = () => {
-    window.print()
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    )
   }
 
   return (
@@ -277,23 +364,24 @@ export default function WarehousesPage() {
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
           <button
-            onClick={handleCreateWarehouse}
+            onClick={() => setShowCreateModal(true)}
             className="premium-button flex items-center space-x-2 space-x-reverse"
           >
             <Plus className="w-5 h-5" />
             <span>انبار جدید</span>
           </button>
           <button
-            onClick={handlePrint}
-            className="premium-button p-3"
+            onClick={handleAddSampleData}
+            className="premium-button flex items-center space-x-2 space-x-reverse"
           >
-            <Printer className="w-5 h-5" />
+            <Package className="w-5 h-5" />
+            <span>داده نمونه</span>
           </button>
           <button
-            onClick={handleExport}
+            onClick={fetchWarehouses}
             className="premium-button p-3"
           >
-            <Download className="w-5 h-5" />
+            <RefreshCw className="w-5 h-5" />
           </button>
         </div>
       </div>
@@ -305,35 +393,35 @@ export default function WarehousesPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل انبارها</h3>
             <Warehouse className="w-6 h-6 text-primary-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalWarehouses}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">انبار فعال: {activeWarehouses}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalWarehouses}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">انبار فعال: {stats.activeWarehouses}</p>
         </div>
 
         <div className="premium-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل آیتم‌ها</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">ظرفیت کل</h3>
             <Package className="w-6 h-6 text-success-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalItems}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">آیتم در انبارها</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalCapacity.toLocaleString('fa-IR')}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">واحد ظرفیت</p>
         </div>
 
         <div className="premium-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">موجودی کم</h3>
-            <AlertTriangle className="w-6 h-6 text-warning-600" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">ظرفیت استفاده شده</h3>
+            <TrendingUp className="w-6 h-6 text-warning-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{lowStockItems}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">آیتم نیاز به تامین</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalUsedCapacity.toLocaleString('fa-IR')}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">واحد استفاده شده</p>
         </div>
 
         <div className="premium-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">موجودی بحرانی</h3>
-            <XCircle className="w-6 h-6 text-danger-600" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">در تعمیرات</h3>
+            <AlertTriangle className="w-6 h-6 text-danger-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{criticalStockItems}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">آیتم بحرانی</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.maintenanceWarehouses}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">انبار در تعمیرات</p>
         </div>
       </div>
 
@@ -362,15 +450,19 @@ export default function WarehousesPage() {
           </select>
           <select
             className="premium-input"
-            value={filterWarehouse}
-            onChange={(e) => setFilterWarehouse(e.target.value)}
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
           >
-            <option value="all">همه انبارها</option>
-            {warehouses.map(warehouse => (
-              <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>
-            ))}
+            <option value="all">همه انواع</option>
+            <option value="main">اصلی</option>
+            <option value="storage">ذخیره</option>
+            <option value="cold">سرد</option>
+            <option value="dry">خشک</option>
           </select>
-          <button className="premium-button flex items-center justify-center space-x-2 space-x-reverse">
+          <button 
+            onClick={fetchWarehouses}
+            className="premium-button flex items-center justify-center space-x-2 space-x-reverse"
+          >
             <RefreshCw className="w-5 h-5" />
             <span>بروزرسانی</span>
           </button>
@@ -383,39 +475,41 @@ export default function WarehousesPage() {
               <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
                 <th className="px-4 py-3 rounded-r-lg">نام انبار</th>
                 <th className="px-4 py-3">کد</th>
+                <th className="px-4 py-3">نوع</th>
                 <th className="px-4 py-3">مکان</th>
                 <th className="px-4 py-3">مدیر</th>
                 <th className="px-4 py-3">ظرفیت</th>
-                <th className="px-4 py-3">موجودی فعلی</th>
+                <th className="px-4 py-3">استفاده شده</th>
                 <th className="px-4 py-3">وضعیت</th>
-                <th className="px-4 py-3">آیتم‌ها</th>
-                <th className="px-4 py-3">هشدارها</th>
                 <th className="px-4 py-3 rounded-l-lg">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {filteredWarehouses.map(warehouse => (
-                <tr key={warehouse.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                <tr key={warehouse._id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-3 space-x-reverse">
                       <Warehouse className="w-5 h-5 text-primary-600" />
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white">{warehouse.name}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{warehouse.managerPhone}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{warehouse.phone}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono">{warehouse.code}</td>
+                  <td className="px-4 py-3">
+                    {getTypeBadge(warehouse.type)}
+                  </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{warehouse.location}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{warehouse.manager}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{warehouse.capacity}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{warehouse.capacity.toLocaleString('fa-IR')}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
                     <div className="flex items-center space-x-2 space-x-reverse">
-                      <span>{warehouse.currentStock}</span>
+                      <span>{warehouse.usedCapacity.toLocaleString('fa-IR')}</span>
                       <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                         <div 
                           className="bg-primary-600 h-2 rounded-full" 
-                          style={{ width: `${(warehouse.currentStock / warehouse.capacity) * 100}%` }}
+                          style={{ width: `${warehouse.capacity > 0 ? (warehouse.usedCapacity / warehouse.capacity) * 100 : 0}%` }}
                         ></div>
                       </div>
                     </div>
@@ -423,33 +517,28 @@ export default function WarehousesPage() {
                   <td className="px-4 py-3">
                     {getStatusBadge(warehouse.status)}
                   </td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{warehouse.totalItems}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center space-x-1 space-x-reverse">
-                      {warehouse.lowStockItems > 0 && (
-                        <span className="text-yellow-600 text-sm">{warehouse.lowStockItems}</span>
-                      )}
-                      {warehouse.criticalStockItems > 0 && (
-                        <span className="text-red-600 text-sm">{warehouse.criticalStockItems}</span>
-                      )}
-                    </div>
-                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center space-x-2 space-x-reverse">
                       <button
                         onClick={() => handleViewInventory(warehouse)}
                         className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                        title="مشاهده موجودی"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleTransfer(warehouse)}
+                        onClick={() => handleEditWarehouse(warehouse)}
                         className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                        title="ویرایش"
                       >
-                        <ArrowRightLeft className="w-4 h-4" />
-                      </button>
-                      <button className="p-1 rounded-full text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors">
                         <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteWarehouse(warehouse._id)}
+                        className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                        title="حذف"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
@@ -459,6 +548,212 @@ export default function WarehousesPage() {
           </table>
         </div>
       </div>
+
+      {/* Create/Edit Warehouse Modal */}
+      {(showCreateModal || editingWarehouse) && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {editingWarehouse ? 'ویرایش انبار' : 'انبار جدید'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false)
+                  setEditingWarehouse(null)
+                  resetForm()
+                }}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault()
+              if (editingWarehouse) {
+                handleUpdateWarehouse()
+              } else {
+                handleCreateWarehouse()
+              }
+            }} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    نام انبار *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="premium-input w-full"
+                    value={formData.name}
+                    onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    نوع انبار
+                  </label>
+                  <select
+                    className="premium-input w-full"
+                    value={formData.type}
+                    onChange={(e) => setFormData({...formData, type: e.target.value as any})}
+                  >
+                    <option value="main">اصلی</option>
+                    <option value="storage">ذخیره</option>
+                    <option value="cold">سرد</option>
+                    <option value="dry">خشک</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    مکان
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={formData.location}
+                    onChange={(e) => setFormData({...formData, location: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    آدرس
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={formData.address}
+                    onChange={(e) => setFormData({...formData, address: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    ظرفیت
+                  </label>
+                  <input
+                    type="number"
+                    className="premium-input w-full"
+                    value={formData.capacity}
+                    onChange={(e) => setFormData({...formData, capacity: parseInt(e.target.value) || 0})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    ظرفیت استفاده شده
+                  </label>
+                  <input
+                    type="number"
+                    className="premium-input w-full"
+                    value={formData.usedCapacity}
+                    onChange={(e) => setFormData({...formData, usedCapacity: parseInt(e.target.value) || 0})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    دما (سانتی‌گراد)
+                  </label>
+                  <input
+                    type="number"
+                    className="premium-input w-full"
+                    value={formData.temperature}
+                    onChange={(e) => setFormData({...formData, temperature: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    رطوبت (%)
+                  </label>
+                  <input
+                    type="number"
+                    className="premium-input w-full"
+                    value={formData.humidity}
+                    onChange={(e) => setFormData({...formData, humidity: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    مدیر
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={formData.manager}
+                    onChange={(e) => setFormData({...formData, manager: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    تلفن
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    ایمیل
+                  </label>
+                  <input
+                    type="email"
+                    className="premium-input w-full"
+                    value={formData.email}
+                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    وضعیت
+                  </label>
+                  <select
+                    className="premium-input w-full"
+                    value={formData.status}
+                    onChange={(e) => setFormData({...formData, status: e.target.value as any})}
+                  >
+                    <option value="active">فعال</option>
+                    <option value="inactive">غیرفعال</option>
+                    <option value="maintenance">تعمیرات</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  توضیحات
+                </label>
+                <textarea
+                  className="premium-input w-full"
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) => setFormData({...formData, description: e.target.value})}
+                />
+              </div>
+              <div className="flex items-center justify-end space-x-3 space-x-reverse">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateModal(false)
+                    setEditingWarehouse(null)
+                    resetForm()
+                  }}
+                  className="premium-button bg-gray-500 hover:bg-gray-600"
+                >
+                  لغو
+                </button>
+                <button
+                  type="submit"
+                  className="premium-button flex items-center space-x-2 space-x-reverse"
+                >
+                  <Save className="w-5 h-5" />
+                  <span>{editingWarehouse ? 'به‌روزرسانی' : 'ایجاد'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Inventory Items Modal */}
       {showInventoryModal && selectedWarehouse && (
@@ -481,7 +776,6 @@ export default function WarehousesPage() {
                 <thead>
                   <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
                     <th className="px-4 py-3 rounded-r-lg">نام آیتم</th>
-                    <th className="px-4 py-3">کد</th>
                     <th className="px-4 py-3">دسته‌بندی</th>
                     <th className="px-4 py-3">موجودی فعلی</th>
                     <th className="px-4 py-3">حداقل</th>
@@ -490,20 +784,18 @@ export default function WarehousesPage() {
                     <th className="px-4 py-3">قیمت واحد</th>
                     <th className="px-4 py-3">ارزش کل</th>
                     <th className="px-4 py-3">وضعیت</th>
-                    <th className="px-4 py-3">آخرین حرکت</th>
-                    <th className="px-4 py-3 rounded-l-lg">عملیات</th>
+                    <th className="px-4 py-3 rounded-l-lg">آخرین به‌روزرسانی</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredInventoryItems.map(item => (
-                    <tr key={item.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                  {inventoryItems.map(item => (
+                    <tr key={item._id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-3 space-x-reverse">
                           <Package className="w-5 h-5 text-primary-600" />
                           <span className="font-medium text-gray-900 dark:text-white">{item.name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono">{item.code}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.category}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.currentStock}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.minStock}</td>
@@ -512,18 +804,14 @@ export default function WarehousesPage() {
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unitPrice.toLocaleString('fa-IR')}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.totalValue.toLocaleString('fa-IR')}</td>
                       <td className="px-4 py-3">
-                        {getStockStatusBadge(item.status)}
+                        {item.isLowStock ? (
+                          <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">کم‌موجود</span>
+                        ) : (
+                          <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">عادی</span>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.lastMovement}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center space-x-2 space-x-reverse">
-                          <button className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                        </div>
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                        {new Date(item.lastUpdated).toLocaleDateString('fa-IR')}
                       </td>
                     </tr>
                   ))}

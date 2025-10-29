@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   FileCheck,
   Package,
@@ -46,10 +46,12 @@ import {
   Send,
   Play,
   Pause,
-  Square
+  Square,
+  Loader
 } from 'lucide-react'
 
 interface InventoryCount {
+  _id?: string
   id: string
   countNumber: string
   type: 'cycle' | 'full'
@@ -57,8 +59,8 @@ interface InventoryCount {
   status: 'draft' | 'in_progress' | 'completed' | 'cancelled'
   createdBy: string
   createdDate: string
-  startedDate: string
-  completedDate: string
+  startedDate: string | null
+  completedDate: string | null
   totalItems: number
   countedItems: number
   discrepancies: number
@@ -68,24 +70,26 @@ interface InventoryCount {
 }
 
 interface CountItem {
+  _id?: string
   id: string
   itemName: string
   itemCode: string
   category: string
   unit: string
   systemQuantity: number
-  countedQuantity: number
+  countedQuantity: number | null
   discrepancy: number
   unitPrice: number
   systemValue: number
   countedValue: number
   discrepancyValue: number
-  countedBy: string
-  countedDate: string
+  countedBy: string | null
+  countedDate: string | null
   notes: string
 }
 
 interface Adjustment {
+  _id?: string
   id: string
   adjustmentNumber: string
   countId: string
@@ -100,7 +104,7 @@ interface Adjustment {
 }
 
 interface AdjustmentItem {
-  id: string
+  itemId: string
   itemName: string
   itemCode: string
   quantity: number
@@ -108,149 +112,6 @@ interface AdjustmentItem {
   totalValue: number
   reason: string
 }
-
-const mockInventoryCounts: InventoryCount[] = [
-  {
-    id: '1',
-    countNumber: 'CNT-001',
-    type: 'cycle',
-    warehouse: 'انبار اصلی',
-    status: 'completed',
-    createdBy: 'احمد محمدی',
-    createdDate: '1403/09/10',
-    startedDate: '1403/09/11',
-    completedDate: '1403/09/12',
-    totalItems: 50,
-    countedItems: 50,
-    discrepancies: 3,
-    totalValue: 15000000,
-    discrepancyValue: 250000,
-    notes: 'شمارش دوره‌ای انبار اصلی'
-  },
-  {
-    id: '2',
-    countNumber: 'CNT-002',
-    type: 'full',
-    warehouse: 'انبار مواد اولیه',
-    status: 'in_progress',
-    createdBy: 'فاطمه کریمی',
-    createdDate: '1403/09/15',
-    startedDate: '1403/09/15',
-    completedDate: '',
-    totalItems: 30,
-    countedItems: 15,
-    discrepancies: 0,
-    totalValue: 8000000,
-    discrepancyValue: 0,
-    notes: 'شمارش کامل انبار مواد اولیه'
-  },
-  {
-    id: '3',
-    countNumber: 'CNT-003',
-    type: 'cycle',
-    warehouse: 'انبار محصولات نهایی',
-    status: 'draft',
-    createdBy: 'رضا حسینی',
-    createdDate: '1403/09/16',
-    startedDate: '',
-    completedDate: '',
-    totalItems: 25,
-    countedItems: 0,
-    discrepancies: 0,
-    totalValue: 5000000,
-    discrepancyValue: 0,
-    notes: 'شمارش دوره‌ای انبار محصولات نهایی'
-  }
-]
-
-const mockCountItems: CountItem[] = [
-  {
-    id: '1',
-    itemName: 'برنج ایرانی',
-    itemCode: 'RICE-001',
-    category: 'مواد اولیه',
-    unit: 'کیلوگرم',
-    systemQuantity: 50,
-    countedQuantity: 48,
-    discrepancy: -2,
-    unitPrice: 45000,
-    systemValue: 2250000,
-    countedValue: 2160000,
-    discrepancyValue: -90000,
-    countedBy: 'احمد محمدی',
-    countedDate: '1403/09/12',
-    notes: 'کمبود 2 کیلوگرم'
-  },
-  {
-    id: '2',
-    itemName: 'گوشت گوساله',
-    itemCode: 'MEAT-001',
-    category: 'مواد اولیه',
-    unit: 'کیلوگرم',
-    systemQuantity: 8,
-    countedQuantity: 9,
-    discrepancy: 1,
-    unitPrice: 180000,
-    systemValue: 1440000,
-    countedValue: 1620000,
-    discrepancyValue: 180000,
-    countedBy: 'احمد محمدی',
-    countedDate: '1403/09/12',
-    notes: 'زیادی 1 کیلوگرم'
-  },
-  {
-    id: '3',
-    itemName: 'روغن آفتابگردان',
-    itemCode: 'OIL-001',
-    category: 'مواد اولیه',
-    unit: 'لیتر',
-    systemQuantity: 2,
-    countedQuantity: 1,
-    discrepancy: -1,
-    unitPrice: 25000,
-    systemValue: 50000,
-    countedValue: 25000,
-    discrepancyValue: -25000,
-    countedBy: 'احمد محمدی',
-    countedDate: '1403/09/12',
-    notes: 'کمبود 1 لیتر'
-  }
-]
-
-const mockAdjustments: Adjustment[] = [
-  {
-    id: '1',
-    adjustmentNumber: 'ADJ-001',
-    countId: '1',
-    warehouse: 'انبار اصلی',
-    type: 'decrease',
-    totalItems: 2,
-    totalValue: 115000,
-    createdBy: 'احمد محمدی',
-    createdDate: '1403/09/13',
-    status: 'posted',
-    items: [
-      {
-        id: '1',
-        itemName: 'برنج ایرانی',
-        itemCode: 'RICE-001',
-        quantity: -2,
-        unitPrice: 45000,
-        totalValue: -90000,
-        reason: 'کمبود در شمارش'
-      },
-      {
-        id: '2',
-        itemName: 'روغن آفتابگردان',
-        itemCode: 'OIL-001',
-        quantity: -1,
-        unitPrice: 25000,
-        totalValue: -25000,
-        reason: 'کمبود در شمارش'
-      }
-    ]
-  }
-]
 
 const getCountTypeColor = (type: string) => {
   switch (type) {
@@ -298,10 +159,16 @@ const getDiscrepancyColor = (discrepancy: number) => {
   return 'text-gray-600 dark:text-gray-400'
 }
 
+const formatDate = (dateString: string | null) => {
+  if (!dateString) return '-'
+  const date = new Date(dateString)
+  return date.toLocaleDateString('fa-IR')
+}
+
 export default function InventoryAuditPage() {
-  const [inventoryCounts, setInventoryCounts] = useState<InventoryCount[]>(mockInventoryCounts)
-  const [countItems, setCountItems] = useState<CountItem[]>(mockCountItems)
-  const [adjustments, setAdjustments] = useState<Adjustment[]>(mockAdjustments)
+  const [inventoryCounts, setInventoryCounts] = useState<InventoryCount[]>([])
+  const [countItems, setCountItems] = useState<CountItem[]>([])
+  const [adjustments, setAdjustments] = useState<Adjustment[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
@@ -310,16 +177,103 @@ export default function InventoryAuditPage() {
   const [showCountModal, setShowCountModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [activeTab, setActiveTab] = useState<'counts' | 'adjustments' | 'reports'>('counts')
+  const [loading, setLoading] = useState(false)
+  const [warehouses, setWarehouses] = useState<string[]>([])
+  const [allWarehouses, setAllWarehouses] = useState<any[]>([])
+  const [createForm, setCreateForm] = useState({
+    type: 'cycle' as 'cycle' | 'full',
+    warehouse: '',
+    createdBy: 'کاربر سیستم',
+    notes: ''
+  })
+  const [createLoading, setCreateLoading] = useState(false)
 
-  const filteredCounts = inventoryCounts.filter(count =>
-    (searchTerm === '' || 
-      count.countNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      count.warehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      count.createdBy.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterStatus === 'all' || count.status === filterStatus) &&
-    (filterType === 'all' || count.type === filterType) &&
-    (filterWarehouse === 'all' || count.warehouse === filterWarehouse)
-  )
+  // بارگذاری انبارها
+  const fetchWarehouses = useCallback(async () => {
+    try {
+      const response = await fetch('/api/warehouses?status=active&limit=100')
+      const data = await response.json()
+      if (data.success) {
+        setAllWarehouses(data.data)
+        const warehouseNames = data.data.map((w: any) => w.name)
+        setWarehouses(warehouseNames)
+      }
+    } catch (error) {
+      console.error('Error fetching warehouses:', error)
+    }
+  }, [])
+
+  // بارگذاری شمارش‌ها
+  const fetchCounts = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (searchTerm) params.append('search', searchTerm)
+      if (filterStatus !== 'all') params.append('status', filterStatus)
+      if (filterType !== 'all') params.append('type', filterType)
+      if (filterWarehouse !== 'all') params.append('warehouse', filterWarehouse)
+
+      const response = await fetch(`/api/inventory-counts?${params.toString()}`)
+      const data = await response.json()
+      if (data.success) {
+        setInventoryCounts(data.data)
+        // استخراج لیست انبارها
+        const uniqueWarehouses = [...new Set(data.data.map((c: InventoryCount) => c.warehouse))]
+        setWarehouses(uniqueWarehouses)
+      }
+    } catch (error) {
+      console.error('Error fetching counts:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [searchTerm, filterStatus, filterType, filterWarehouse])
+
+  // بارگذاری تعدیلات
+  const fetchAdjustments = useCallback(async () => {
+    try {
+      const response = await fetch('/api/adjustments')
+      const data = await response.json()
+      if (data.success) {
+        setAdjustments(data.data)
+      }
+    } catch (error) {
+      console.error('Error fetching adjustments:', error)
+    }
+  }, [])
+
+  // بارگذاری آیتم‌های شمارش
+  const fetchCountItems = useCallback(async (countId: string) => {
+    try {
+      const response = await fetch(`/api/count-items?countId=${countId}`)
+      const data = await response.json()
+      if (data.success) {
+        setCountItems(data.data)
+      }
+    } catch (error) {
+      console.error('Error fetching count items:', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAdjustments()
+  }, [fetchAdjustments])
+
+  useEffect(() => {
+    fetchWarehouses()
+  }, [fetchWarehouses])
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchCounts()
+    }, searchTerm ? 500 : 0)
+    return () => clearTimeout(timeoutId)
+  }, [fetchCounts, searchTerm])
+
+  useEffect(() => {
+    if (selectedCount?.id) {
+      fetchCountItems(selectedCount.id)
+    }
+  }, [selectedCount?.id, fetchCountItems])
 
   const totalCounts = inventoryCounts.length
   const completedCounts = inventoryCounts.filter(c => c.status === 'completed').length
@@ -331,40 +285,159 @@ export default function InventoryAuditPage() {
     setShowCreateModal(true)
   }
 
-  const handleViewCount = (count: InventoryCount) => {
+  const handleSubmitCreateCount = async () => {
+    if (!createForm.warehouse || !createForm.createdBy) {
+      alert('لطفاً انبار و ایجادکننده را انتخاب کنید')
+      return
+    }
+
+    try {
+      setCreateLoading(true)
+      const response = await fetch('/api/inventory-counts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: createForm.type,
+          warehouse: createForm.warehouse,
+          createdBy: createForm.createdBy,
+          notes: createForm.notes
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchCounts()
+        setShowCreateModal(false)
+        setCreateForm({
+          type: 'cycle',
+          warehouse: '',
+          createdBy: 'کاربر سیستم',
+          notes: ''
+        })
+        alert('شمارش با موفقیت ایجاد شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error creating count:', error)
+      alert('خطا در ایجاد شمارش')
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
+  const handleViewCount = async (count: InventoryCount) => {
     setSelectedCount(count)
     setShowCountModal(true)
+    await fetchCountItems(count.id)
   }
 
-  const handleStartCount = (countId: string) => {
-    setInventoryCounts(prev => prev.map(count => 
-      count.id === countId 
-        ? { ...count, status: 'in_progress' as const, startedDate: '1403/09/16' }
-        : count
-    ))
-    alert('شمارش شروع شد.')
+  const handleStartCount = async (countId: string) => {
+    try {
+      const response = await fetch(`/api/inventory-counts/${countId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'in_progress' })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchCounts()
+        alert('شمارش شروع شد.')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error starting count:', error)
+      alert('خطا در شروع شمارش')
+    }
   }
 
-  const handleCompleteCount = (countId: string) => {
-    setInventoryCounts(prev => prev.map(count => 
-      count.id === countId 
-        ? { ...count, status: 'completed' as const, completedDate: '1403/09/16' }
-        : count
-    ))
-    alert('شمارش تکمیل شد.')
+  const handleCompleteCount = async (countId: string) => {
+    try {
+      const response = await fetch(`/api/inventory-counts/${countId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completed' })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchCounts()
+        alert('شمارش تکمیل شد.')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error completing count:', error)
+      alert('خطا در تکمیل شمارش')
+    }
   }
 
-  const handleCancelCount = (countId: string) => {
-    setInventoryCounts(prev => prev.map(count => 
-      count.id === countId 
-        ? { ...count, status: 'cancelled' as const }
-        : count
-    ))
-    alert('شمارش لغو شد.')
+  const handleCancelCount = async (countId: string) => {
+    try {
+      const response = await fetch(`/api/inventory-counts/${countId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchCounts()
+        alert('شمارش لغو شد.')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error cancelling count:', error)
+      alert('خطا در لغو شمارش')
+    }
   }
 
-  const handleCreateAdjustment = (countId: string) => {
-    alert('سند تعدیل ایجاد شد.')
+  const handleCreateAdjustment = async (countId: string) => {
+    try {
+      const response = await fetch('/api/adjustments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          countId,
+          createdBy: 'کاربر سیستم' // باید از context کاربر بگیرید
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchAdjustments()
+        alert('سند تعدیل ایجاد شد.')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error creating adjustment:', error)
+      alert('خطا در ایجاد تعدیل')
+    }
+  }
+
+  const handleAddSampleData = async () => {
+    if (!confirm('آیا می‌خواهید داده‌های نمونه اضافه شوند؟')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const response = await fetch('/api/add-sample-audit-data', {
+        method: 'POST'
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchCounts()
+        await fetchAdjustments()
+        alert(`داده‌های نمونه با موفقیت اضافه شد:\n- ${data.data.counts} شمارش\n- ${data.data.items} آیتم شمارش\n- ${data.data.adjustments} تعدیل`)
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error adding sample data:', error)
+      alert('خطا در اضافه کردن داده‌های نمونه')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleExport = () => {
@@ -385,6 +458,13 @@ export default function InventoryAuditPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
+          <button
+            onClick={handleAddSampleData}
+            className="premium-button flex items-center space-x-2 space-x-reverse"
+          >
+            <Database className="w-5 h-5" />
+            <span>داده نمونه</span>
+          </button>
           <button
             onClick={handleCreateCount}
             className="premium-button flex items-center space-x-2 space-x-reverse"
@@ -525,14 +605,19 @@ export default function InventoryAuditPage() {
                 onChange={(e) => setFilterWarehouse(e.target.value)}
               >
                 <option value="all">همه انبارها</option>
-                <option value="انبار اصلی">انبار اصلی</option>
-                <option value="انبار مواد اولیه">انبار مواد اولیه</option>
-                <option value="انبار محصولات نهایی">انبار محصولات نهایی</option>
+                {warehouses.map(wh => (
+                  <option key={wh} value={wh}>{wh}</option>
+                ))}
               </select>
             </div>
 
             {/* Counts Table */}
-            <div className="overflow-x-auto custom-scrollbar">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader className="w-8 h-8 animate-spin text-primary-600" />
+              </div>
+            ) : (
+              <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-right whitespace-nowrap">
                 <thead>
                   <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
@@ -550,7 +635,14 @@ export default function InventoryAuditPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredCounts.map(count => (
+                  {inventoryCounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                        هیچ شمارشی یافت نشد. برای شروع، داده‌های نمونه اضافه کنید.
+                      </td>
+                    </tr>
+                  ) : (
+                    inventoryCounts.map(count => (
                     <tr key={count.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-3 space-x-reverse">
@@ -563,7 +655,7 @@ export default function InventoryAuditPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{count.warehouse}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{count.createdBy}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{count.createdDate}</td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{formatDate(count.createdDate)}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{count.totalItems}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{count.countedItems}</td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{count.discrepancies}</td>
@@ -614,10 +706,12 @@ export default function InventoryAuditPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  ))
+                  )}
                 </tbody>
               </table>
-            </div>
+              </div>
+            )}
           </>
         )}
 
@@ -662,7 +756,7 @@ export default function InventoryAuditPage() {
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.totalItems}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.totalValue.toLocaleString('fa-IR')} تومان</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.createdBy}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.createdDate}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{formatDate(adjustment.createdDate)}</td>
                     <td className="px-4 py-3">
                       {getStatusBadge(adjustment.status)}
                     </td>
@@ -792,18 +886,18 @@ export default function InventoryAuditPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">تاریخ ایجاد:</span>
-                    <span className="text-gray-900 dark:text-white">{selectedCount.createdDate}</span>
+                    <span className="text-gray-900 dark:text-white">{formatDate(selectedCount.createdDate)}</span>
                   </div>
                   {selectedCount.startedDate && (
                     <div className="flex justify-between">
                       <span className="text-gray-600 dark:text-gray-400">تاریخ شروع:</span>
-                      <span className="text-gray-900 dark:text-white">{selectedCount.startedDate}</span>
+                      <span className="text-gray-900 dark:text-white">{formatDate(selectedCount.startedDate)}</span>
                     </div>
                   )}
                   {selectedCount.completedDate && (
                     <div className="flex justify-between">
                       <span className="text-gray-600 dark:text-gray-400">تاریخ تکمیل:</span>
-                      <span className="text-gray-900 dark:text-white">{selectedCount.completedDate}</span>
+                      <span className="text-gray-900 dark:text-white">{formatDate(selectedCount.completedDate)}</span>
                     </div>
                   )}
                 </div>
@@ -839,7 +933,7 @@ export default function InventoryAuditPage() {
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.category}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unit}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.systemQuantity}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.countedQuantity}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.countedQuantity ?? '-'}</td>
                         <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(item.discrepancy)}`}>
                           {item.discrepancy > 0 ? `+${item.discrepancy}` : item.discrepancy}
                         </td>
@@ -847,14 +941,118 @@ export default function InventoryAuditPage() {
                         <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(item.discrepancyValue)}`}>
                           {item.discrepancyValue > 0 ? `+${item.discrepancyValue.toLocaleString('fa-IR')}` : item.discrepancyValue.toLocaleString('fa-IR')}
                         </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.countedBy}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.countedDate}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.countedBy || '-'}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{formatDate(item.countedDate)}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate">{item.notes}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Count Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                ایجاد شمارش جدید
+              </h2>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  نوع شمارش <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="premium-input w-full"
+                  value={createForm.type}
+                  onChange={(e) => setCreateForm({ ...createForm, type: e.target.value as 'cycle' | 'full' })}
+                >
+                  <option value="cycle">دوره‌ای</option>
+                  <option value="full">کامل</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  انبار <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="premium-input w-full"
+                  value={createForm.warehouse}
+                  onChange={(e) => setCreateForm({ ...createForm, warehouse: e.target.value })}
+                >
+                  <option value="">انتخاب انبار</option>
+                  {allWarehouses.map(wh => (
+                    <option key={wh._id || wh.id} value={wh.name}>{wh.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  ایجادکننده <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={createForm.createdBy}
+                  onChange={(e) => setCreateForm({ ...createForm, createdBy: e.target.value })}
+                  placeholder="نام ایجادکننده"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  یادداشت
+                </label>
+                <textarea
+                  className="premium-input w-full"
+                  rows={3}
+                  value={createForm.notes}
+                  onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })}
+                  placeholder="یادداشت اختیاری..."
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                disabled={createLoading}
+              >
+                انصراف
+              </button>
+              <button
+                onClick={handleSubmitCreateCount}
+                className="premium-button flex items-center space-x-2 space-x-reverse"
+                disabled={createLoading}
+              >
+                {createLoading ? (
+                  <>
+                    <Loader className="w-5 h-5 animate-spin" />
+                    <span>در حال ایجاد...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-5 h-5" />
+                    <span>ایجاد شمارش</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
