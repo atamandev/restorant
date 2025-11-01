@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   Bell, 
   Mail, 
@@ -65,13 +65,14 @@ interface NotificationSettings {
 }
 
 interface NotificationTemplate {
-  id: string
+  id?: string
+  _id?: string
   name: string
   type: 'email' | 'sms' | 'push' | 'in-app'
   subject: string
   content: string
   isActive: boolean
-  lastUsed: string
+  lastUsed?: string | null
   usageCount: number
 }
 
@@ -159,10 +160,47 @@ const notificationTemplates: NotificationTemplate[] = [
 
 export default function NotificationsPage() {
   const [settings, setSettings] = useState<NotificationSettings>(initialSettings)
-  const [templates, setTemplates] = useState<NotificationTemplate[]>(notificationTemplates)
+  const [templates, setTemplates] = useState<NotificationTemplate[]>([])
   const [activeTab, setActiveTab] = useState('settings')
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [loading, setLoading] = useState(true)
+
+  // Fetch settings
+  const fetchSettings = useCallback(async () => {
+    try {
+      const response = await fetch('/api/notifications?type=settings')
+      const result = await response.json()
+      if (result.success && result.data) {
+        setSettings(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error)
+    }
+  }, [])
+
+  // Fetch templates
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const response = await fetch('/api/notifications?type=templates')
+      const result = await response.json()
+      if (result.success && result.data) {
+        setTemplates(result.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching templates:', error)
+    }
+  }, [])
+
+  // Load data on mount
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      await Promise.all([fetchSettings(), fetchTemplates()])
+      setLoading(false)
+    }
+    loadData()
+  }, [fetchSettings, fetchTemplates])
 
   const tabs = [
     { id: 'settings', name: 'تنظیمات اعلان‌ها', icon: Settings },
@@ -173,13 +211,30 @@ export default function NotificationsPage() {
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      setSaveStatus('success')
-      setTimeout(() => setSaveStatus('idle'), 3000)
+      const response = await fetch('/api/notifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'settings',
+          settings
+        })
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        setSaveStatus('success')
+        setTimeout(() => setSaveStatus('idle'), 3000)
+        await fetchSettings()
+      } else {
+        setSaveStatus('error')
+        setTimeout(() => setSaveStatus('idle'), 3000)
+        alert(`❌ ${result.message || 'خطا در ذخیره تنظیمات'}`)
+      }
     } catch (error) {
+      console.error('Error saving settings:', error)
       setSaveStatus('error')
       setTimeout(() => setSaveStatus('idle'), 3000)
+      alert('❌ خطا در ذخیره تنظیمات')
     } finally {
       setIsSaving(false)
     }
@@ -213,10 +268,31 @@ export default function NotificationsPage() {
     }))
   }
 
-  const toggleTemplate = (id: string) => {
-    setTemplates(templates.map(template => 
-      template.id === id ? { ...template, isActive: !template.isActive } : template
-    ))
+  const toggleTemplate = async (id: string) => {
+    try {
+      const template = templates.find(t => (t.id || t._id) === id)
+      if (!template) return
+      
+      const response = await fetch('/api/notifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'template',
+          id: template._id || template.id,
+          isActive: !template.isActive
+        })
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        await fetchTemplates()
+      } else {
+        alert(`❌ ${result.message || 'خطا در به‌روزرسانی قالب'}`)
+      }
+    } catch (error) {
+      console.error('Error toggling template:', error)
+      alert('❌ خطا در به‌روزرسانی قالب')
+    }
   }
 
   const getSaveButtonContent = () => {
@@ -312,6 +388,15 @@ export default function NotificationsPage() {
               {activeTab === 'settings' && (
                 <div>
                   <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">تنظیمات اعلان‌ها</h2>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-16">
+                      <div className="flex flex-col items-center space-y-4">
+                        <div className="w-12 h-12 border-4 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری تنظیمات...</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
                   
                   {/* Email Notifications */}
                   <div className="mb-8">
@@ -531,51 +616,72 @@ export default function NotificationsPage() {
                       {getSaveButtonContent()}
                     </button>
                   </div>
+                    </>
+                  )}
                 </div>
               )}
 
               {/* Templates Tab */}
               {activeTab === 'templates' && (
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">قالب‌های اعلان</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {templates.map((template) => (
-                      <div key={template.id} className="p-6 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center space-x-3 space-x-reverse">
-                            <span className={`p-2 rounded-lg ${getNotificationTypeColor(template.type)}`}>
-                              {getNotificationTypeIcon(template.type)}
-                            </span>
-                            <div>
-                              <h3 className="font-medium text-gray-900 dark:text-white">{template.name}</h3>
-                              <p className="text-sm text-gray-600 dark:text-gray-300">{template.type}</p>
-                            </div>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={template.isActive}
-                              onChange={() => toggleTemplate(template.id)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
-                          </label>
-                        </div>
-                        <div className="mb-4">
-                          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">موضوع:</h4>
-                          <p className="text-sm text-gray-900 dark:text-white">{template.subject}</p>
-                        </div>
-                        <div className="mb-4">
-                          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">محتوای:</h4>
-                          <p className="text-sm text-gray-900 dark:text-white">{template.content}</p>
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                          <span>آخرین استفاده: {template.lastUsed}</span>
-                          <span>تعداد استفاده: {template.usageCount}</span>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">قالب‌های اعلان</h2>
                   </div>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-16">
+                      <div className="flex flex-col items-center space-y-4">
+                        <div className="w-12 h-12 border-4 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری...</p>
+                      </div>
+                    </div>
+                  ) : templates.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16">
+                      <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
+                        <Mail className="w-10 h-10 text-gray-400" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ قالبی یافت نشد</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">قالب‌های اعلان در اینجا نمایش داده می‌شوند</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {templates.map((template) => (
+                        <div key={template._id || template.id} className="p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all duration-300">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center space-x-3 space-x-reverse">
+                              <span className={`p-3 rounded-xl shadow-lg ${getNotificationTypeColor(template.type)}`}>
+                                {getNotificationTypeIcon(template.type)}
+                              </span>
+                              <div>
+                                <h3 className="font-semibold text-gray-900 dark:text-white">{template.name}</h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-300">{template.type}</p>
+                              </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={template.isActive}
+                                onChange={() => toggleTemplate(template._id || template.id || '')}
+                                className="sr-only peer"
+                              />
+                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary-600"></div>
+                            </label>
+                          </div>
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">موضوع:</h4>
+                            <p className="text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-700 p-2 rounded-lg">{template.subject}</p>
+                          </div>
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">محتوای:</h4>
+                            <p className="text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-700 p-2 rounded-lg">{template.content}</p>
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-200 dark:border-gray-600">
+                            <span>آخرین استفاده: {template.lastUsed || 'هنوز استفاده نشده'}</span>
+                            <span className="font-semibold">استفاده: {template.usageCount}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

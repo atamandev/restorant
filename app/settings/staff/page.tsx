@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   Users, 
   UserPlus, 
@@ -23,11 +23,14 @@ import {
   AlertCircle,
   User,
   UserCheck,
-  UserX
+  UserX,
+  X,
+  XCircle
 } from 'lucide-react'
 
 interface StaffMember {
-  id: string
+  id?: string
+  _id?: string
   name: string
   email: string
   phone: string
@@ -37,7 +40,7 @@ interface StaffMember {
   salary: number
   status: 'active' | 'inactive' | 'suspended'
   permissions: string[]
-  lastLogin: string
+  lastLogin?: string | null
   avatar?: string
   address?: string
   emergencyContact?: string
@@ -51,132 +54,31 @@ interface StaffMember {
   }
 }
 
-const initialStaff: StaffMember[] = [
-  {
-    id: '1',
-    name: 'احمد محمدی',
-    email: 'ahmad@restaurant.com',
-    phone: '09123456789',
-    position: 'مدیر رستوران',
-    department: 'مدیریت',
-    hireDate: '1402/01/15',
-    salary: 15000000,
-    status: 'active',
-    permissions: ['admin', 'orders', 'inventory', 'reports', 'staff'],
-    lastLogin: '1403/01/20 14:30',
-    address: 'تهران، خیابان ولیعصر، پلاک 123',
-    emergencyContact: 'فاطمه محمدی',
-    emergencyPhone: '09123456790',
-    notes: 'مدیر با تجربه و مسئول',
-    performance: {
-      rating: 4.8,
-      totalOrders: 1250,
-      totalSales: 45000000,
-      customerSatisfaction: 4.7
-    }
-  },
-  {
-    id: '2',
-    name: 'سارا کریمی',
-    email: 'sara@restaurant.com',
-    phone: '09123456791',
-    position: 'منشی',
-    department: 'اداری',
-    hireDate: '1402/06/20',
-    salary: 8000000,
-    status: 'active',
-    permissions: ['orders', 'customers'],
-    lastLogin: '1403/01/20 13:45',
-    address: 'تهران، خیابان کریمخان، پلاک 456',
-    emergencyContact: 'علی کریمی',
-    emergencyPhone: '09123456792',
-    notes: 'منشی با تجربه و دقیق',
-    performance: {
-      rating: 4.5,
-      totalOrders: 850,
-      totalSales: 28000000,
-      customerSatisfaction: 4.6
-    }
-  },
-  {
-    id: '3',
-    name: 'رضا حسینی',
-    email: 'reza@restaurant.com',
-    phone: '09123456793',
-    position: 'آشپز',
-    department: 'آشپزخانه',
-    hireDate: '1402/03/10',
-    salary: 12000000,
-    status: 'active',
-    permissions: ['orders', 'inventory'],
-    lastLogin: '1403/01/20 12:15',
-    address: 'تهران، خیابان آزادی، پلاک 789',
-    emergencyContact: 'مریم حسینی',
-    emergencyPhone: '09123456794',
-    notes: 'آشپز ماهر و خلاق',
-    performance: {
-      rating: 4.7,
-      totalOrders: 2100,
-      totalSales: 75000000,
-      customerSatisfaction: 4.8
-    }
-  },
-  {
-    id: '4',
-    name: 'مریم نوری',
-    email: 'maryam@restaurant.com',
-    phone: '09123456795',
-    position: 'گارسون',
-    department: 'سرویس',
-    hireDate: '1403/01/05',
-    salary: 6000000,
-    status: 'active',
-    permissions: ['orders'],
-    lastLogin: '1403/01/20 15:20',
-    address: 'تهران، خیابان انقلاب، پلاک 321',
-    emergencyContact: 'حسن نوری',
-    emergencyPhone: '09123456796',
-    notes: 'گارسون جدید و پرانرژی',
-    performance: {
-      rating: 4.2,
-      totalOrders: 150,
-      totalSales: 5500000,
-      customerSatisfaction: 4.3
-    }
-  },
-  {
-    id: '5',
-    name: 'علی احمدی',
-    email: 'ali@restaurant.com',
-    phone: '09123456797',
-    position: 'حسابدار',
-    department: 'مالی',
-    hireDate: '1402/09/15',
-    salary: 10000000,
-    status: 'inactive',
-    permissions: ['reports', 'financial'],
-    lastLogin: '1403/01/18 16:00',
-    address: 'تهران، خیابان طالقانی، پلاک 654',
-    emergencyContact: 'زهرا احمدی',
-    emergencyPhone: '09123456798',
-    notes: 'حسابدار با تجربه',
-    performance: {
-      rating: 4.4,
-      totalOrders: 0,
-      totalSales: 0,
-      customerSatisfaction: 0
-    }
-  }
-]
+interface StaffStats {
+  totalStaff: number
+  activeStaff: number
+  inactiveStaff: number
+  suspendedStaff: number
+  totalSalary: number
+  averageRating: number
+  departmentStats: Array<{ _id: string; count: number }>
+  positionStats: Array<{ _id: string; count: number }>
+}
+
 
 export default function StaffManagementPage() {
-  const [staff, setStaff] = useState<StaffMember[]>(initialStaff)
+  const [staff, setStaff] = useState<StaffMember[]>([])
+  const [stats, setStats] = useState<StaffStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchDebounced, setSearchDebounced] = useState('')
   const [filterDepartment, setFilterDepartment] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [sortBy, setSortBy] = useState('name')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
 
   const [formData, setFormData] = useState({
     name: '',
@@ -198,69 +100,133 @@ export default function StaffManagementPage() {
   const positions = ['مدیر رستوران', 'منشی', 'آشپز', 'گارسون', 'حسابدار', 'فروشنده', 'انباردار']
   const availablePermissions = ['admin', 'orders', 'inventory', 'reports', 'staff', 'customers', 'financial']
 
-  const filteredStaff = staff.filter(member => {
-    const matchesSearch = member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         member.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         member.position.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesDepartment = filterDepartment === 'all' || member.department === filterDepartment
-    const matchesStatus = filterStatus === 'all' || member.status === filterStatus
-    return matchesSearch && matchesDepartment && matchesStatus
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'name': return a.name.localeCompare(b.name)
-      case 'position': return a.position.localeCompare(b.position)
-      case 'department': return a.department.localeCompare(b.department)
-      case 'hireDate': return new Date(b.hireDate).getTime() - new Date(a.hireDate).getTime()
-      case 'salary': return b.salary - a.salary
-      case 'performance': return b.performance.rating - a.performance.rating
-      default: return 0
-    }
-  })
+  // Fetch staff list
+  const fetchStaff = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (searchDebounced) params.append('search', searchDebounced)
+      if (filterDepartment !== 'all') params.append('department', filterDepartment)
+      if (filterStatus !== 'all') params.append('status', filterStatus)
+      params.append('sortBy', sortBy)
+      params.append('sortOrder', sortOrder)
+      params.append('limit', '100')
 
-  const handleSave = () => {
-    if (editingStaff) {
-      const updatedStaff = {
-        ...formData,
-        id: editingStaff.id,
-        lastLogin: editingStaff.lastLogin,
-        performance: editingStaff.performance
+      const response = await fetch(`/api/staff?${params.toString()}`)
+      const result = await response.json()
+      if (result.success) {
+        setStaff(result.data || [])
       }
-      setStaff(staff.map(member => member.id === editingStaff.id ? updatedStaff : member))
-    } else {
-      const newStaff: StaffMember = {
-        ...formData,
-        id: Date.now().toString(),
-        lastLogin: new Date().toLocaleString('fa-IR'),
-        performance: {
-          rating: 0,
-          totalOrders: 0,
-          totalSales: 0,
-          customerSatisfaction: 0
-        }
-      }
-      setStaff([...staff, newStaff])
+    } catch (error) {
+      console.error('Error fetching staff:', error)
+      alert('خطا در دریافت لیست کارکنان')
+    } finally {
+      setLoading(false)
     }
-    setShowForm(false)
-    setEditingStaff(null)
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      position: '',
-      department: '',
-      hireDate: '',
-      salary: 0,
-      status: 'active',
-      permissions: [],
-      address: '',
-      emergencyContact: '',
-      emergencyPhone: '',
-      notes: ''
-    })
+  }, [searchDebounced, filterDepartment, filterStatus, sortBy, sortOrder])
+
+  // Fetch stats
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await fetch('/api/staff?type=stats')
+      const result = await response.json()
+      if (result.success) {
+        setStats(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error)
+    }
+  }, [])
+
+  // Load data on mount
+  useEffect(() => {
+    fetchStaff()
+    fetchStats()
+  }, [fetchStaff, fetchStats])
+
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchDebounced(searchTerm)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Handle save staff member
+  const handleSave = async () => {
+    try {
+      if (!formData.name || !formData.email || !formData.position || !formData.department) {
+        alert('نام، ایمیل، سمت و بخش اجباری هستند')
+        return
+      }
+
+      setSaving(true)
+      
+      const method = editingStaff ? 'PUT' : 'POST'
+      const body = editingStaff
+        ? { ...formData, id: editingStaff._id || editingStaff.id }
+        : formData
+      
+      const response = await fetch('/api/staff', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        alert(editingStaff ? '✅ کارمند با موفقیت به‌روزرسانی شد' : '✅ کارمند با موفقیت ایجاد شد')
+        setShowForm(false)
+        setEditingStaff(null)
+        setFormData({
+          name: '',
+          email: '',
+          phone: '',
+          position: '',
+          department: '',
+          hireDate: '',
+          salary: 0,
+          status: 'active',
+          permissions: [],
+          address: '',
+          emergencyContact: '',
+          emergencyPhone: '',
+          notes: ''
+        })
+        await Promise.all([fetchStaff(), fetchStats()])
+      } else {
+        alert(`❌ ${result.message || 'خطا در ذخیره کارمند'}`)
+      }
+    } catch (error) {
+      console.error('Error saving staff:', error)
+      alert('❌ خطا در ذخیره کارمند')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const deleteStaff = (id: string) => {
-    setStaff(staff.filter(member => member.id !== id))
+  // Handle delete staff member
+  const handleDeleteStaff = async (id: string) => {
+    if (!confirm('آیا از حذف این کارمند اطمینان دارید؟')) {
+      return
+    }
+    
+    try {
+      const response = await fetch(`/api/staff?id=${id}`, {
+        method: 'DELETE'
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        alert('✅ کارمند با موفقیت حذف شد')
+        await Promise.all([fetchStaff(), fetchStats()])
+      } else {
+        alert(`❌ ${result.message || 'خطا در حذف کارمند'}`)
+      }
+    } catch (error) {
+      console.error('Error deleting staff:', error)
+      alert('❌ خطا در حذف کارمند')
+    }
   }
 
   const togglePermission = (permission: string) => {
@@ -290,10 +256,6 @@ export default function StaffManagementPage() {
     }
   }
 
-  const getTotalStaff = () => staff.length
-  const getActiveStaff = () => staff.filter(member => member.status === 'active').length
-  const getTotalSalary = () => staff.reduce((sum, member) => sum + member.salary, 0)
-  const getAveragePerformance = () => staff.length > 0 ? staff.reduce((sum, member) => sum + member.performance.rating, 0) / staff.length : 0
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800/80 dark:to-gray-900 p-6">
@@ -305,56 +267,58 @@ export default function StaffManagementPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="premium-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">کل کارکنان</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{getTotalStaff()}</p>
+        {stats && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div className="premium-card p-6 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border-l-4 border-blue-500 hover:shadow-xl transition-all duration-300 group">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                  <Users className="w-7 h-7 text-white" />
+                </div>
               </div>
-              <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">کل کارکنان</h3>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.totalStaff.toLocaleString('fa-IR')}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">کل کارکنان ثبت شده</p>
+            </div>
+            <div className="premium-card p-6 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 border-l-4 border-green-500 hover:shadow-xl transition-all duration-300 group">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                  <UserCheck className="w-7 h-7 text-white" />
+                </div>
               </div>
+              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">کارکنان فعال</h3>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.activeStaff.toLocaleString('fa-IR')}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">کارکنان فعال</p>
+            </div>
+            <div className="premium-card p-6 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 border-l-4 border-purple-500 hover:shadow-xl transition-all duration-300 group">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                  <DollarSign className="w-7 h-7 text-white" />
+                </div>
+              </div>
+              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">کل حقوق</h3>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.totalSalary.toLocaleString('fa-IR')}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">تومان</p>
+            </div>
+            <div className="premium-card p-6 bg-gradient-to-br from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 border-l-4 border-yellow-500 hover:shadow-xl transition-all duration-300 group">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-yellow-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                  <Star className="w-7 h-7 text-white" />
+                </div>
+              </div>
+              <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">میانگین عملکرد</h3>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.averageRating.toFixed(1)}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">از 5</p>
             </div>
           </div>
-          <div className="premium-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">کارکنان فعال</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{getActiveStaff()}</p>
-              </div>
-              <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-                <UserCheck className="w-6 h-6 text-green-600 dark:text-green-400" />
-              </div>
-            </div>
-          </div>
-          <div className="premium-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">کل حقوق</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {getTotalSalary().toLocaleString('fa-IR')} تومان
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-              </div>
-            </div>
-          </div>
-          <div className="premium-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">میانگین عملکرد</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {getAveragePerformance().toFixed(1)}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg flex items-center justify-center">
-                <Star className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Filters and Actions */}
         <div className="premium-card p-6 mb-8">
@@ -403,119 +367,214 @@ export default function StaffManagementPage() {
                 <option value="salary">حقوق</option>
                 <option value="performance">عملکرد</option>
               </select>
+              <button
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-700"
+                title={sortOrder === 'asc' ? 'صعودی' : 'نزولی'}
+              >
+                {sortOrder === 'asc' ? '↑' : '↓'}
+              </button>
+              <button
+                onClick={() => fetchStaff()}
+                className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-700"
+                disabled={loading}
+                title="بروزرسانی"
+              >
+                <Filter className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
             </div>
             <button
               onClick={() => setShowForm(true)}
-              className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              className="flex items-center space-x-2 space-x-reverse px-6 py-3 bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
             >
-              <UserPlus className="w-4 h-4" />
-              <span>کارمند جدید</span>
+              <UserPlus className="w-5 h-5" />
+              <span className="font-semibold">کارمند جدید</span>
             </button>
           </div>
         </div>
 
         {/* Staff Table */}
         <div className="premium-card p-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">لیست کارکنان</h2>
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center space-x-3 space-x-reverse">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <Users className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">لیست کارکنان</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">مدیریت اطلاعات و دسترسی‌های کارکنان</p>
+              </div>
+            </div>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-600/30">
-                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">نام کارمند</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">سمت</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">بخش</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">حقوق</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">عملکرد</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">وضعیت</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">عملیات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStaff.map((member) => (
-                  <tr key={member.id} className="border-b border-gray-100 dark:border-gray-700/30">
-                    <td className="py-4 px-4">
-                      <div className="flex items-center space-x-3 space-x-reverse">
-                        <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center">
-                          <User className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-white">{member.name}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">{member.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="text-gray-900 dark:text-white">{member.position}</span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm">
-                        {member.department}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="text-gray-900 dark:text-white">
-                        {member.salary.toLocaleString('fa-IR')} تومان
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center space-x-1 space-x-reverse">
-                        <Star className="w-4 h-4 text-yellow-500" />
-                        <span className="text-gray-900 dark:text-white">{member.performance.rating.toFixed(1)}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(member.status)}`}>
-                        {getStatusText(member.status)}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center space-x-2 space-x-reverse">
-                        <button
-                          onClick={() => {
-                            setEditingStaff(member)
-                            setFormData({
-                              name: member.name,
-                              email: member.email,
-                              phone: member.phone,
-                              position: member.position,
-                              department: member.department,
-                              hireDate: member.hireDate,
-                              salary: member.salary,
-                              status: member.status,
-                              permissions: member.permissions,
-                              address: member.address || '',
-                              emergencyContact: member.emergencyContact || '',
-                              emergencyPhone: member.emergencyPhone || '',
-                              notes: member.notes || ''
-                            })
-                            setShowForm(true)
-                          }}
-                          className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteStaff(member.id)}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="flex flex-col items-center space-y-4">
+                  <div className="w-12 h-12 border-4 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری...</p>
+                </div>
+              </div>
+            ) : staff.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
+                  <Users className="w-10 h-10 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ کارمندی یافت نشد</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">کارکنان در اینجا نمایش داده می‌شوند</p>
+                <button
+                  onClick={() => setShowForm(true)}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>افزودن کارمند جدید</span>
+                </button>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b-2 border-gray-200 dark:border-gray-600/30 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700">
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300">نام کارمند</th>
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300">سمت</th>
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300">بخش</th>
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300">حقوق</th>
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300">عملکرد</th>
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300">وضعیت</th>
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300">عملیات</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {staff.map((member) => (
+                    <tr key={member._id || member.id} className="border-b border-gray-100 dark:border-gray-700/30 hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-purple-50/50 dark:hover:from-gray-700 dark:hover:to-gray-700 transition-all duration-200 group">
+                      <td className="py-4 px-6">
+                        <div className="flex items-center space-x-3 space-x-reverse">
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                            <User className="w-5 h-5 text-white" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900 dark:text-white">{member.name}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">{member.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="text-gray-900 dark:text-white font-medium">{member.position}</span>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="px-3 py-1 bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium">
+                          {member.department}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="text-gray-900 dark:text-white font-medium">
+                          {member.salary.toLocaleString('fa-IR')} <span className="text-xs text-gray-500">تومان</span>
+                        </span>
+                      </td>
+                      <td className="py-4 px-6">
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          <Star className="w-5 h-5 text-yellow-500 fill-current" />
+                          <span className="text-gray-900 dark:text-white font-semibold">{member.performance.rating.toFixed(1)}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(member.status)}`}>
+                          {getStatusText(member.status)}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6">
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingStaff(member)
+                              setFormData({
+                                name: member.name,
+                                email: member.email,
+                                phone: member.phone,
+                                position: member.position,
+                                department: member.department,
+                                hireDate: member.hireDate,
+                                salary: member.salary,
+                                status: member.status,
+                                permissions: member.permissions,
+                                address: member.address || '',
+                                emergencyContact: member.emergencyContact || '',
+                                emergencyPhone: member.emergencyPhone || '',
+                                notes: member.notes || ''
+                              })
+                              setShowForm(true)
+                            }}
+                            className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-all hover:scale-110"
+                            title="ویرایش"
+                          >
+                            <Edit className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteStaff(member._id || member.id || '')
+                            }}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all hover:scale-110"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
         {/* Form Modal */}
         {showForm && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                {editingStaff ? 'ویرایش کارمند' : 'کارمند جدید'}
-              </h3>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+              <div className="relative px-6 py-5 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-t-2xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3 space-x-reverse">
+                    <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                      {editingStaff ? <Edit className="w-6 h-6 text-white" /> : <UserPlus className="w-6 h-6 text-white" />}
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold">
+                        {editingStaff ? 'ویرایش کارمند' : 'کارمند جدید'}
+                      </h3>
+                      <p className="text-sm text-white/90 mt-0.5">
+                        {editingStaff ? 'ویرایش اطلاعات کارمند' : 'افزودن کارمند جدید به سیستم'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowForm(false)
+                      setEditingStaff(null)
+                      setFormData({
+                        name: '',
+                        email: '',
+                        phone: '',
+                        position: '',
+                        department: '',
+                        hireDate: '',
+                        salary: 0,
+                        status: 'active',
+                        permissions: [],
+                        address: '',
+                        emergencyContact: '',
+                        emergencyPhone: '',
+                        notes: ''
+                      })
+                    }}
+                    className="p-2 rounded-xl hover:bg-white/20 transition-colors"
+                  >
+                    <XCircle className="w-6 h-6 text-white" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -687,38 +746,49 @@ export default function StaffManagementPage() {
                   />
                 </div>
               </div>
-              <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6">
-                <button
-                  onClick={() => {
-                    setShowForm(false)
-                    setEditingStaff(null)
-                    setFormData({
-                      name: '',
-                      email: '',
-                      phone: '',
-                      position: '',
-                      department: '',
-                      hireDate: '',
-                      salary: 0,
-                      status: 'active',
-                      permissions: [],
-                      address: '',
-                      emergencyContact: '',
-                      emergencyPhone: '',
-                      notes: ''
-                    })
-                  }}
-                  className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
-                >
-                  انصراف
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>ذخیره</span>
-                </button>
+                <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={() => {
+                      setShowForm(false)
+                      setEditingStaff(null)
+                      setFormData({
+                        name: '',
+                        email: '',
+                        phone: '',
+                        position: '',
+                        department: '',
+                        hireDate: '',
+                        salary: 0,
+                        status: 'active',
+                        permissions: [],
+                        address: '',
+                        emergencyContact: '',
+                        emergencyPhone: '',
+                        notes: ''
+                      })
+                    }}
+                    className="px-6 py-3 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold rounded-xl transition-all duration-200"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex items-center space-x-2 space-x-reverse px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {saving ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <span>در حال ذخیره...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>ذخیره</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

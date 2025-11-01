@@ -1,6 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import LineChart from '@/components/Charts/LineChart'
+import PieChart from '@/components/Charts/PieChart'
+import BarChart from '@/components/Charts/BarChart'
 import {
   Users,
   User,
@@ -22,8 +25,6 @@ import {
   ArrowDownLeft,
   Activity,
   BarChart3,
-  PieChart,
-  LineChart,
   DollarSign,
   Percent,
   Receipt,
@@ -109,155 +110,6 @@ interface TopSupplierData {
   paymentTerms: string
 }
 
-const mockPersonData: PersonData[] = [
-  {
-    id: '1',
-    name: 'علی احمدی',
-    type: 'customer',
-    category: 'مشتری VIP',
-    phone: '09123456789',
-    email: 'ali.ahmadi@email.com',
-    address: 'تهران، خیابان ولیعصر',
-    creditLimit: 5000000,
-    currentBalance: 2500000,
-    totalTransactions: 25,
-    totalAmount: 15000000,
-    lastTransactionDate: '1403/09/15',
-    averageTransactionAmount: 600000,
-    paymentTerms: '30 روز',
-    status: 'active',
-    notes: 'مشتری وفادار و منظم'
-  },
-  {
-    id: '2',
-    name: 'فاطمه کریمی',
-    type: 'customer',
-    category: 'مشتری عادی',
-    phone: '09123456790',
-    email: 'fateme.karimi@email.com',
-    address: 'تهران، خیابان کریمخان',
-    creditLimit: 2000000,
-    currentBalance: 800000,
-    totalTransactions: 15,
-    totalAmount: 8000000,
-    lastTransactionDate: '1403/09/14',
-    averageTransactionAmount: 533333,
-    paymentTerms: '15 روز',
-    status: 'active',
-    notes: 'پرداخت‌های منظم'
-  },
-  {
-    id: '3',
-    name: 'تامین‌کننده مواد غذایی',
-    type: 'supplier',
-    category: 'تامین‌کننده اصلی',
-    phone: '02112345678',
-    email: 'supplier@food.com',
-    address: 'تهران، شهرک صنعتی',
-    creditLimit: 10000000,
-    currentBalance: -3000000,
-    totalTransactions: 45,
-    totalAmount: 25000000,
-    lastTransactionDate: '1403/09/13',
-    averageTransactionAmount: 555556,
-    paymentTerms: '45 روز',
-    status: 'active',
-    notes: 'تامین‌کننده قابل اعتماد'
-  },
-  {
-    id: '4',
-    name: 'رضا حسینی',
-    type: 'customer',
-    category: 'مشتری جدید',
-    phone: '09123456791',
-    email: 'reza.hosseini@email.com',
-    address: 'تهران، خیابان آزادی',
-    creditLimit: 1000000,
-    currentBalance: 500000,
-    totalTransactions: 5,
-    totalAmount: 2000000,
-    lastTransactionDate: '1403/09/12',
-    averageTransactionAmount: 400000,
-    paymentTerms: 'نقدی',
-    status: 'active',
-    notes: 'مشتری جدید با پتانسیل بالا'
-  }
-]
-
-const mockTransactionData: TransactionData[] = [
-  {
-    id: '1',
-    date: '1403/09/15',
-    type: 'sale',
-    amount: 500000,
-    balance: 2500000,
-    reference: 'INV-001',
-    description: 'فروش نقدی',
-    user: 'احمد محمدی'
-  },
-  {
-    id: '2',
-    date: '1403/09/14',
-    type: 'payment',
-    amount: -200000,
-    balance: 2000000,
-    reference: 'PAY-001',
-    description: 'پرداخت نقدی',
-    user: 'علی احمدی'
-  },
-  {
-    id: '3',
-    date: '1403/09/13',
-    type: 'sale',
-    amount: 700000,
-    balance: 2200000,
-    reference: 'INV-002',
-    description: 'فروش اعتباری',
-    user: 'فاطمه کریمی'
-  }
-]
-
-const mockTopCustomers: TopCustomerData[] = [
-  {
-    id: '1',
-    name: 'علی احمدی',
-    totalAmount: 15000000,
-    transactionCount: 25,
-    averageAmount: 600000,
-    lastTransactionDate: '1403/09/15',
-    growthRate: 15.5
-  },
-  {
-    id: '2',
-    name: 'فاطمه کریمی',
-    totalAmount: 8000000,
-    transactionCount: 15,
-    averageAmount: 533333,
-    lastTransactionDate: '1403/09/14',
-    growthRate: 8.2
-  },
-  {
-    id: '4',
-    name: 'رضا حسینی',
-    totalAmount: 2000000,
-    transactionCount: 5,
-    averageAmount: 400000,
-    lastTransactionDate: '1403/09/12',
-    growthRate: 25.0
-  }
-]
-
-const mockTopSuppliers: TopSupplierData[] = [
-  {
-    id: '3',
-    name: 'تامین‌کننده مواد غذایی',
-    totalAmount: 25000000,
-    transactionCount: 45,
-    averageAmount: 555556,
-    lastTransactionDate: '1403/09/13',
-    paymentTerms: '45 روز'
-  }
-]
 
 const getPersonTypeColor = (type: string) => {
   switch (type) {
@@ -319,48 +171,452 @@ export default function CustomerSupplierReportsPage() {
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterCategory, setFilterCategory] = useState('all')
+  const [searchDebounced, setSearchDebounced] = useState('')
   const [selectedPerson, setSelectedPerson] = useState<PersonData | null>(null)
   const [showPersonModal, setShowPersonModal] = useState(false)
+  const [editingPerson, setEditingPerson] = useState<PersonData | null>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [formData, setFormData] = useState<any>({
+    name: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+    address: '',
+    creditLimit: 0,
+    status: 'active',
+    customerType: 'regular',
+    category: 'other',
+    paymentTerms: 30,
+    notes: ''
+  })
+  const [createType, setCreateType] = useState<'customer' | 'supplier'>('customer')
+  
+  const [personData, setPersonData] = useState<PersonData[]>([])
+  const [transactionData, setTransactionData] = useState<TransactionData[]>([])
+  const [topCustomers, setTopCustomers] = useState<TopCustomerData[]>([])
+  const [topSuppliers, setTopSuppliers] = useState<TopSupplierData[]>([])
+  const [stats, setStats] = useState<any>(null)
 
-  const filteredPersonData = mockPersonData.filter(person =>
-    (searchTerm === '' || 
-      person.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      person.phone.includes(searchTerm) ||
-      person.email.toLowerCase().includes(searchTerm.toLowerCase())) &&
+  // Fetch persons (customers and suppliers)
+  const fetchPersons = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      params.append('reportType', 'summary')
+      if (filterType !== 'all') params.append('type', filterType)
+
+      const response = await fetch(`/api/customer-supplier-reports?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const result = await response.json()
+      
+      if (result.success) {
+        setPersonData(result.data || [])
+        setStats(result.stats || null)
+      } else {
+        console.error('API returned error:', result.message)
+      }
+    } catch (error) {
+      console.error('Error fetching persons:', error)
+      setPersonData([])
+      setStats(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [filterType])
+
+  // Fetch transactions
+  const fetchTransactions = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      params.append('reportType', 'transactions')
+      if (filterType !== 'all') params.append('type', filterType)
+
+      const response = await fetch(`/api/customer-supplier-reports?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const result = await response.json()
+      
+      if (result.success) {
+        setTransactionData(result.data || [])
+      } else {
+        console.error('API returned error:', result.message)
+        setTransactionData([])
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error)
+      setTransactionData([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterType])
+
+  // Fetch top customers and suppliers
+  const fetchTop = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      params.append('reportType', 'top')
+      if (filterType !== 'all') params.append('type', filterType)
+
+      const response = await fetch(`/api/customer-supplier-reports?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const result = await response.json()
+      
+      if (result.success) {
+        setTopCustomers(result.data?.topCustomers || [])
+        setTopSuppliers(result.data?.topSuppliers || [])
+      } else {
+        console.error('API returned error:', result.message)
+        setTopCustomers([])
+        setTopSuppliers([])
+      }
+    } catch (error) {
+      console.error('Error fetching top:', error)
+      setTopCustomers([])
+      setTopSuppliers([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterType])
+
+  useEffect(() => {
+    if (activeTab === 'persons') {
+      fetchPersons()
+    } else if (activeTab === 'transactions') {
+      fetchTransactions()
+    } else if (activeTab === 'top') {
+      fetchTop()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  // Debounce search term to reduce filtering operations
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchDebounced(searchTerm)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Memoize filtered data to prevent unnecessary recalculations
+  const filteredPersonData = useMemo(() => {
+    return personData.filter((person) =>
+      (searchDebounced === '' || 
+        person.name.toLowerCase().includes(searchDebounced.toLowerCase()) ||
+        (person.phone && person.phone.includes(searchDebounced)) ||
+        (person.email && person.email.toLowerCase().includes(searchDebounced.toLowerCase()))) &&
     (filterType === 'all' || person.type === filterType) &&
     (filterStatus === 'all' || person.status === filterStatus) &&
     (filterCategory === 'all' || person.category === filterCategory)
   )
+  }, [personData, searchDebounced, filterType, filterStatus, filterCategory])
 
-  const totalPersons = mockPersonData.length
-  const totalCustomers = mockPersonData.filter(p => p.type === 'customer').length
-  const totalSuppliers = mockPersonData.filter(p => p.type === 'supplier').length
-  const activePersons = mockPersonData.filter(p => p.status === 'active').length
+  // Memoize stats calculations
+  const totalPersons = useMemo(() => 
+    stats?.totalPersons || personData.length, 
+    [stats?.totalPersons, personData.length]
+  )
 
-  const totalReceivables = mockPersonData
+  const totalCustomers = useMemo(() => 
+    stats?.totalCustomers || personData.filter(p => p.type === 'customer').length,
+    [stats?.totalCustomers, personData]
+  )
+
+  const totalSuppliers = useMemo(() => 
+    stats?.totalSuppliers || personData.filter(p => p.type === 'supplier').length,
+    [stats?.totalSuppliers, personData]
+  )
+
+  const activePersons = useMemo(() => 
+    stats?.activePersons || personData.filter(p => p.status === 'active').length,
+    [stats?.activePersons, personData]
+  )
+
+  const totalReceivables = useMemo(() => 
+    stats?.totalReceivables || personData
     .filter(p => p.type === 'customer' && p.currentBalance > 0)
-    .reduce((sum, p) => sum + p.currentBalance, 0)
+      .reduce((sum, p) => sum + p.currentBalance, 0),
+    [stats?.totalReceivables, personData]
+  )
   
-  const totalPayables = mockPersonData
+  const totalPayables = useMemo(() => 
+    stats?.totalPayables || personData
     .filter(p => p.type === 'supplier' && p.currentBalance < 0)
-    .reduce((sum, p) => sum + Math.abs(p.currentBalance), 0)
+      .reduce((sum, p) => sum + Math.abs(p.currentBalance), 0),
+    [stats?.totalPayables, personData]
+  )
 
-  const handleViewPerson = (person: PersonData) => {
+  // Chart data for PieChart - distribution of customers and suppliers
+  const pieChartData = useMemo(() => {
+    const customers = personData.filter(p => p.type === 'customer').length
+    const suppliers = personData.filter(p => p.type === 'supplier').length
+    const total = customers + suppliers
+    if (total === 0) return []
+    return [
+      {
+        name: 'مشتریان',
+        value: Math.round((customers / total) * 100),
+        color: '#3B82F6'
+      },
+      {
+        name: 'تامین‌کنندگان',
+        value: Math.round((suppliers / total) * 100),
+        color: '#10B981'
+      }
+    ]
+  }, [personData])
+
+  // Chart data for BarChart - receivables vs payables
+  const barChartData = useMemo(() => [{
+    period: 'خلاصه',
+    revenue: totalReceivables,
+    costOfGoodsSold: totalPayables,
+    grossProfit: totalReceivables - totalPayables
+  }], [totalReceivables, totalPayables])
+
+  // Chart data for LineChart - transaction trends
+  const lineChartData = useMemo(() => {
+    if (activeTab !== 'transactions' || transactionData.length === 0) return []
+    // گروه‌بندی روزانه
+    const dailyData: any = {}
+    transactionData.slice(0, 30).forEach(t => {
+      const date = new Date(t.date).toISOString().split('T')[0]
+      if (!dailyData[date]) {
+        dailyData[date] = { sales: 0, profit: 0 }
+      }
+      if (t.type === 'sale' || t.type === 'receipt') {
+        dailyData[date].sales += Math.abs(t.amount || 0)
+      } else {
+        dailyData[date].profit += Math.abs(t.amount || 0)
+      }
+    })
+    return Object.entries(dailyData).map(([date, data]: [string, any]) => ({
+      month: date.slice(5),
+      sales: data.sales,
+      profit: data.profit
+    }))
+  }, [transactionData, activeTab])
+
+  const handleViewPerson = useCallback((person: PersonData) => {
     setSelectedPerson(person)
     setShowPersonModal(true)
-  }
+  }, [])
 
-  const handleExport = (type: string) => {
-    alert(`گزارش ${type} به صورت Excel صادر شد.`)
-  }
+  const handleEditPerson = useCallback((person: PersonData) => {
+    setEditingPerson(person)
+    if (person.type === 'customer') {
+      const nameParts = person.name.split(' ')
+      setFormData({
+        firstName: nameParts[0] || '',
+        lastName: nameParts.slice(1).join(' ') || '',
+        phone: person.phone || '',
+        email: person.email || '',
+        address: person.address || '',
+        creditLimit: person.creditLimit || 0,
+        status: person.status || 'active',
+        customerType: person.category.includes('VIP') ? 'vip' : person.category.includes('طلایی') ? 'golden' : 'regular',
+        notes: person.notes || ''
+      })
+    } else {
+      setFormData({
+        name: person.name || '',
+        phone: person.phone || '',
+        email: person.email || '',
+        address: person.address || '',
+        creditLimit: person.creditLimit || 0,
+        status: person.status || 'active',
+        category: person.category === 'مواد غذایی' ? 'food' : person.category === 'تجهیزات' ? 'equipment' : 'other',
+        paymentTerms: parseInt(person.paymentTerms) || 30,
+        notes: person.notes || ''
+      })
+    }
+    setShowEditModal(true)
+  }, [])
 
-  const handlePrint = () => {
+  const handleDeletePerson = useCallback(async (person: PersonData) => {
+    if (!confirm(`آیا مطمئن هستید که می‌خواهید ${person.name} را حذف کنید؟`)) return
+    
+    try {
+      setLoading(true)
+      const apiPath = person.type === 'customer' ? `/api/customers/${person.id}` : `/api/suppliers/${person.id}`
+      const response = await fetch(apiPath, {
+        method: 'DELETE'
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        alert(`${person.type === 'customer' ? 'مشتری' : 'تامین‌کننده'} با موفقیت حذف شد`)
+        handleRefresh()
+      } else {
+        alert('خطا در حذف: ' + result.message)
+      }
+    } catch (error) {
+      console.error('Error deleting person:', error)
+      alert('خطا در حذف')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const handleCreatePerson = useCallback(() => {
+    setFormData({
+      name: '',
+      firstName: '',
+      lastName: '',
+      phone: '',
+      email: '',
+      address: '',
+      creditLimit: 0,
+      status: 'active',
+      customerType: 'regular',
+      category: 'other',
+      paymentTerms: 30,
+      notes: ''
+    })
+    setEditingPerson(null)
+    setShowCreateModal(true)
+  }, [])
+
+  const handleSavePerson = useCallback(async () => {
+    try {
+      setLoading(true)
+      
+      if (editingPerson) {
+        // Update
+        const apiPath = editingPerson.type === 'customer' ? `/api/customers/${editingPerson.id}` : `/api/suppliers/${editingPerson.id}`
+        const body = editingPerson.type === 'customer' ? {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          phone: formData.phone,
+          email: formData.email,
+          address: formData.address,
+          creditLimit: formData.creditLimit,
+          status: formData.status,
+          customerType: formData.customerType,
+          notes: formData.notes
+        } : {
+          name: formData.name,
+          phone: formData.phone,
+          email: formData.email,
+          address: formData.address,
+          creditLimit: formData.creditLimit,
+          status: formData.status,
+          category: formData.category,
+          paymentTerms: formData.paymentTerms,
+          notes: formData.notes
+        }
+
+        const response = await fetch(apiPath, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          alert('با موفقیت به‌روزرسانی شد')
+          setShowEditModal(false)
+          setEditingPerson(null)
+          handleRefresh()
+        } else {
+          alert('خطا: ' + result.message)
+        }
+      } else {
+        // Create
+        const personType = filterType === 'all' ? createType : filterType
+        const body = personType === 'customer' ? {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          phone: formData.phone,
+          email: formData.email,
+          address: formData.address,
+          creditLimit: formData.creditLimit,
+          status: formData.status,
+          customerType: formData.customerType,
+          notes: formData.notes
+        } : {
+          name: formData.name,
+          phone: formData.phone,
+          email: formData.email,
+          address: formData.address,
+          creditLimit: formData.creditLimit,
+          status: formData.status,
+          category: formData.category,
+          paymentTerms: formData.paymentTerms,
+          notes: formData.notes
+        }
+
+        const apiPath = personType === 'customer' ? '/api/customers' : '/api/suppliers'
+        const response = await fetch(apiPath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          alert('با موفقیت ایجاد شد')
+          setShowCreateModal(false)
+          handleRefresh()
+        } else {
+          alert('خطا: ' + result.message)
+        }
+      }
+    } catch (error) {
+      console.error('Error saving person:', error)
+      alert('خطا در ذخیره')
+    } finally {
+      setLoading(false)
+    }
+  }, [filterType, createType, formData, editingPerson])
+
+  const handleExport = useCallback(async (type: string) => {
+    try {
+      const params = new URLSearchParams()
+      params.append('reportType', activeTab === 'persons' ? 'summary' : activeTab === 'transactions' ? 'transactions' : 'top')
+      
+      const response = await fetch(`/api/customer-supplier-reports?${params.toString()}`)
+      const result = await response.json()
+      
+      if (result.success) {
+        const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' })
+        const downloadUrl = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = downloadUrl
+        a.download = `report-${type}-${Date.now()}.json`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(downloadUrl)
+        document.body.removeChild(a)
+        alert(`گزارش ${type} دانلود شد.`)
+      }
+    } catch (error) {
+      alert(`خطا در صادرات گزارش ${type}`)
+    }
+  }, [activeTab])
+
+  const handlePrint = useCallback(() => {
     window.print()
-  }
+  }, [])
 
-  const handleRefresh = () => {
-    alert('گزارشات مشتریان و تامین‌کنندگان بروزرسانی شد.')
-  }
+  const handleRefresh = useCallback(() => {
+    if (activeTab === 'persons') {
+      fetchPersons()
+    } else if (activeTab === 'transactions') {
+      fetchTransactions()
+    } else if (activeTab === 'top') {
+      fetchTop()
+    }
+  }, [activeTab, fetchPersons, fetchTransactions, fetchTop])
 
   return (
     <div className="fade-in-animation space-y-6">
@@ -373,10 +629,19 @@ export default function CustomerSupplierReportsPage() {
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
           <button
+            onClick={handleCreatePerson}
+            className="premium-button flex items-center space-x-2 space-x-reverse"
+            disabled={loading}
+          >
+            <Plus className="w-5 h-5" />
+            <span>افزودن {filterType === 'customer' ? 'مشتری' : filterType === 'supplier' ? 'تامین‌کننده' : 'شخص'}</span>
+          </button>
+          <button
             onClick={handleRefresh}
             className="premium-button flex items-center space-x-2 space-x-reverse"
+            disabled={loading}
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             <span>بروزرسانی</span>
           </button>
           <button
@@ -430,6 +695,28 @@ export default function CustomerSupplierReportsPage() {
           </div>
           <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalReceivables.toLocaleString('fa-IR')}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">تومان</p>
+        </div>
+      </div>
+      
+      {/* Additional Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="premium-card p-6 bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20 border-l-4 border-red-500">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">بدهی‌ها</h3>
+            <DollarSign className="w-6 h-6 text-red-600 dark:text-red-400" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalPayables.toLocaleString('fa-IR')}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">تومان</p>
+        </div>
+        <div className="premium-card p-6 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 border-l-4 border-green-500">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">خالص</h3>
+            <Calculator className="w-6 h-6 text-green-600 dark:text-green-400" />
+          </div>
+          <p className={`text-3xl font-bold mb-1 ${(totalReceivables - totalPayables) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+            {(totalReceivables - totalPayables).toLocaleString('fa-IR')}
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">تومان</p>
         </div>
       </div>
 
@@ -517,7 +804,50 @@ export default function CustomerSupplierReportsPage() {
 
         {/* Persons Tab */}
         {activeTab === 'persons' && (
+          <div className="space-y-6">
+            {/* Charts */}
+            {personData.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="premium-card p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
+                    <BarChart3 className="w-6 h-6 text-primary-600" />
+                    <span>توزیع مشتریان و تامین‌کنندگان</span>
+                  </h2>
+                  <div className="h-64 w-full">
+                    <PieChart data={pieChartData} />
+                  </div>
+                </div>
+                <div className="premium-card p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
+                    <BarChart3 className="w-6 h-6 text-success-600" />
+                    <span>مقایسه مطالبات و بدهی‌ها</span>
+                  </h2>
+                  <div className="h-64 w-full">
+                    <BarChart 
+                      data={barChartData}
+                      categories={['revenue', 'costOfGoodsSold']}
+                      colors={['#10B981', '#EF4444']}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           <div className="overflow-x-auto custom-scrollbar">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
+                </div>
+              ) : filteredPersonData.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-16">
+                  <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30 flex items-center justify-center">
+                    <Users className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ داده‌ای یافت نشد</h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-md">
+                    برای شروع، داده‌های نمونه اضافه کنید یا گزارش جدید تولید کنید.
+                  </p>
+                </div>
+              ) : (
             <table className="w-full text-right whitespace-nowrap">
               <thead>
                 <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
@@ -581,8 +911,19 @@ export default function CustomerSupplierReportsPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
+                        <button
+                          onClick={() => handleEditPerson(person)}
+                          className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                          title="ویرایش"
+                        >
                           <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeletePerson(person)}
+                          className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                          title="حذف"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -590,44 +931,77 @@ export default function CustomerSupplierReportsPage() {
                 ))}
               </tbody>
             </table>
+              )}
+          </div>
           </div>
         )}
 
         {/* Transactions Tab */}
         {activeTab === 'transactions' && (
+          <div className="space-y-6">
+            {/* Transaction Chart */}
+            {transactionData.length > 0 && (
+              <div className="premium-card p-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
+                  <TrendingUp className="w-6 h-6 text-primary-600" />
+                  <span>روند تراکنش‌ها</span>
+                </h2>
+                <div className="h-80 w-full">
+                  <LineChart data={lineChartData} />
+                </div>
+              </div>
+            )}
           <div className="overflow-x-auto custom-scrollbar">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
+                </div>
+              ) : transactionData.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-16">
+                  <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-green-100 to-green-200 dark:from-green-900/30 dark:to-green-800/30 flex items-center justify-center">
+                    <Activity className="w-10 h-10 text-green-500 dark:text-green-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ تراکنشی یافت نشد</h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-md">
+                    هیچ تراکنشی برای نمایش وجود ندارد.
+                  </p>
+                </div>
+              ) : (
             <table className="w-full text-right whitespace-nowrap">
               <thead>
                 <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
                   <th className="px-4 py-3 rounded-r-lg">تاریخ</th>
                   <th className="px-4 py-3">نوع تراکنش</th>
                   <th className="px-4 py-3">مبلغ</th>
-                  <th className="px-4 py-3">مانده</th>
                   <th className="px-4 py-3">مرجع</th>
                   <th className="px-4 py-3">توضیحات</th>
-                  <th className="px-4 py-3">کاربر</th>
+                  <th className="px-4 py-3">شخص</th>
                   <th className="px-4 py-3 rounded-l-lg">عملیات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {mockTransactionData.map(transaction => (
-                  <tr key={transaction.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="px-4 py-3 text-gray-900 dark:text-white">{transaction.date}</td>
+                {transactionData.slice(0, 100).map(transaction => (
+                  <tr key={transaction.id || (transaction as any)._id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <td className="px-4 py-3 text-gray-900 dark:text-white">
+                      {transaction.date ? new Date(transaction.date).toLocaleDateString('fa-IR') : ''}
+                    </td>
                     <td className="px-4 py-3">
                       {getTransactionTypeBadge(transaction.type)}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{transaction.amount.toLocaleString('fa-IR')}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{transaction.balance.toLocaleString('fa-IR')}</td>
+                    <td className={`px-4 py-3 font-medium ${
+                      transaction.type === 'sale' || transaction.type === 'receipt' 
+                        ? 'text-green-600 dark:text-green-400' 
+                        : 'text-red-600 dark:text-red-400'
+                    }`}>
+                      {Math.abs(transaction.amount || 0).toLocaleString('fa-IR')}
+                    </td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{transaction.reference}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{transaction.description}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{transaction.user}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{transaction.user || (transaction as any).personName || ''}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-2 space-x-reverse">
                         <button className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
                           <Eye className="w-4 h-4" />
-                        </button>
-                        <button className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
-                          <Printer className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -635,18 +1009,53 @@ export default function CustomerSupplierReportsPage() {
                 ))}
               </tbody>
             </table>
+              )}
+          </div>
           </div>
         )}
 
         {/* Top Tab */}
         {activeTab === 'top' && (
           <div className="space-y-6">
+            {/* Top Customers Chart */}
+            {topCustomers.length > 0 && (
+              <div className="premium-card p-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
+                  <BarChart3 className="w-6 h-6 text-primary-600" />
+                  <span>نمودار برترین مشتریان</span>
+                </h2>
+                <div className="h-64 w-full">
+                  <BarChart 
+                    data={topCustomers.slice(0, 5).map(c => ({
+                      period: c.name.slice(0, 10),
+                      revenue: c.totalAmount,
+                      grossProfit: c.averageAmount * 10
+                    }))}
+                    categories={['revenue']}
+                    colors={['#3B82F6']}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Top Customers */}
             <div className="premium-card p-6">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
                 <Star className="w-6 h-6 text-primary-600" />
                 <span>برترین مشتریان</span>
               </h2>
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
+                </div>
+              ) : topCustomers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-16">
+                  <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30 flex items-center justify-center">
+                    <Star className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ داده‌ای یافت نشد</h3>
+                </div>
+              ) : (
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-right whitespace-nowrap">
                   <thead>
@@ -656,28 +1065,18 @@ export default function CustomerSupplierReportsPage() {
                       <th className="px-4 py-3">تعداد تراکنش</th>
                       <th className="px-4 py-3">میانگین مبلغ</th>
                       <th className="px-4 py-3">آخرین تراکنش</th>
-                      <th className="px-4 py-3">نرخ رشد</th>
                       <th className="px-4 py-3 rounded-l-lg">رتبه</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {mockTopCustomers.map((customer, index) => (
+                    {topCustomers.map((customer, index) => (
                       <tr key={customer.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                         <td className="px-4 py-3 text-gray-900 dark:text-white font-medium">{customer.name}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{customer.totalAmount.toLocaleString('fa-IR')}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{customer.transactionCount}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{customer.averageAmount.toLocaleString('fa-IR')}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{customer.lastTransactionDate}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            customer.growthRate > 20 
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                              : customer.growthRate > 10
-                              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-                              : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                          }`}>
-                            {customer.growthRate}%
-                          </span>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                          {customer.lastTransactionDate ? new Date(customer.lastTransactionDate).toLocaleDateString('fa-IR') : ''}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2 space-x-reverse">
@@ -694,6 +1093,7 @@ export default function CustomerSupplierReportsPage() {
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
 
             {/* Top Suppliers */}
@@ -702,6 +1102,18 @@ export default function CustomerSupplierReportsPage() {
                 <Building className="w-6 h-6 text-success-600" />
                 <span>برترین تامین‌کنندگان</span>
               </h2>
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
+                </div>
+              ) : topSuppliers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-16">
+                  <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-green-100 to-green-200 dark:from-green-900/30 dark:to-green-800/30 flex items-center justify-center">
+                    <Building className="w-10 h-10 text-green-500 dark:text-green-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ داده‌ای یافت نشد</h3>
+                </div>
+              ) : (
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-right whitespace-nowrap">
                   <thead>
@@ -716,13 +1128,15 @@ export default function CustomerSupplierReportsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {mockTopSuppliers.map((supplier, index) => (
+                    {topSuppliers.map((supplier, index) => (
                       <tr key={supplier.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                         <td className="px-4 py-3 text-gray-900 dark:text-white font-medium">{supplier.name}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{supplier.totalAmount.toLocaleString('fa-IR')}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{supplier.transactionCount}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{supplier.averageAmount.toLocaleString('fa-IR')}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{supplier.lastTransactionDate}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                          {supplier.lastTransactionDate ? new Date(supplier.lastTransactionDate).toLocaleDateString('fa-IR') : ''}
+                        </td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{supplier.paymentTerms}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2 space-x-reverse">
@@ -739,6 +1153,7 @@ export default function CustomerSupplierReportsPage() {
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
           </div>
         )}
@@ -822,6 +1237,361 @@ export default function CustomerSupplierReportsPage() {
                   <p className="text-lg font-bold text-gray-900 dark:text-white">{selectedPerson.totalAmount.toLocaleString('fa-IR')}</p>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && editingPerson && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                ویرایش {editingPerson.type === 'customer' ? 'مشتری' : 'تامین‌کننده'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowEditModal(false)
+                  setEditingPerson(null)
+                }}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {editingPerson.type === 'customer' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام</label>
+                      <input
+                        type="text"
+                        className="premium-input"
+                        value={formData.firstName}
+                        onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام خانوادگی</label>
+                      <input
+                        type="text"
+                        className="premium-input"
+                        value={formData.lastName}
+                        onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع مشتری</label>
+                    <select
+                      className="premium-input"
+                      value={formData.customerType}
+                      onChange={(e) => setFormData({ ...formData, customerType: e.target.value })}
+                    >
+                      <option value="regular">عادی</option>
+                      <option value="vip">VIP</option>
+                      <option value="golden">طلایی</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام</label>
+                  <input
+                    type="text"
+                    className="premium-input"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">تلفن</label>
+                <input
+                  type="text"
+                  className="premium-input"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ایمیل</label>
+                <input
+                  type="email"
+                  className="premium-input"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">آدرس</label>
+                <textarea
+                  className="premium-input"
+                  rows={3}
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">حد اعتبار</label>
+                <input
+                  type="number"
+                  className="premium-input"
+                  value={formData.creditLimit}
+                  onChange={(e) => setFormData({ ...formData, creditLimit: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+              {editingPerson.type === 'supplier' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">دسته‌بندی</label>
+                    <select
+                      className="premium-input"
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    >
+                      <option value="food">مواد غذایی</option>
+                      <option value="equipment">تجهیزات</option>
+                      <option value="service">خدمات</option>
+                      <option value="other">سایر</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">شرایط پرداخت (روز)</label>
+                    <input
+                      type="number"
+                      className="premium-input"
+                      value={formData.paymentTerms}
+                      onChange={(e) => setFormData({ ...formData, paymentTerms: parseInt(e.target.value) || 30 })}
+                    />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">وضعیت</label>
+                <select
+                  className="premium-input"
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                >
+                  <option value="active">فعال</option>
+                  <option value="inactive">غیرفعال</option>
+                  <option value="suspended">تعلیق</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">یادداشت</label>
+                <textarea
+                  className="premium-input"
+                  rows={3}
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6">
+              <button
+                onClick={() => {
+                  setShowEditModal(false)
+                  setEditingPerson(null)
+                }}
+                className="premium-button bg-gray-500 hover:bg-gray-600"
+              >
+                انصراف
+              </button>
+              <button
+                onClick={handleSavePerson}
+                className="premium-button"
+                disabled={loading}
+              >
+                {loading ? 'در حال ذخیره...' : 'ذخیره'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                افزودن {filterType === 'customer' ? 'مشتری' : filterType === 'supplier' ? 'تامین‌کننده' : 'شخص'}
+              </h2>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {filterType === 'all' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع</label>
+                  <select
+                    className="premium-input"
+                    value={createType}
+                    onChange={(e) => setCreateType(e.target.value as 'customer' | 'supplier')}
+                  >
+                    <option value="customer">مشتری</option>
+                    <option value="supplier">تامین‌کننده</option>
+                  </select>
+                </div>
+              )}
+              {(filterType === 'customer' || (filterType === 'all' && createType === 'customer')) ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام</label>
+                      <input
+                        type="text"
+                        className="premium-input"
+                        value={formData.firstName}
+                        onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام خانوادگی</label>
+                      <input
+                        type="text"
+                        className="premium-input"
+                        value={formData.lastName}
+                        onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع مشتری</label>
+                    <select
+                      className="premium-input"
+                      value={formData.customerType}
+                      onChange={(e) => setFormData({ ...formData, customerType: e.target.value })}
+                    >
+                      <option value="regular">عادی</option>
+                      <option value="vip">VIP</option>
+                      <option value="golden">طلایی</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام</label>
+                  <input
+                    type="text"
+                    className="premium-input"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">تلفن</label>
+                <input
+                  type="text"
+                  className="premium-input"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ایمیل</label>
+                <input
+                  type="email"
+                  className="premium-input"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">آدرس</label>
+                <textarea
+                  className="premium-input"
+                  rows={3}
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">حد اعتبار</label>
+                <input
+                  type="number"
+                  className="premium-input"
+                  value={formData.creditLimit}
+                  onChange={(e) => setFormData({ ...formData, creditLimit: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+              {filterType === 'supplier' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">دسته‌بندی</label>
+                    <select
+                      className="premium-input"
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    >
+                      <option value="food">مواد غذایی</option>
+                      <option value="equipment">تجهیزات</option>
+                      <option value="service">خدمات</option>
+                      <option value="other">سایر</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">شرایط پرداخت (روز)</label>
+                    <input
+                      type="number"
+                      className="premium-input"
+                      value={formData.paymentTerms}
+                      onChange={(e) => setFormData({ ...formData, paymentTerms: parseInt(e.target.value) || 30 })}
+                    />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">وضعیت</label>
+                <select
+                  className="premium-input"
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                >
+                  <option value="active">فعال</option>
+                  <option value="inactive">غیرفعال</option>
+                  <option value="suspended">تعلیق</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">یادداشت</label>
+                <textarea
+                  className="premium-input"
+                  rows={3}
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="premium-button bg-gray-500 hover:bg-gray-600"
+              >
+                انصراف
+              </button>
+              <button
+                onClick={handleSavePerson}
+                className="premium-button"
+                disabled={loading}
+              >
+                {loading ? 'در حال ایجاد...' : 'ایجاد'}
+              </button>
             </div>
           </div>
         </div>

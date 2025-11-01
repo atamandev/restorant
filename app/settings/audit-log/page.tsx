@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   FileText,
   User,
@@ -42,14 +42,15 @@ import {
 } from 'lucide-react'
 
 interface AuditLogEntry {
-  id: string
+  id?: string
+  _id?: string
   userId: string
   userName: string
   action: string
   entity: string
   entityId: string
   entityName: string
-  timestamp: string
+  timestamp: string | Date
   ipAddress: string
   userAgent: string
   status: 'success' | 'failed' | 'warning'
@@ -59,6 +60,23 @@ interface AuditLogEntry {
   changes?: string[]
   sessionId: string
   location?: string
+}
+
+interface StatsData {
+  totalLogs: number
+  successLogs: number
+  failedLogs: number
+  warningLogs: number
+  actionStats: Array<{ _id: string; count: number }>
+  topUsers: Array<{ _id: string; userName: string; count: number }>
+}
+
+interface AnalyticsData {
+  actionStats: Array<{ _id: string; count: number }>
+  entityStats: Array<{ _id: string; count: number }>
+  statusStats: Array<{ _id: string; count: number }>
+  topUsers: Array<{ _id: string; userName: string; count: number }>
+  dailyActivity: Array<{ _id: string; count: number }>
 }
 
 interface FilterOptions {
@@ -71,141 +89,6 @@ interface FilterOptions {
   ipAddress: string
 }
 
-const mockAuditLogs: AuditLogEntry[] = [
-  {
-    id: 'A001',
-    userId: 'U001',
-    userName: 'علی احمدی',
-    action: 'CREATE',
-    entity: 'INVOICE',
-    entityId: 'INV-123',
-    entityName: 'فاکتور فروش #123',
-    timestamp: '2023-11-22 14:30:25',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    status: 'success',
-    details: 'ایجاد فاکتور فروش جدید',
-    changes: ['مبلغ: 0 → 1,200,000 تومان', 'مشتری: - → علی کریمی'],
-    sessionId: 'SESS-001',
-    location: 'تهران، ایران'
-  },
-  {
-    id: 'A002',
-    userId: 'U002',
-    userName: 'فاطمه کریمی',
-    action: 'UPDATE',
-    entity: 'CUSTOMER',
-    entityId: 'CUST-456',
-    entityName: 'مشتری: محمد رضایی',
-    timestamp: '2023-11-22 14:25:10',
-    ipAddress: '192.168.1.101',
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    status: 'success',
-    details: 'ویرایش اطلاعات مشتری',
-    changes: ['تلفن: 09123456789 → 09123456788', 'آدرس: تهران → اصفهان'],
-    sessionId: 'SESS-002',
-    location: 'اصفهان، ایران'
-  },
-  {
-    id: 'A003',
-    userId: 'U001',
-    userName: 'علی احمدی',
-    action: 'DELETE',
-    entity: 'PRODUCT',
-    entityId: 'PROD-789',
-    entityName: 'محصول: کباب کوبیده',
-    timestamp: '2023-11-22 14:20:45',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    status: 'success',
-    details: 'حذف محصول از منو',
-    changes: ['وضعیت: فعال → حذف شده'],
-    sessionId: 'SESS-001',
-    location: 'تهران، ایران'
-  },
-  {
-    id: 'A004',
-    userId: 'U003',
-    userName: 'رضا حسینی',
-    action: 'LOGIN',
-    entity: 'USER',
-    entityId: 'U003',
-    entityName: 'ورود به سیستم',
-    timestamp: '2023-11-22 14:15:30',
-    ipAddress: '192.168.1.102',
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
-    status: 'success',
-    details: 'ورود موفق به سیستم',
-    sessionId: 'SESS-003',
-    location: 'شیراز، ایران'
-  },
-  {
-    id: 'A005',
-    userId: 'U004',
-    userName: 'نامشخص',
-    action: 'LOGIN',
-    entity: 'USER',
-    entityId: 'U004',
-    entityName: 'تلاش ورود ناموفق',
-    timestamp: '2023-11-22 14:10:15',
-    ipAddress: '192.168.1.103',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    status: 'failed',
-    details: 'ورود ناموفق - رمز عبور اشتباه',
-    sessionId: 'SESS-004',
-    location: 'کرج، ایران'
-  },
-  {
-    id: 'A006',
-    userId: 'U001',
-    userName: 'علی احمدی',
-    action: 'EXPORT',
-    entity: 'REPORT',
-    entityId: 'RPT-001',
-    entityName: 'گزارش فروش روزانه',
-    timestamp: '2023-11-22 14:05:20',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    status: 'success',
-    details: 'خروجی گرفتن از گزارش فروش',
-    changes: ['فرمت: Excel', 'تاریخ: 2023-11-22'],
-    sessionId: 'SESS-001',
-    location: 'تهران، ایران'
-  },
-  {
-    id: 'A007',
-    userId: 'U002',
-    userName: 'فاطمه کریمی',
-    action: 'PRINT',
-    entity: 'INVOICE',
-    entityId: 'INV-124',
-    entityName: 'چاپ فاکتور #124',
-    timestamp: '2023-11-22 14:00:10',
-    ipAddress: '192.168.1.101',
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    status: 'success',
-    details: 'چاپ فاکتور فروش',
-    sessionId: 'SESS-002',
-    location: 'اصفهان، ایران'
-  },
-  {
-    id: 'A008',
-    userId: 'U001',
-    userName: 'علی احمدی',
-    action: 'UPDATE',
-    entity: 'SETTINGS',
-    entityId: 'SET-001',
-    entityName: 'تنظیمات سیستم',
-    timestamp: '2023-11-22 13:55:45',
-    ipAddress: '192.168.1.100',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    status: 'warning',
-    details: 'تغییر تنظیمات امنیتی',
-    changes: ['رمز عبور: تغییر یافت', 'دسترسی: محدود شد'],
-    sessionId: 'SESS-001',
-    location: 'تهران، ایران'
-  }
-]
 
 const getActionIcon = (action: string) => {
   switch (action) {
@@ -262,7 +145,12 @@ const getActionBadge = (action: string) => {
 
 export default function AuditLogPage() {
   const [activeTab, setActiveTab] = useState<'logs' | 'analytics' | 'settings'>('logs')
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
+  const [stats, setStats] = useState<StatsData | null>(null)
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
+  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchDebounced, setSearchDebounced] = useState('')
   const [filters, setFilters] = useState<FilterOptions>({
     userId: '',
     action: '',
@@ -274,25 +162,215 @@ export default function AuditLogPage() {
   })
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null)
   const [showLogModal, setShowLogModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [logToDelete, setLogToDelete] = useState<string | null>(null)
+  
+  // Form state for creating new log
+  const [logForm, setLogForm] = useState({
+    userId: '',
+    userName: '',
+    action: 'CREATE',
+    entity: 'INVOICE',
+    entityId: '',
+    entityName: '',
+    ipAddress: '',
+    userAgent: '',
+    status: 'success' as 'success' | 'failed' | 'warning',
+    details: '',
+    location: ''
+  })
 
-  const filteredLogs = mockAuditLogs.filter(log =>
-    (filters.userId === '' || log.userId === filters.userId) &&
-    (filters.action === '' || log.action === filters.action) &&
-    (filters.entity === '' || log.entity === filters.entity) &&
-    (filters.status === '' || log.status === filters.status) &&
-    (filters.ipAddress === '' || log.ipAddress.includes(filters.ipAddress)) &&
-    (filters.dateFrom === '' || log.timestamp >= filters.dateFrom) &&
-    (filters.dateTo === '' || log.timestamp <= filters.dateTo) &&
-    (log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     log.entityName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     log.details.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  // Fetch audit logs
+  const fetchAuditLogs = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (filters.userId) params.append('userId', filters.userId)
+      if (filters.action) params.append('action', filters.action)
+      if (filters.entity) params.append('entity', filters.entity)
+      if (filters.status) params.append('status', filters.status)
+      if (filters.ipAddress) params.append('ipAddress', filters.ipAddress)
+      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom)
+      if (filters.dateTo) params.append('dateTo', filters.dateTo)
+      if (searchDebounced) params.append('search', searchDebounced)
+      params.append('sortBy', 'timestamp')
+      params.append('sortOrder', 'desc')
+      params.append('limit', '100')
 
-  const handleViewLogDetails = (log: AuditLogEntry) => {
-    setSelectedLog(log)
-    setShowLogModal(true)
+      const response = await fetch(`/api/audit-log?${params.toString()}`)
+      const result = await response.json()
+      if (result.success) {
+        setAuditLogs(result.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching audit logs:', error)
+      alert('خطا در دریافت لاگ‌ها')
+    } finally {
+      setLoading(false)
+    }
+  }, [filters, searchDebounced])
+
+  // Fetch stats
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await fetch('/api/audit-log?type=stats')
+      const result = await response.json()
+      if (result.success) {
+        setStats(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error)
+    }
+  }, [])
+
+  // Fetch analytics
+  const fetchAnalytics = useCallback(async () => {
+    try {
+      const response = await fetch('/api/audit-log?type=analytics')
+      const result = await response.json()
+      if (result.success) {
+        setAnalytics(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching analytics:', error)
+    }
+  }, [])
+
+  // Load data
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      fetchAuditLogs()
+      fetchStats()
+    } else if (activeTab === 'analytics') {
+      fetchAnalytics()
+      fetchStats()
+    }
+  }, [activeTab, fetchAuditLogs, fetchStats, fetchAnalytics])
+
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchDebounced(searchTerm)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Handle create log
+  const handleCreateLog = async () => {
+    try {
+      if (!logForm.userId || !logForm.action || !logForm.entity) {
+        alert('userId، action و entity اجباری هستند')
+        return
+      }
+      
+      const response = await fetch('/api/audit-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logForm)
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        alert('✅ لاگ با موفقیت ایجاد شد')
+        setShowCreateModal(false)
+        setLogForm({
+          userId: '',
+          userName: '',
+          action: 'CREATE',
+          entity: 'INVOICE',
+          entityId: '',
+          entityName: '',
+          ipAddress: '',
+          userAgent: '',
+          status: 'success',
+          details: '',
+          location: ''
+        })
+        await Promise.all([fetchAuditLogs(), fetchStats()])
+      } else {
+        alert(`❌ ${result.message || 'خطا در ایجاد لاگ'}`)
+      }
+    } catch (error) {
+      console.error('Error creating log:', error)
+      alert('خطا در ایجاد لاگ')
+    }
   }
+
+  // Handle delete log
+  const handleDeleteLog = async (logId: string) => {
+    try {
+      const response = await fetch(`/api/audit-log?id=${logId}`, {
+        method: 'DELETE'
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        alert('✅ لاگ با موفقیت حذف شد')
+        setShowDeleteConfirm(false)
+        setLogToDelete(null)
+        await Promise.all([fetchAuditLogs(), fetchStats()])
+      } else {
+        alert(`❌ ${result.message || 'خطا در حذف لاگ'}`)
+      }
+    } catch (error) {
+      console.error('Error deleting log:', error)
+      alert('خطا در حذف لاگ')
+    }
+  }
+
+  // Handle clear old logs
+  const handleClearOldLogs = async (days: number) => {
+    if (!confirm(`آیا از حذف لاگ‌های قدیمی‌تر از ${days} روز اطمینان دارید؟`)) {
+      return
+    }
+    
+    try {
+      const deleteBefore = new Date()
+      deleteBefore.setDate(deleteBefore.getDate() - days)
+      
+      const response = await fetch(`/api/audit-log?action=clear-old&deleteBefore=${deleteBefore.toISOString()}`, {
+        method: 'DELETE'
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        alert(`✅ ${result.deletedCount || 0} لاگ قدیمی حذف شد`)
+        await Promise.all([fetchAuditLogs(), fetchStats()])
+      } else {
+        alert(`❌ ${result.message || 'خطا در حذف لاگ‌های قدیمی'}`)
+      }
+    } catch (error) {
+      console.error('Error clearing old logs:', error)
+      alert('خطا در حذف لاگ‌های قدیمی')
+    }
+  }
+
+  const handleViewLogDetails = useCallback(async (log: AuditLogEntry) => {
+    const logId = log._id || log.id
+    if (!logId) {
+      setSelectedLog(log)
+      setShowLogModal(true)
+      return
+    }
+    
+    try {
+      const response = await fetch(`/api/audit-log/${logId}`)
+      const result = await response.json()
+      if (result.success) {
+        setSelectedLog(result.data)
+        setShowLogModal(true)
+      } else {
+        setSelectedLog(log)
+        setShowLogModal(true)
+      }
+    } catch (error) {
+      console.error('Error fetching log details:', error)
+      setSelectedLog(log)
+      setShowLogModal(true)
+    }
+  }, [])
 
   const LogDetailsModal = () => {
     if (!selectedLog) return null
@@ -323,7 +401,11 @@ export default function AuditLogPage() {
               </p>
               <p className="text-gray-700 dark:text-gray-300 flex items-center space-x-2 space-x-reverse">
                 <Clock className="w-5 h-5 text-primary-600" />
-                <span>زمان: <span className="font-medium">{selectedLog.timestamp}</span></span>
+                <span>زمان: <span className="font-medium">
+                  {selectedLog.timestamp instanceof Date 
+                    ? selectedLog.timestamp.toLocaleString('fa-IR')
+                    : new Date(selectedLog.timestamp).toLocaleString('fa-IR')}
+                </span></span>
               </p>
             </div>
             <div className="space-y-3">
@@ -400,34 +482,58 @@ export default function AuditLogPage() {
       </p>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="premium-card p-4 text-center">
-          <Activity className="w-8 h-8 text-primary-600 mx-auto mb-2" />
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{mockAuditLogs.length}</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-300">کل فعالیت‌ها</p>
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="premium-card p-6 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border-l-4 border-blue-500 hover:shadow-xl transition-all duration-300 group">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <Activity className="w-7 h-7 text-white" />
+              </div>
+            </div>
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">کل فعالیت‌ها</h3>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {stats.totalLogs.toLocaleString('fa-IR')}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">کل لاگ‌های ثبت شده</p>
+          </div>
+          <div className="premium-card p-6 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 border-l-4 border-green-500 hover:shadow-xl transition-all duration-300 group">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <CheckCircle className="w-7 h-7 text-white" />
+              </div>
+            </div>
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">موفق</h3>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {stats.successLogs.toLocaleString('fa-IR')}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">عملیات موفق</p>
+          </div>
+          <div className="premium-card p-6 bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20 border-l-4 border-red-500 hover:shadow-xl transition-all duration-300 group">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <XCircle className="w-7 h-7 text-white" />
+              </div>
+            </div>
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">ناموفق</h3>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {stats.failedLogs.toLocaleString('fa-IR')}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">عملیات ناموفق</p>
+          </div>
+          <div className="premium-card p-6 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 border-l-4 border-orange-500 hover:shadow-xl transition-all duration-300 group">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <AlertTriangle className="w-7 h-7 text-white" />
+              </div>
+            </div>
+            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">هشدار</h3>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {stats.warningLogs.toLocaleString('fa-IR')}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">عملیات هشدار</p>
+          </div>
         </div>
-        <div className="premium-card p-4 text-center">
-          <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {mockAuditLogs.filter(log => log.status === 'success').length}
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-300">موفق</p>
-        </div>
-        <div className="premium-card p-4 text-center">
-          <XCircle className="w-8 h-8 text-red-600 mx-auto mb-2" />
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {mockAuditLogs.filter(log => log.status === 'failed').length}
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-300">ناموفق</p>
-        </div>
-        <div className="premium-card p-4 text-center">
-          <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {mockAuditLogs.filter(log => log.status === 'warning').length}
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-300">هشدار</p>
-        </div>
-      </div>
+      )}
 
       {/* Tabs */}
       <div className="premium-card p-2 flex space-x-2 space-x-reverse mb-6">
@@ -460,32 +566,50 @@ export default function AuditLogPage() {
       {/* Content based on activeTab */}
       {activeTab === 'logs' && (
         <div className="premium-card p-6">
-          <div className="flex flex-col md:flex-row justify-between items-center mb-6 space-y-4 md:space-y-0">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center space-x-2 space-x-reverse">
-              <FileText className="w-6 h-6 text-primary-600" />
-              <span>لاگ فعالیت‌های کاربران</span>
-            </h2>
+          <div className="flex flex-col md:flex-row justify-between items-center mb-6 space-y-4 md:space-y-0 pb-6 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center space-x-3 space-x-reverse">
-              <div className="relative">
-                <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="جستجو در لاگ‌ها..."
-                  className="premium-input pr-10 pl-4 py-2.5 w-64"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <FileText className="w-6 h-6 text-white" />
               </div>
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="premium-button p-2.5"
-              >
-                <Filter className="w-5 h-5" />
-              </button>
-              <button className="premium-button p-2.5">
-                <Download className="w-5 h-5" />
-              </button>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">لاگ فعالیت‌های کاربران</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">ردیابی و مشاهده تمام فعالیت‌های سیستم</p>
+              </div>
             </div>
+            <div className="flex items-center space-x-3 space-x-reverse w-full md:w-auto">
+                <div className="relative flex-1 md:flex-none">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <input
+                    type="text"
+                    placeholder="جستجو در لاگ‌ها..."
+                    className="premium-input pr-10 pl-4 py-2.5 w-full md:w-64"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="premium-button p-2.5"
+                  title="فیلترها"
+                >
+                  <Filter className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => fetchAuditLogs()}
+                  className="premium-button p-2.5"
+                  disabled={loading}
+                  title="بروزرسانی"
+                >
+                  <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="premium-button p-2.5 bg-green-600 hover:bg-green-700"
+                  title="ایجاد لاگ جدید"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
           </div>
 
           {/* Advanced Filters */}
@@ -614,35 +738,86 @@ export default function AuditLogPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredLogs.length === 0 ? (
+                {loading ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-3 text-center text-gray-500 dark:text-gray-400">
-                      هیچ لاگی یافت نشد.
+                    <td colSpan={8} className="px-6 py-16 text-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <RefreshCw className="w-8 h-8 animate-spin text-primary-600 mb-4" />
+                        <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری...</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-16 text-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <div className="w-20 h-20 mb-4 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
+                          <FileText className="w-10 h-10 text-gray-400" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ لاگی یافت نشد</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">لاگ‌های فعالیت در اینجا نمایش داده می‌شوند</p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
-                  filteredLogs.map(log => (
-                    <tr key={log.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{log.timestamp}</td>
-                      <td className="px-4 py-3 text-gray-900 dark:text-white">{log.userName}</td>
-                      <td className="px-4 py-3 flex items-center space-x-2 space-x-reverse">
-                        {getActionIcon(log.action)}
-                        {getActionBadge(log.action)}
+                  auditLogs.map(log => (
+                    <tr key={log._id || log.id} className="bg-white dark:bg-gray-800 hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-purple-50/50 dark:hover:from-gray-700 dark:hover:to-gray-700 transition-all duration-200 group">
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-700 dark:text-gray-300">
+                          {log.timestamp instanceof Date 
+                            ? log.timestamp.toLocaleString('fa-IR')
+                            : new Date(log.timestamp).toLocaleString('fa-IR')}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 flex items-center space-x-2 space-x-reverse">
-                        {getEntityIcon(log.entity)}
-                        <span className="text-gray-700 dark:text-gray-200">{log.entityName}</span>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          <User className="w-4 h-4 text-gray-400" />
+                          <span className="font-medium text-gray-900 dark:text-white">{log.userName}</span>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate">{log.details}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{log.ipAddress}</td>
-                      <td className="px-4 py-3">{getStatusBadge(log.status)}</td>
-                      <td className="px-4 py-3 flex items-center space-x-2 space-x-reverse">
-                        <button 
-                          onClick={() => handleViewLogDetails(log)}
-                          className="p-2 rounded-full text-primary-600 hover:bg-primary-100 dark:hover:bg-primary-900/30"
-                        >
-                          <Eye className="w-5 h-5" />
-                        </button>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          {getActionIcon(log.action)}
+                          {getActionBadge(log.action)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          {getEntityIcon(log.entity)}
+                          <span className="text-sm text-gray-700 dark:text-gray-200">{log.entityName || log.entity}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-700 dark:text-gray-200 max-w-xs truncate">{log.details}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-1 space-x-reverse">
+                          <MapPin className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm font-mono text-gray-600 dark:text-gray-300">{log.ipAddress}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">{getStatusBadge(log.status)}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          <button 
+                            onClick={() => handleViewLogDetails(log)}
+                            className="p-2 rounded-lg text-primary-600 hover:bg-primary-100 dark:hover:bg-primary-900/30 hover:scale-110 transition-all"
+                            title="جزئیات"
+                          >
+                            <Eye className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setLogToDelete(log._id || log.id || '')
+                              setShowDeleteConfirm(true)
+                            }}
+                            className="p-2 rounded-lg text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 hover:scale-110 transition-all"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -656,70 +831,88 @@ export default function AuditLogPage() {
       {activeTab === 'analytics' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="premium-card p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
-              <TrendingUp className="w-6 h-6 text-primary-600" />
-              <span>آمار فعالیت‌ها</span>
-            </h2>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700 dark:text-gray-300">ایجاد</span>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {mockAuditLogs.filter(log => log.action === 'CREATE').length}
-                </span>
+            <div className="flex items-center space-x-3 space-x-reverse mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-white" />
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700 dark:text-gray-300">ویرایش</span>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {mockAuditLogs.filter(log => log.action === 'UPDATE').length}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700 dark:text-gray-300">حذف</span>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {mockAuditLogs.filter(log => log.action === 'DELETE').length}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700 dark:text-gray-300">ورود</span>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {mockAuditLogs.filter(log => log.action === 'LOGIN').length}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-700 dark:text-gray-300">چاپ</span>
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {mockAuditLogs.filter(log => log.action === 'PRINT').length}
-                </span>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">آمار فعالیت‌ها</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">توزیع عملیات بر اساس نوع</p>
               </div>
             </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
+              </div>
+            ) : analytics && analytics.actionStats.length > 0 ? (
+              <div className="space-y-4">
+                {analytics.actionStats.map((stat, index) => (
+                  <div key={index} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <span className="text-gray-700 dark:text-gray-300 font-medium">{stat._id}</span>
+                    <span className="font-bold text-lg text-gray-900 dark:text-white">{stat.count}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                داده‌ای برای نمایش وجود ندارد
+              </div>
+            )}
           </div>
 
           <div className="premium-card p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
-              <Users className="w-6 h-6 text-green-600" />
-              <span>فعال‌ترین کاربران</span>
-            </h2>
-            <div className="space-y-4">
-              {['علی احمدی', 'فاطمه کریمی', 'رضا حسینی'].map((user, index) => (
-                <div key={index} className="flex justify-between items-center">
-                  <span className="text-gray-700 dark:text-gray-300">{user}</span>
-                  <span className="font-medium text-gray-900 dark:text-white">
-                    {mockAuditLogs.filter(log => log.userName === user).length}
-                  </span>
-                </div>
-              ))}
+            <div className="flex items-center space-x-3 space-x-reverse mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500 to-teal-600 flex items-center justify-center">
+                <Users className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">فعال‌ترین کاربران</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">کاربران با بیشترین فعالیت</p>
+              </div>
             </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="w-8 h-8 animate-spin text-primary-600" />
+              </div>
+            ) : analytics && analytics.topUsers.length > 0 ? (
+              <div className="space-y-4">
+                {analytics.topUsers.map((user, index) => (
+                  <div key={index} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${
+                        index === 0 ? 'bg-yellow-500' : 
+                        index === 1 ? 'bg-gray-400' : 
+                        index === 2 ? 'bg-orange-500' : 'bg-blue-500'
+                      }`}>
+                        {index + 1}
+                      </div>
+                      <span className="text-gray-700 dark:text-gray-300 font-medium">{user.userName || user._id}</span>
+                    </div>
+                    <span className="font-bold text-lg text-gray-900 dark:text-white">{user.count}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                داده‌ای برای نمایش وجود ندارد
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {activeTab === 'settings' && (
-        <div className="premium-card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
-            <Settings className="w-6 h-6 text-primary-600" />
-            <span>تنظیمات لاگ</span>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="premium-card p-6">
+            <div className="flex items-center space-x-3 space-x-reverse mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <Settings className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">تنظیمات نگهداری</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">مدیریت حجم و مدت نگهداری لاگ‌ها</p>
+              </div>
+            </div>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نگهداری لاگ‌ها (روز)</label>
@@ -729,35 +922,43 @@ export default function AuditLogPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">حداکثر حجم لاگ (MB)</label>
                 <input type="number" className="premium-input w-full" defaultValue="1000" />
               </div>
+              <div className="flex items-center space-x-2 space-x-reverse pt-4">
+                <input type="checkbox" className="rounded" defaultChecked />
+                <span className="text-sm text-gray-600 dark:text-gray-300">فعال کردن فشرده‌سازی</span>
+              </div>
+              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => handleClearOldLogs(90)}
+                  className="premium-button w-full bg-red-600 hover:bg-red-700"
+                >
+                  <Trash2 className="w-5 h-5 ml-2" />
+                  حذف لاگ‌های قدیمی‌تر از 90 روز
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="premium-card p-6">
+            <div className="flex items-center space-x-3 space-x-reverse mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500 to-teal-600 flex items-center justify-center">
+                <Shield className="w-5 h-5 text-white" />
+              </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">فشرده‌سازی</label>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm text-gray-600 dark:text-gray-300">فعال کردن فشرده‌سازی</span>
-                </div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">تنظیمات امنیتی</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">مدیریت ردیابی و اعلان‌ها</p>
               </div>
             </div>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">اعلان‌های امنیتی</label>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm text-gray-600 dark:text-gray-300">فعال کردن اعلان‌ها</span>
-                </div>
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <span className="text-sm text-gray-700 dark:text-gray-300">اعلان‌های امنیتی</span>
+                <input type="checkbox" className="rounded" defaultChecked />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">لاگ IP های مشکوک</label>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm text-gray-600 dark:text-gray-300">ردیابی IP های مشکوک</span>
-                </div>
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <span className="text-sm text-gray-700 dark:text-gray-300">لاگ IP های مشکوک</span>
+                <input type="checkbox" className="rounded" defaultChecked />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">لاگ تغییرات حساس</label>
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  <span className="text-sm text-gray-600 dark:text-gray-300">ردیابی تغییرات مهم</span>
-                </div>
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <span className="text-sm text-gray-700 dark:text-gray-300">لاگ تغییرات حساس</span>
+                <input type="checkbox" className="rounded" defaultChecked />
               </div>
             </div>
           </div>
@@ -765,6 +966,297 @@ export default function AuditLogPage() {
       )}
 
       {showLogModal && <LogDetailsModal />}
+
+      {/* Create Log Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="relative px-6 py-5 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3 space-x-reverse">
+                  <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                    <Plus className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold">ایجاد لاگ جدید</h2>
+                    <p className="text-sm text-white/90 mt-0.5">ثبت فعالیت دستی در سیستم</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowCreateModal(false)
+                    setLogForm({
+                      userId: '',
+                      userName: '',
+                      action: 'CREATE',
+                      entity: 'INVOICE',
+                      entityId: '',
+                      entityName: '',
+                      ipAddress: '',
+                      userAgent: '',
+                      status: 'success',
+                      details: '',
+                      location: ''
+                    })
+                  }}
+                  className="p-2 rounded-xl hover:bg-white/20 transition-colors"
+                >
+                  <XCircle className="w-6 h-6 text-white" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      User ID <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input w-full"
+                      value={logForm.userId}
+                      onChange={(e) => setLogForm({ ...logForm, userId: e.target.value })}
+                      placeholder="شناسه کاربر"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      نام کاربر
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input w-full"
+                      value={logForm.userName}
+                      onChange={(e) => setLogForm({ ...logForm, userName: e.target.value })}
+                      placeholder="نام کاربر"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      عمل <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      className="premium-input w-full"
+                      value={logForm.action}
+                      onChange={(e) => setLogForm({ ...logForm, action: e.target.value })}
+                    >
+                      <option value="CREATE">ایجاد</option>
+                      <option value="UPDATE">ویرایش</option>
+                      <option value="DELETE">حذف</option>
+                      <option value="LOGIN">ورود</option>
+                      <option value="LOGOUT">خروج</option>
+                      <option value="VIEW">مشاهده</option>
+                      <option value="PRINT">چاپ</option>
+                      <option value="EXPORT">خروجی</option>
+                      <option value="IMPORT">ورودی</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      موجودیت <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      className="premium-input w-full"
+                      value={logForm.entity}
+                      onChange={(e) => setLogForm({ ...logForm, entity: e.target.value })}
+                    >
+                      <option value="INVOICE">فاکتور</option>
+                      <option value="CUSTOMER">مشتری</option>
+                      <option value="SUPPLIER">تامین‌کننده</option>
+                      <option value="PRODUCT">محصول</option>
+                      <option value="USER">کاربر</option>
+                      <option value="REPORT">گزارش</option>
+                      <option value="SETTINGS">تنظیمات</option>
+                      <option value="PAYMENT">پرداخت</option>
+                      <option value="ORDER">سفارش</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      شناسه موجودیت
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input w-full"
+                      value={logForm.entityId}
+                      onChange={(e) => setLogForm({ ...logForm, entityId: e.target.value })}
+                      placeholder="شناسه موجودیت"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      نام موجودیت
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input w-full"
+                      value={logForm.entityName}
+                      onChange={(e) => setLogForm({ ...logForm, entityName: e.target.value })}
+                      placeholder="نام موجودیت"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      آدرس IP
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input w-full"
+                      value={logForm.ipAddress}
+                      onChange={(e) => setLogForm({ ...logForm, ipAddress: e.target.value })}
+                      placeholder="192.168.1.100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      وضعیت
+                    </label>
+                    <select
+                      className="premium-input w-full"
+                      value={logForm.status}
+                      onChange={(e) => setLogForm({ ...logForm, status: e.target.value as 'success' | 'failed' | 'warning' })}
+                    >
+                      <option value="success">موفق</option>
+                      <option value="failed">ناموفق</option>
+                      <option value="warning">هشدار</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    User Agent
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={logForm.userAgent}
+                    onChange={(e) => setLogForm({ ...logForm, userAgent: e.target.value })}
+                    placeholder="Mozilla/5.0..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    توضیحات
+                  </label>
+                  <textarea
+                    className="premium-input w-full"
+                    rows={3}
+                    value={logForm.details}
+                    onChange={(e) => setLogForm({ ...logForm, details: e.target.value })}
+                    placeholder="توضیحات فعالیت..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    مکان
+                  </label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={logForm.location}
+                    onChange={(e) => setLogForm({ ...logForm, location: e.target.value })}
+                    placeholder="تهران، ایران"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowCreateModal(false)
+                    setLogForm({
+                      userId: '',
+                      userName: '',
+                      action: 'CREATE',
+                      entity: 'INVOICE',
+                      entityId: '',
+                      entityName: '',
+                      ipAddress: '',
+                      userAgent: '',
+                      status: 'success',
+                      details: '',
+                      location: ''
+                    })
+                  }}
+                  className="px-6 py-3 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold rounded-xl transition-all duration-200"
+                >
+                  انصراف
+                </button>
+                <button
+                  onClick={handleCreateLog}
+                  className="px-6 py-3 bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center space-x-2 space-x-reverse"
+                >
+                  <Plus className="w-5 h-5" />
+                  <span>ایجاد لاگ</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && logToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="relative px-6 py-5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-t-2xl">
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                  <AlertTriangle className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">تأیید حذف</h2>
+                  <p className="text-sm text-white/90 mt-0.5">آیا از حذف این لاگ اطمینان دارید؟</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <p className="text-gray-700 dark:text-gray-300 mb-6">
+                این عملیات غیرقابل بازگشت است. آیا مطمئن هستید که می‌خواهید این لاگ را حذف کنید؟
+              </p>
+
+              <div className="flex items-center justify-end space-x-3 space-x-reverse">
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false)
+                    setLogToDelete(null)
+                  }}
+                  className="px-6 py-3 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold rounded-xl transition-all duration-200"
+                >
+                  انصراف
+                </button>
+                <button
+                  onClick={() => {
+                    if (logToDelete) {
+                      handleDeleteLog(logToDelete)
+                    }
+                  }}
+                  className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 flex items-center space-x-2 space-x-reverse"
+                >
+                  <Trash2 className="w-5 h-5" />
+                  <span>حذف</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   Building, 
   MapPin, 
@@ -154,27 +154,112 @@ const weekDays = [
 export default function RestaurantSettingsPage() {
   const [settings, setSettings] = useState<RestaurantSettings>(initialSettings)
   const [activeTab, setActiveTab] = useState('basic')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
-  const handleSave = () => {
-    // Here you would typically save to backend
-    alert('تنظیمات با موفقیت ذخیره شد!')
+  // Fetch settings from API
+  const fetchSettings = useCallback(async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/restaurant-settings')
+      const result = await response.json()
+      if (result.success && result.data) {
+        setSettings(result.data)
+      } else {
+        console.error('Failed to fetch settings:', result.message)
+        // Use initial settings as fallback
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error)
+      // Use initial settings as fallback
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Load settings on mount
+  useEffect(() => {
+    fetchSettings()
+  }, [fetchSettings])
+
+  // Handle save settings
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      
+      // Get the section to update based on active tab
+      let updateData: any = {}
+      
+      switch (activeTab) {
+        case 'basic':
+          updateData.basicInfo = settings.basicInfo
+          break
+        case 'hours':
+          updateData.businessHours = settings.businessHours
+          break
+        case 'financial':
+          updateData.financial = settings.financial
+          break
+        case 'pos':
+          updateData.pos = settings.pos
+          break
+        case 'notifications':
+          updateData.notifications = settings.notifications
+          break
+        case 'security':
+          updateData.security = settings.security
+          break
+        case 'integrations':
+          updateData.integrations = settings.integrations
+          break
+        default:
+          // Save all settings
+          updateData = settings
+      }
+      
+      const response = await fetch('/api/restaurant-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData)
+      })
+      
+      const result = await response.json()
+      if (result.success) {
+        alert('✅ تنظیمات با موفقیت ذخیره شد!')
+        // Refresh settings from server
+        await fetchSettings()
+      } else {
+        alert(`❌ ${result.message || 'خطا در ذخیره تنظیمات'}`)
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error)
+      alert('❌ خطا در ذخیره تنظیمات')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle logo upload
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
+      // Create a FileReader to preview
       const reader = new FileReader()
       reader.onload = (e) => {
+        const logoDataUrl = e.target?.result as string
         setSettings(prev => ({
           ...prev,
           basicInfo: {
             ...prev.basicInfo,
-            logo: e.target?.result as string
+            logo: logoDataUrl
           }
         }))
       }
       reader.readAsDataURL(file)
+      
+      // TODO: Upload to server and get URL
+      // For now, we'll save it as data URL in the settings
     }
   }
 
@@ -242,6 +327,15 @@ export default function RestaurantSettingsPage() {
 
         {/* Tab Content */}
         <div className="premium-card p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="flex flex-col items-center space-y-4">
+                <div className="w-12 h-12 border-4 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری تنظیمات...</p>
+              </div>
+            </div>
+          ) : (
+            <>
           {/* Basic Info Tab */}
           {activeTab === 'basic' && (
             <div className="space-y-6">
@@ -765,16 +859,35 @@ export default function RestaurantSettingsPage() {
               </div>
             </div>
           )}
-
+            </>
+          )}
+          
           {/* Save Button */}
           <div className="flex items-center justify-end space-x-3 space-x-reverse mt-8 pt-6 border-t border-gray-200 dark:border-gray-600/30">
-            <button
-              onClick={handleSave}
-              className="flex items-center space-x-2 space-x-reverse px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              <span>ذخیره تنظیمات</span>
-            </button>
+            {loading ? (
+              <div className="flex items-center space-x-2 space-x-reverse text-gray-600 dark:text-gray-400">
+                <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                <span>در حال بارگذاری...</span>
+              </div>
+            ) : (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center space-x-2 space-x-reverse px-6 py-3 bg-gradient-to-r from-primary-600 to-purple-600 text-white rounded-lg hover:from-primary-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>در حال ذخیره...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>ذخیره تنظیمات</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>

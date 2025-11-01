@@ -165,6 +165,41 @@ export default function ChequePaymentReportsPage() {
   const [chequeStats, setChequeStats] = useState<any>(null)
   const [paymentAnalysis, setPaymentAnalysis] = useState<any>(null)
   const [cashFlowSummary, setCashFlowSummary] = useState<any>(null)
+  
+  // Modal states
+  const [showChequeModal, setShowChequeModal] = useState(false)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [showChequeDetailsModal, setShowChequeDetailsModal] = useState(false)
+  const [showPaymentDetailsModal, setShowPaymentDetailsModal] = useState(false)
+  const [selectedCheque, setSelectedCheque] = useState<ChequeData | null>(null)
+  const [selectedPayment, setSelectedPayment] = useState<PaymentData | null>(null)
+  const [editingCheque, setEditingCheque] = useState<ChequeData | null>(null)
+  const [editingPayment, setEditingPayment] = useState<PaymentData | null>(null)
+  
+  // Form states
+  const [chequeForm, setChequeForm] = useState({
+    chequeNumber: '',
+    bankName: '',
+    amount: '',
+    issueDate: '',
+    dueDate: '',
+    status: 'in_hand' as const,
+    personName: '',
+    purpose: '',
+    reference: '',
+    notes: ''
+  })
+  
+  const [paymentForm, setPaymentForm] = useState({
+    type: 'receipt' as 'receipt' | 'payment',
+    amount: '',
+    method: 'cash' as const,
+    date: '',
+    personName: '',
+    description: '',
+    reference: '',
+    notes: ''
+  })
 
   // Fetch چک‌ها
   const fetchCheques = useCallback(async () => {
@@ -359,6 +394,270 @@ export default function ChequePaymentReportsPage() {
     }
   }
 
+  // CRUD Functions for Cheques
+  const handleCreateCheque = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/cheques', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chequeNumber: chequeForm.chequeNumber,
+          bankName: chequeForm.bankName,
+          amount: parseFloat(chequeForm.amount),
+          issueDate: chequeForm.issueDate,
+          dueDate: chequeForm.dueDate,
+          status: chequeForm.status,
+          personName: chequeForm.personName,
+          purpose: chequeForm.purpose,
+          reference: chequeForm.reference,
+          notes: chequeForm.notes,
+          chequeType: 'received'
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert('چک با موفقیت ثبت شد')
+        setShowChequeModal(false)
+        resetChequeForm()
+        fetchCheques()
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error creating cheque:', error)
+      alert('خطا در ثبت چک')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUpdateCheque = async () => {
+    if (!editingCheque) return
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/cheques/${editingCheque._id || editingCheque.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chequeNumber: chequeForm.chequeNumber,
+          bankName: chequeForm.bankName,
+          amount: parseFloat(chequeForm.amount),
+          issueDate: chequeForm.issueDate,
+          dueDate: chequeForm.dueDate,
+          status: chequeForm.status,
+          personName: chequeForm.personName,
+          purpose: chequeForm.purpose,
+          reference: chequeForm.reference,
+          notes: chequeForm.notes
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert('چک با موفقیت به‌روزرسانی شد')
+        setShowChequeModal(false)
+        setEditingCheque(null)
+        resetChequeForm()
+        fetchCheques()
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error updating cheque:', error)
+      alert('خطا در به‌روزرسانی چک')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteCheque = async (chequeId: string) => {
+    if (!confirm('آیا از حذف این چک اطمینان دارید؟')) return
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/cheques/${chequeId}`, {
+        method: 'DELETE'
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert('چک با موفقیت حذف شد')
+        fetchCheques()
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting cheque:', error)
+      alert('خطا در حذف چک')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleViewCheque = (cheque: ChequeData) => {
+    setSelectedCheque(cheque)
+    setShowChequeDetailsModal(true)
+  }
+
+  const handleEditCheque = (cheque: ChequeData) => {
+    setEditingCheque(cheque)
+    setChequeForm({
+      chequeNumber: cheque.chequeNumber || '',
+      bankName: cheque.bankName || '',
+      amount: cheque.amount?.toString() || '',
+      issueDate: cheque.issueDate ? new Date(cheque.issueDate).toISOString().split('T')[0] : '',
+      dueDate: cheque.dueDate ? new Date(cheque.dueDate).toISOString().split('T')[0] : '',
+      status: cheque.status || 'in_hand',
+      personName: cheque.personName || cheque.owner || '',
+      purpose: cheque.purpose || '',
+      reference: cheque.reference || '',
+      notes: ''
+    })
+    setShowChequeModal(true)
+  }
+
+  const resetChequeForm = () => {
+    setChequeForm({
+      chequeNumber: '',
+      bankName: '',
+      amount: '',
+      issueDate: '',
+      dueDate: '',
+      status: 'in_hand',
+      personName: '',
+      purpose: '',
+      reference: '',
+      notes: ''
+    })
+    setEditingCheque(null)
+  }
+
+  // CRUD Functions for Payments
+  const handleCreatePayment = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/receipts-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: paymentForm.type,
+          amount: parseFloat(paymentForm.amount),
+          method: paymentForm.method,
+          date: paymentForm.date || new Date().toISOString().split('T')[0],
+          personName: paymentForm.personName,
+          description: paymentForm.description,
+          reference: paymentForm.reference,
+          notes: paymentForm.notes
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert('تراکنش با موفقیت ثبت شد')
+        setShowPaymentModal(false)
+        resetPaymentForm()
+        fetchPayments()
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error creating payment:', error)
+      alert('خطا در ثبت تراکنش')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUpdatePayment = async () => {
+    if (!editingPayment) return
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/receipts-payments/${editingPayment._id || editingPayment.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: paymentForm.type,
+          amount: parseFloat(paymentForm.amount),
+          method: paymentForm.method,
+          date: paymentForm.date,
+          personName: paymentForm.personName,
+          description: paymentForm.description,
+          reference: paymentForm.reference,
+          notes: paymentForm.notes,
+          personType: 'customer'
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert('تراکنش با موفقیت به‌روزرسانی شد')
+        setShowPaymentModal(false)
+        setEditingPayment(null)
+        resetPaymentForm()
+        fetchPayments()
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error updating payment:', error)
+      alert('خطا در به‌روزرسانی تراکنش')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeletePayment = async (paymentId: string) => {
+    if (!confirm('آیا از حذف این تراکنش اطمینان دارید؟')) return
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/receipts-payments/${paymentId}`, {
+        method: 'DELETE'
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert('تراکنش با موفقیت حذف شد')
+        fetchPayments()
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting payment:', error)
+      alert('خطا در حذف تراکنش')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleViewPayment = (payment: PaymentData) => {
+    setSelectedPayment(payment)
+    setShowPaymentDetailsModal(true)
+  }
+
+  const handleEditPayment = (payment: PaymentData) => {
+    setEditingPayment(payment)
+    setPaymentForm({
+      type: payment.type || 'receipt',
+      amount: payment.amount?.toString() || '',
+      method: payment.method || 'cash',
+      date: payment.date ? new Date(payment.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      personName: payment.personName || payment.person || '',
+      description: payment.description || payment.purpose || '',
+      reference: payment.reference || '',
+      notes: ''
+    })
+    setShowPaymentModal(true)
+  }
+
+  const resetPaymentForm = () => {
+    setPaymentForm({
+      type: 'receipt',
+      amount: '',
+      method: 'cash',
+      date: new Date().toISOString().split('T')[0],
+      personName: '',
+      description: '',
+      reference: '',
+      notes: ''
+    })
+    setEditingPayment(null)
+  }
+
   return (
     <div className="fade-in-animation space-y-6">
       <div className="flex items-center justify-between">
@@ -369,6 +668,30 @@ export default function ChequePaymentReportsPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
+          {activeTab === 'cheques' && (
+            <button
+              onClick={() => {
+                resetChequeForm()
+                setShowChequeModal(true)
+              }}
+              className="premium-button flex items-center space-x-2 space-x-reverse"
+            >
+              <Plus className="w-5 h-5" />
+              <span>چک جدید</span>
+            </button>
+          )}
+          {activeTab === 'payments' && (
+            <button
+              onClick={() => {
+                resetPaymentForm()
+                setShowPaymentModal(true)
+              }}
+              className="premium-button flex items-center space-x-2 space-x-reverse"
+            >
+              <Plus className="w-5 h-5" />
+              <span>تراکنش جدید</span>
+            </button>
+          )}
           <button
             onClick={handleAddSampleData}
             className="premium-button flex items-center space-x-2 space-x-reverse"
@@ -392,7 +715,7 @@ export default function ChequePaymentReportsPage() {
             <Printer className="w-5 h-5" />
           </button>
           <button
-            onClick={() => handleExport('چک و پرداخت')}
+            onClick={() => handleExport(activeTab === 'cheques' ? 'چک‌ها' : activeTab === 'payments' ? 'پرداخت‌ها' : 'جریان نقدی')}
             className="premium-button p-3"
           >
             <Download className="w-5 h-5" />
@@ -658,11 +981,26 @@ export default function ChequePaymentReportsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-2 space-x-reverse">
-                          <button className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
+                          <button 
+                            onClick={() => handleViewCheque(cheque)}
+                            className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                            title="مشاهده جزئیات"
+                          >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
+                          <button 
+                            onClick={() => handleEditCheque(cheque)}
+                            className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                            title="ویرایش"
+                          >
                             <Edit className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteCheque(cheque._id || cheque.id)}
+                            className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -686,21 +1024,26 @@ export default function ChequePaymentReportsPage() {
                   </h2>
                   <div className="h-64 w-full">
                     <PieChart 
-                      data={paymentAnalysis.methodBreakdown && paymentAnalysis.methodBreakdown.length > 0 ? 
-                        paymentAnalysis.methodBreakdown.map((m: any) => ({
-                          name: m.method === 'cash' ? 'نقدی' : 
-                                m.method === 'card' ? 'کارتخوان' :
-                                m.method === 'bank_transfer' ? 'حواله' :
-                                m.method === 'cheque' ? 'چک' :
-                                m.method === 'credit' ? 'اعتباری' : m.method,
-                          value: m.totalAmount || 0,
-                          color: m.method === 'cash' ? '#10B981' : 
-                                 m.method === 'card' ? '#3B82F6' :
-                                 m.method === 'bank_transfer' ? '#8B5CF6' :
-                                 m.method === 'cheque' ? '#F59E0B' :
-                                 '#EF4444'
-                        })) : []
-                      }
+                      data={(() => {
+                        if (!paymentAnalysis.methodBreakdown || paymentAnalysis.methodBreakdown.length === 0) return []
+                        const total = paymentAnalysis.methodBreakdown.reduce((sum: number, m: any) => sum + (m.totalAmount || 0), 0)
+                        return paymentAnalysis.methodBreakdown.map((m: any) => {
+                          const percentage = total > 0 ? ((m.totalAmount || 0) / total * 100) : 0
+                          return {
+                            name: m.method === 'cash' ? 'نقدی' : 
+                                  m.method === 'card' ? 'کارتخوان' :
+                                  m.method === 'bank_transfer' ? 'حواله' :
+                                  m.method === 'cheque' ? 'چک' :
+                                  m.method === 'credit' ? 'اعتباری' : m.method,
+                            value: Math.round(percentage),
+                            color: m.method === 'cash' ? '#10B981' : 
+                                   m.method === 'card' ? '#3B82F6' :
+                                   m.method === 'bank_transfer' ? '#8B5CF6' :
+                                   m.method === 'cheque' ? '#F59E0B' :
+                                   '#EF4444'
+                          }
+                        })
+                      })()}
                     />
                   </div>
                 </div>
@@ -802,11 +1145,26 @@ export default function ChequePaymentReportsPage() {
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate">{payment.description}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2 space-x-reverse">
-                            <button className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
+                            <button 
+                              onClick={() => handleViewPayment(payment)}
+                              className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                              title="مشاهده جزئیات"
+                            >
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
-                              <Printer className="w-4 h-4" />
+                            <button 
+                              onClick={() => handleEditPayment(payment)}
+                              className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                              title="ویرایش"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeletePayment(payment._id || payment.id)}
+                              className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                              title="حذف"
+                            >
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -959,51 +1317,502 @@ export default function ChequePaymentReportsPage() {
           <Zap className="w-6 h-6 text-primary-600" />
           <span>اقدامات سریع</span>
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <button 
             onClick={() => {
+              setActiveTab('cheques')
               handleGenerateReport('cheques')
-              handleExport('چک‌ها')
             }}
             className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300"
             disabled={loading}
           >
             <CreditCard className="w-8 h-8 text-blue-600" />
-            <div>
+            <div className="text-right">
               <h3 className="font-semibold text-gray-900 dark:text-white">گزارش چک‌ها</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">وضعیت و سررسید چک‌ها</p>
             </div>
           </button>
           <button 
             onClick={() => {
+              setActiveTab('cheques')
+            }}
+            className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300"
+            disabled={loading}
+          >
+            <Clock className="w-8 h-8 text-yellow-600" />
+            <div className="text-right">
+              <h3 className="font-semibold text-gray-900 dark:text-white">وضعیت و سررسید چک‌ها</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">پیگیری چک‌های سررسید شده</p>
+            </div>
+          </button>
+          <button 
+            onClick={() => {
+              setActiveTab('payments')
               handleGenerateReport('payments')
-              handleExport('پرداخت‌ها')
             }}
             className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300"
             disabled={loading}
           >
             <Receipt className="w-8 h-8 text-green-600" />
-            <div>
+            <div className="text-right">
               <h3 className="font-semibold text-gray-900 dark:text-white">گزارش پرداخت‌ها</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">تحلیل روش‌های پرداخت</p>
             </div>
           </button>
           <button 
             onClick={() => {
+              setActiveTab('payments')
+            }}
+            className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300"
+            disabled={loading}
+          >
+            <BarChart3 className="w-8 h-8 text-indigo-600" />
+            <div className="text-right">
+              <h3 className="font-semibold text-gray-900 dark:text-white">تحلیل روش‌های پرداخت</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">مقایسه روش‌های پرداخت</p>
+            </div>
+          </button>
+          <button 
+            onClick={() => {
+              setActiveTab('cashflow')
               handleGenerateReport('cashflow')
-              handleExport('جریان نقدی')
             }}
             className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300"
             disabled={loading}
           >
             <Activity className="w-8 h-8 text-purple-600" />
-            <div>
+            <div className="text-right">
               <h3 className="font-semibold text-gray-900 dark:text-white">گزارش جریان نقدی</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">پیش‌بینی نقدینگی</p>
             </div>
           </button>
+          <button 
+            onClick={() => {
+              setActiveTab('cashflow')
+            }}
+            className="premium-card p-4 flex items-center space-x-3 space-x-reverse hover:shadow-glow transition-all duration-300"
+            disabled={loading}
+          >
+            <TrendingUp className="w-8 h-8 text-emerald-600" />
+            <div className="text-right">
+              <h3 className="font-semibold text-gray-900 dark:text-white">پیش‌بینی نقدینگی</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">بررسی وضعیت نقدینگی آینده</p>
+            </div>
+          </button>
         </div>
       </div>
+
+      {/* Cheque Create/Edit Modal */}
+      {showChequeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {editingCheque ? 'ویرایش چک' : 'چک جدید'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowChequeModal(false)
+                  resetChequeForm()
+                }}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">شماره چک</label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={chequeForm.chequeNumber}
+                    onChange={(e) => setChequeForm({...chequeForm, chequeNumber: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">بانک</label>
+                  <input
+                    type="text"
+                    className="premium-input w-full"
+                    value={chequeForm.bankName}
+                    onChange={(e) => setChequeForm({...chequeForm, bankName: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مبلغ</label>
+                  <input
+                    type="number"
+                    className="premium-input w-full"
+                    value={chequeForm.amount}
+                    onChange={(e) => setChequeForm({...chequeForm, amount: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">وضعیت</label>
+                  <select
+                    className="premium-input w-full"
+                    value={chequeForm.status}
+                    onChange={(e) => setChequeForm({...chequeForm, status: e.target.value as any})}
+                  >
+                    <option value="in_hand">در دست</option>
+                    <option value="deposited">واریز شده</option>
+                    <option value="cleared">پاس شده</option>
+                    <option value="returned">برگشت خورده</option>
+                    <option value="endorsed">پشت‌نویسی شده</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">تاریخ صدور</label>
+                  <input
+                    type="date"
+                    className="premium-input w-full"
+                    value={chequeForm.issueDate}
+                    onChange={(e) => setChequeForm({...chequeForm, issueDate: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">تاریخ سررسید</label>
+                  <input
+                    type="date"
+                    className="premium-input w-full"
+                    value={chequeForm.dueDate}
+                    onChange={(e) => setChequeForm({...chequeForm, dueDate: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">صاحب چک</label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={chequeForm.personName}
+                  onChange={(e) => setChequeForm({...chequeForm, personName: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">بابت</label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={chequeForm.purpose}
+                  onChange={(e) => setChequeForm({...chequeForm, purpose: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مرجع</label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={chequeForm.reference}
+                  onChange={(e) => setChequeForm({...chequeForm, reference: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">یادداشت</label>
+                <textarea
+                  className="premium-input w-full"
+                  rows={3}
+                  value={chequeForm.notes}
+                  onChange={(e) => setChequeForm({...chequeForm, notes: e.target.value})}
+                />
+              </div>
+              <div className="flex items-center justify-end space-x-3 space-x-reverse pt-4">
+                <button
+                  onClick={() => {
+                    setShowChequeModal(false)
+                    resetChequeForm()
+                  }}
+                  className="premium-button bg-gray-500 hover:bg-gray-600"
+                >
+                  لغو
+                </button>
+                <button
+                  onClick={editingCheque ? handleUpdateCheque : handleCreateCheque}
+                  disabled={loading}
+                  className="premium-button flex items-center space-x-2 space-x-reverse"
+                >
+                  <Save className="w-5 h-5" />
+                  <span>{editingCheque ? 'ذخیره تغییرات' : 'ثبت چک'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Create/Edit Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {editingPayment ? 'ویرایش تراکنش' : 'تراکنش جدید'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false)
+                  resetPaymentForm()
+                }}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع</label>
+                  <select
+                    className="premium-input w-full"
+                    value={paymentForm.type}
+                    onChange={(e) => setPaymentForm({...paymentForm, type: e.target.value as 'receipt' | 'payment'})}
+                  >
+                    <option value="receipt">دریافت</option>
+                    <option value="payment">پرداخت</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">روش پرداخت</label>
+                  <select
+                    className="premium-input w-full"
+                    value={paymentForm.method}
+                    onChange={(e) => setPaymentForm({...paymentForm, method: e.target.value as any})}
+                  >
+                    <option value="cash">نقدی</option>
+                    <option value="card">کارتخوان</option>
+                    <option value="bank_transfer">حواله</option>
+                    <option value="cheque">چک</option>
+                    <option value="credit">اعتباری</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مبلغ</label>
+                  <input
+                    type="number"
+                    className="premium-input w-full"
+                    value={paymentForm.amount}
+                    onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">تاریخ</label>
+                  <input
+                    type="date"
+                    className="premium-input w-full"
+                    value={paymentForm.date}
+                    onChange={(e) => setPaymentForm({...paymentForm, date: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">شخص</label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={paymentForm.personName}
+                  onChange={(e) => setPaymentForm({...paymentForm, personName: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">توضیحات</label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={paymentForm.description}
+                  onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مرجع</label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={paymentForm.reference}
+                  onChange={(e) => setPaymentForm({...paymentForm, reference: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">یادداشت</label>
+                <textarea
+                  className="premium-input w-full"
+                  rows={3}
+                  value={paymentForm.notes}
+                  onChange={(e) => setPaymentForm({...paymentForm, notes: e.target.value})}
+                />
+              </div>
+              <div className="flex items-center justify-end space-x-3 space-x-reverse pt-4">
+                <button
+                  onClick={() => {
+                    setShowPaymentModal(false)
+                    resetPaymentForm()
+                  }}
+                  className="premium-button bg-gray-500 hover:bg-gray-600"
+                >
+                  لغو
+                </button>
+                <button
+                  onClick={editingPayment ? handleUpdatePayment : handleCreatePayment}
+                  disabled={loading}
+                  className="premium-button flex items-center space-x-2 space-x-reverse"
+                >
+                  <Save className="w-5 h-5" />
+                  <span>{editingPayment ? 'ذخیره تغییرات' : 'ثبت تراکنش'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cheque Details Modal */}
+      {showChequeDetailsModal && selectedCheque && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">جزئیات چک</h2>
+              <button
+                onClick={() => setShowChequeDetailsModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">شماره چک</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedCheque.chequeNumber}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">بانک</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedCheque.bankName}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">مبلغ</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedCheque.amount?.toLocaleString('fa-IR')} تومان</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">وضعیت</label>
+                  <div className="mt-1">{getChequeStatusBadge(selectedCheque.status)}</div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">تاریخ سررسید</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{formatDate(selectedCheque.dueDate)}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">صاحب چک</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedCheque.personName || selectedCheque.owner}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">بابت</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedCheque.purpose}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">مرجع</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedCheque.reference}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end space-x-3 space-x-reverse">
+              <button
+                onClick={() => {
+                  setShowChequeDetailsModal(false)
+                  handleEditCheque(selectedCheque)
+                }}
+                className="premium-button flex items-center space-x-2 space-x-reverse"
+              >
+                <Edit className="w-5 h-5" />
+                <span>ویرایش</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Details Modal */}
+      {showPaymentDetailsModal && selectedPayment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">جزئیات تراکنش</h2>
+              <button
+                onClick={() => setShowPaymentDetailsModal(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">شماره تراکنش</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedPayment.paymentNumber || selectedPayment.transactionNumber}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">نوع</label>
+                  <div className="mt-1">
+                    <span className={`status-badge ${
+                      selectedPayment.type === 'receipt' 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                    }`}>
+                      {selectedPayment.type === 'receipt' ? 'دریافت' : 'پرداخت'}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">مبلغ</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedPayment.amount?.toLocaleString('fa-IR')} تومان</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">روش پرداخت</label>
+                  <div className="mt-1">{getPaymentMethodBadge(selectedPayment.method)}</div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">تاریخ</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{formatDate(selectedPayment.date)}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">شخص</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedPayment.personName || selectedPayment.person}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">توضیحات</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedPayment.description || selectedPayment.purpose}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600 dark:text-gray-400">مرجع</label>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedPayment.reference}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end space-x-3 space-x-reverse">
+              <button
+                onClick={() => {
+                  setShowPaymentDetailsModal(false)
+                  handleEditPayment(selectedPayment)
+                }}
+                className="premium-button flex items-center space-x-2 space-x-reverse"
+              >
+                <Edit className="w-5 h-5" />
+                <span>ویرایش</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
+  X,
   Clock,
   TrendingUp,
   TrendingDown,
@@ -755,68 +756,202 @@ export default function WarehousesPage() {
         </div>
       )}
 
-      {/* Inventory Items Modal */}
+      {/* Inventory Items Modal - Modern Design */}
       {showInventoryModal && selectedWarehouse && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                موجودی انبار {selectedWarehouse.name}
-              </h2>
-              <button
-                onClick={() => setShowInventoryModal(false)}
-                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              >
-                <XCircle className="w-6 h-6" />
-              </button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl mx-4 max-h-[95vh] overflow-hidden flex flex-col">
+            {/* Header with Gradient */}
+            <div className="relative px-6 py-5 bg-blue-100 dark:bg-blue-900/30 border-b border-blue-200 dark:border-blue-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3 space-x-reverse flex-1">
+                  <div className="p-3 rounded-xl bg-white/20 dark:bg-gray-900/30 shadow-lg text-blue-600 dark:text-blue-400">
+                    <Warehouse className="w-6 h-6" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white truncate">
+                      موجودی انبار {selectedWarehouse.name}
+                    </h2>
+                    <div className="flex items-center space-x-2 space-x-reverse mt-1">
+                      <span className="px-2.5 py-1 bg-gray-500/20 dark:bg-gray-500/30 text-gray-700 dark:text-gray-300 rounded-full text-xs font-semibold">
+                        {selectedWarehouse.type === 'main' ? 'اصلی' : selectedWarehouse.type === 'storage' ? 'ذخیره' : selectedWarehouse.type === 'cold' ? 'سرد' : 'خشک'}
+                      </span>
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        selectedWarehouse.status === 'active' 
+                          ? 'bg-green-500/20 dark:bg-green-500/30 text-green-700 dark:text-green-300'
+                          : selectedWarehouse.status === 'inactive'
+                          ? 'bg-red-500/20 dark:bg-red-500/30 text-red-700 dark:text-red-300'
+                          : 'bg-yellow-500/20 dark:bg-yellow-500/30 text-yellow-700 dark:text-yellow-300'
+                      }`}>
+                        {selectedWarehouse.status === 'active' ? 'فعال' : selectedWarehouse.status === 'inactive' ? 'غیرفعال' : 'تعمیرات'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowInventoryModal(false)}
+                  className="p-2 hover:bg-white/20 dark:hover:bg-gray-900/30 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                </button>
+              </div>
             </div>
 
-            <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full text-right whitespace-nowrap">
-                <thead>
-                  <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
-                    <th className="px-4 py-3 rounded-r-lg">نام آیتم</th>
-                    <th className="px-4 py-3">دسته‌بندی</th>
-                    <th className="px-4 py-3">موجودی فعلی</th>
-                    <th className="px-4 py-3">حداقل</th>
-                    <th className="px-4 py-3">حداکثر</th>
-                    <th className="px-4 py-3">واحد</th>
-                    <th className="px-4 py-3">قیمت واحد</th>
-                    <th className="px-4 py-3">ارزش کل</th>
-                    <th className="px-4 py-3">وضعیت</th>
-                    <th className="px-4 py-3 rounded-l-lg">آخرین به‌روزرسانی</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {inventoryItems.map(item => (
-                    <tr key={item._id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center space-x-3 space-x-reverse">
-                          <Package className="w-5 h-5 text-primary-600" />
-                          <span className="font-medium text-gray-900 dark:text-white">{item.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.category}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.currentStock}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.minStock}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.maxStock}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unit}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unitPrice.toLocaleString('fa-IR')}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.totalValue.toLocaleString('fa-IR')}</td>
-                      <td className="px-4 py-3">
-                        {item.isLowStock ? (
-                          <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">کم‌موجود</span>
-                        ) : (
-                          <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">عادی</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
-                        {new Date(item.lastUpdated).toLocaleDateString('fa-IR')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Summary Stats */}
+              {inventoryItems.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="premium-card p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">کل آیتم‌ها</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{inventoryItems.length}</p>
+                      </div>
+                      <Package className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                    </div>
+                  </div>
+                  <div className="premium-card p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">ارزش کل</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {inventoryItems.reduce((sum, item) => sum + (item.totalValue || 0), 0).toLocaleString('fa-IR')}
+                        </p>
+                      </div>
+                      <DollarSign className="w-8 h-8 text-green-600 dark:text-green-400" />
+                    </div>
+                  </div>
+                  <div className="premium-card p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">موجودی کم</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {inventoryItems.filter(item => item.isLowStock || (item.currentStock <= item.minStock)).length}
+                        </p>
+                      </div>
+                      <AlertTriangle className="w-8 h-8 text-red-600 dark:text-red-400" />
+                    </div>
+                  </div>
+                  <div className="premium-card p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">موجودی کل</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {inventoryItems.reduce((sum, item) => sum + (item.currentStock || 0), 0).toLocaleString('fa-IR')}
+                        </p>
+                      </div>
+                      <Activity className="w-8 h-8 text-purple-600 dark:text-purple-400" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Items Table */}
+              <div className="premium-card overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center space-x-2 space-x-reverse">
+                    <Package className="w-5 h-5 text-primary-600" />
+                    <span>لیست محصولات</span>
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+                        <th className="px-4 py-3 text-right">نام آیتم</th>
+                        <th className="px-4 py-3 text-right">دسته‌بندی</th>
+                        <th className="px-4 py-3 text-right">موجودی فعلی</th>
+                        <th className="px-4 py-3 text-right">حداقل</th>
+                        <th className="px-4 py-3 text-right">حداکثر</th>
+                        <th className="px-4 py-3 text-right">واحد</th>
+                        <th className="px-4 py-3 text-right">قیمت واحد</th>
+                        <th className="px-4 py-3 text-right">ارزش کل</th>
+                        <th className="px-4 py-3 text-right">وضعیت</th>
+                        <th className="px-4 py-3 text-right">عملیات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {inventoryItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                            محصولی در این انبار موجود نیست
+                          </td>
+                        </tr>
+                      ) : (
+                        inventoryItems.map(item => (
+                          <tr key={item._id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center space-x-3 space-x-reverse">
+                                <div className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                                  <Package className="w-4 h-4" />
+                                </div>
+                                <span className="font-medium text-gray-900 dark:text-white">{item.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs">
+                                {item.category}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center space-x-2 space-x-reverse">
+                                <span className="font-medium text-gray-900 dark:text-white">{item.currentStock.toLocaleString('fa-IR')}</span>
+                                {item.isLowStock && (
+                                  <AlertTriangle className="w-4 h-4 text-red-500" />
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.minStock.toLocaleString('fa-IR')}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.maxStock.toLocaleString('fa-IR')}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unit || 'عدد'}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unitPrice.toLocaleString('fa-IR')}</td>
+                            <td className="px-4 py-3">
+                              <span className="font-medium text-gray-900 dark:text-white">
+                                {item.totalValue.toLocaleString('fa-IR')} تومان
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                                item.isLowStock 
+                                  ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                              }`}>
+                                {item.isLowStock ? 'کم‌موجود' : 'عادی'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() => {
+                                  // You can add view item functionality here
+                                }}
+                                className="p-1.5 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                                title="مشاهده جزئیات"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-900/50">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  مجموع: <span className="font-medium text-gray-900 dark:text-white">{inventoryItems.length} آیتم</span>
+                </div>
+                <button
+                  onClick={() => setShowInventoryModal(false)}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  بستن
+                </button>
+              </div>
             </div>
           </div>
         </div>

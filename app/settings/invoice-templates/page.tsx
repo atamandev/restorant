@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Layout,
   Plus,
@@ -9,461 +9,42 @@ import {
   Eye,
   Save,
   X,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
   Settings,
-  Monitor,
-  Camera,
   QrCode,
   Barcode,
   PenTool,
   Stamp,
   FileText,
-  Receipt,
-  CreditCard,
-  Banknote,
-  TrendingUp,
   Package,
   Utensils,
-  ChefHat,
-  Coffee,
-  Pizza,
-  IceCream,
   ShoppingCart,
-  Bell,
-  Clock,
-  MapPin,
-  Building,
-  Users,
-  Search,
-  Filter,
-  RefreshCw,
-  Download,
-  Upload,
-  Copy,
-  RotateCcw,
-  RotateCw,
-  Power,
-  PowerOff,
-  Play,
-  Pause,
-  Square,
-  Volume2,
-  VolumeX,
-  Mic,
-  MicOff,
-  Video,
-  VideoOff,
-  Phone,
-  PhoneOff,
-  Mail,
-  Send,
-  Inbox,
-  Outbox,
-  Archive,
-  Trash,
-  Folder,
-  FolderOpen,
-  File,
-  FileText2,
   Image,
-  Music,
-  Video2,
-  Film,
-  Headphones,
-  Speaker,
-  Radio,
-  Tv,
-  Laptop,
-  Smartphone,
-  Tablet,
-  Watch,
-  Camera2,
-  Webcam,
-  HardDrive,
-  Server,
-  Database,
-  Cloud,
-  CloudOff,
-  Wifi,
-  WifiOff,
-  Bluetooth,
-  BluetoothOff,
-  Usb,
-  Plug,
-  Battery,
-  BatteryLow,
-  BatteryMedium,
-  BatteryHigh,
-  BatteryFull,
-  Charging,
-  PowerPlug,
-  Lightbulb,
-  LightbulbOff,
-  Sun,
-  Moon,
-  Star,
-  Heart,
-  HeartOff,
-  ThumbsUp,
-  ThumbsDown,
-  Smile,
-  Frown,
-  Meh,
-  Laugh,
-  Angry,
-  Sad,
-  Surprised,
-  Wink,
-  Tongue,
-  Kiss,
-  Hug,
-  Hand,
-  Handshake,
-  Clap,
-  Wave,
-  Point,
-  Fingerprint,
-  Scan,
-  ScanLine,
-  QrCode2,
-  Barcode2,
-  Tag,
-  Tags,
-  Label,
-  Bookmark,
-  BookmarkCheck,
-  Flag,
-  FlagOff,
-  Pin,
-  PinOff,
-  Map,
-  MapPin2,
-  Navigation,
-  Compass,
-  Globe,
-  Earth,
-  Mountain,
-  Tree,
-  Flower,
-  Leaf,
-  Bug,
-  Bird,
-  Fish,
-  Cat,
-  Dog,
-  Rabbit,
-  Mouse,
-  Squirrel,
-  Bear,
-  Lion,
-  Tiger,
-  Elephant,
-  Whale,
-  Dolphin,
-  Shark,
-  Octopus,
-  Crab,
-  Lobster,
-  Shrimp,
-  Fish2,
-  Turtle,
-  Snake,
-  Lizard,
-  Frog,
-  Butterfly,
-  Bee,
-  Ant,
-  Spider,
-  Ladybug,
-  Dragonfly,
-  Firefly,
-  Snail,
-  Worm,
-  Carrot,
-  Apple,
-  Banana,
-  Orange,
-  Lemon,
-  Lime,
-  Grape,
-  Strawberry,
-  Cherry,
-  Peach,
-  Pear,
-  Pineapple,
-  Watermelon,
-  Melon,
-  Kiwi,
-  Mango,
-  Avocado,
-  Tomato,
-  Potato,
-  Onion,
-  Garlic,
-  Pepper,
-  Chili,
-  Corn,
-  Broccoli,
-  Cabbage,
-  Lettuce,
-  Spinach,
-  Kale,
-  Carrot2,
-  Radish,
-  Beet,
-  Turnip,
-  Parsnip,
-  Celery,
-  Cucumber,
-  Zucchini,
-  Eggplant,
-  Squash,
-  Pumpkin,
-  Mushroom,
-  Bread,
-  Croissant,
-  Bagel,
-  Pretzel,
-  Cookie,
-  Cake,
-  Pie,
-  Donut,
-  Muffin,
-  Pancake,
-  Waffle,
-  Toast,
-  Sandwich,
-  Burger,
-  Pizza2,
-  Hotdog,
-  Taco,
-  Burrito,
-  Salad,
-  Soup,
-  Pasta,
-  Rice,
-  Noodles,
-  Spaghetti,
-  Macaroni,
-  Lasagna,
-  Ravioli,
-  Dumpling,
-  Sushi,
-  Ramen,
-  Pho,
-  Curry,
-  StirFry,
-  Grill,
-  BBQ,
-  Roast,
-  Stew,
-  Casserole,
-  Quiche,
-  Omelette,
-  Scrambled,
-  Fried,
-  Boiled,
-  Steamed,
-  Baked,
-  Grilled2,
-  Sauteed,
-  Braised,
-  Poached,
-  Smoked,
-  Cured,
-  Pickled,
-  Fermented,
-  Dried,
-  Frozen,
-  Fresh,
-  Organic,
-  Local,
-  Seasonal,
-  Imported,
-  Exported,
-  Domestic,
-  International,
-  Premium,
-  Luxury,
-  Budget,
-  Economy,
-  Standard,
-  Deluxe,
-  Super,
-  Mega,
-  Ultra,
-  Max,
-  Pro,
-  Plus2,
-  Extra,
-  Special,
-  Limited,
-  Exclusive,
-  Rare,
-  Common,
-  Popular,
-  Trending,
-  New,
-  Old,
-  Classic,
-  Modern,
-  Vintage,
-  Retro,
-  Futuristic,
-  Traditional,
-  Contemporary,
-  Minimalist,
-  Maximalist,
-  Simple,
-  Complex,
-  Easy,
-  Hard,
-  Difficult,
-  Challenging,
-  Fun,
-  Boring,
-  Interesting,
-  Exciting,
-  Amazing,
-  Awesome,
-  Fantastic,
-  Incredible,
-  Unbelievable,
-  Outstanding,
-  Excellent,
-  Great,
-  Good,
-  Okay,
-  Fine,
-  Bad,
-  Terrible,
-  Awful,
-  Horrible,
-  Disgusting,
-  Beautiful,
-  Ugly,
-  Pretty,
-  Handsome,
-  Cute,
-  Adorable,
-  Lovely,
-  Gorgeous,
-  Stunning,
-  Magnificent,
-  Splendid,
-  Glorious,
-  Majestic,
-  Elegant,
-  Graceful,
-  Charming,
-  Attractive,
-  Alluring,
-  Seductive,
-  Sexy,
-  Hot,
-  Cool,
-  Cold,
-  Warm,
-  Hot2,
-  Cold2,
-  Freezing,
-  Boiling,
-  Melting,
-  Solid,
-  Liquid,
-  Gas,
-  Plasma,
-  Crystal,
-  Diamond,
-  Gold,
-  Silver,
-  Bronze,
-  Copper,
-  Iron,
-  Steel,
-  Aluminum,
-  Titanium,
-  Platinum,
-  Palladium,
-  Rhodium,
-  Osmium,
-  Iridium,
-  Ruthenium,
-  Rhenium,
-  Tungsten,
-  Molybdenum,
-  Tantalum,
-  Hafnium,
-  Zirconium,
-  Niobium,
-  Yttrium,
-  Strontium,
-  Rubidium,
-  Krypton,
-  Bromine,
-  Selenium,
-  Arsenic,
-  Germanium,
-  Gallium,
-  Zinc,
-  Cadmium,
-  Mercury,
-  Thallium,
-  Lead,
-  Bismuth,
-  Polonium,
-  Astatine,
-  Radon,
-  Francium,
-  Radium,
-  Actinium,
-  Thorium,
-  Protactinium,
-  Uranium,
-  Neptunium,
-  Plutonium,
-  Americium,
-  Curium,
-  Berkelium,
-  Californium,
-  Einsteinium,
-  Fermium,
-  Mendelevium,
-  Nobelium,
-  Lawrencium,
-  Rutherfordium,
-  Dubnium,
-  Seaborgium,
-  Bohrium,
-  Hassium,
-  Meitnerium,
-  Darmstadtium,
-  Roentgenium,
-  Copernicium,
-  Nihonium,
-  Flerovium,
-  Moscovium,
-  Livermorium,
-  Tennessine,
-  Oganesson
+  Search,
+  Download,
+  Printer,
+  Loader
 } from 'lucide-react'
+import PieChart from '@/components/Charts/PieChart'
+import BarChart from '@/components/Charts/BarChart'
 
 interface InvoiceTemplate {
-  id: string
+  id?: string
+  _id?: string
   name: string
   type: 'dine-in' | 'takeaway' | 'delivery' | 'general'
   description: string
   isDefault: boolean
   isActive: boolean
-  createdAt: string
-  updatedAt: string
-  preview: string
+  createdAt?: string
+  updatedAt?: string
+  preview?: string
+  fields?: TemplateField[]
+  settings?: any
 }
 
 interface TemplateField {
-  id: string
+  id?: string
+  _id?: string
   name: string
   type: 'text' | 'image' | 'qr' | 'barcode' | 'signature' | 'stamp'
   position: { x: number; y: number }
@@ -472,109 +53,22 @@ interface TemplateField {
   isVisible: boolean
 }
 
-const mockTemplates: InvoiceTemplate[] = [
-  {
-    id: 'T001',
-    name: 'قالب فاکتور سالن',
-    type: 'dine-in',
-    description: 'قالب مخصوص فاکتورهای فروش در سالن',
-    isDefault: true,
-    isActive: true,
-    createdAt: '1403/01/01',
-    updatedAt: '1403/09/15',
-    preview: 'preview-dine-in.jpg'
-  },
-  {
-    id: 'T002',
-    name: 'قالب فاکتور بیرون‌بر',
-    type: 'takeaway',
-    description: 'قالب مخصوص فاکتورهای بیرون‌بر',
-    isDefault: false,
-    isActive: true,
-    createdAt: '1403/01/01',
-    updatedAt: '1403/09/10',
-    preview: 'preview-takeaway.jpg'
-  },
-  {
-    id: 'T003',
-    name: 'قالب فاکتور ارسال',
-    type: 'delivery',
-    description: 'قالب مخصوص فاکتورهای ارسال',
-    isDefault: false,
-    isActive: true,
-    createdAt: '1403/01/01',
-    updatedAt: '1403/09/08',
-    preview: 'preview-delivery.jpg'
-  },
-  {
-    id: 'T004',
-    name: 'قالب فاکتور عمومی',
-    type: 'general',
-    description: 'قالب عمومی برای انواع فاکتورها',
-    isDefault: false,
-    isActive: false,
-    createdAt: '1403/02/15',
-    updatedAt: '1403/09/05',
-    preview: 'preview-general.jpg'
+interface StatsData {
+  totalTemplates: number
+  activeTemplates: number
+  defaultTemplates: number
+  inactiveTemplates: number
+  typeDistribution: {
+    'dine-in': number
+    'takeaway': number
+    'delivery': number
+    'general': number
   }
-]
-
-const mockTemplateFields: TemplateField[] = [
-  {
-    id: 'F001',
-    name: 'لوگو رستوران',
-    type: 'image',
-    position: { x: 10, y: 10 },
-    size: { width: 100, height: 50 },
-    content: 'logo.png',
-    isVisible: true
-  },
-  {
-    id: 'F002',
-    name: 'نام رستوران',
-    type: 'text',
-    position: { x: 120, y: 20 },
-    size: { width: 200, height: 30 },
-    content: 'رستوران سنتی ایرانی',
-    isVisible: true
-  },
-  {
-    id: 'F003',
-    name: 'آدرس رستوران',
-    type: 'text',
-    position: { x: 120, y: 50 },
-    size: { width: 200, height: 20 },
-    content: 'تهران، خیابان ولیعصر، پلاک ۱۰',
-    isVisible: true
-  },
-  {
-    id: 'F004',
-    name: 'شماره فاکتور',
-    type: 'text',
-    position: { x: 10, y: 80 },
-    size: { width: 150, height: 20 },
-    content: 'شماره: {invoice_number}',
-    isVisible: true
-  },
-  {
-    id: 'F005',
-    name: 'تاریخ فاکتور',
-    type: 'text',
-    position: { x: 170, y: 80 },
-    size: { width: 150, height: 20 },
-    content: 'تاریخ: {invoice_date}',
-    isVisible: true
-  },
-  {
-    id: 'F006',
-    name: 'QR کد',
-    type: 'qr',
-    position: { x: 250, y: 80 },
-    size: { width: 50, height: 50 },
-    content: '{invoice_qr}',
-    isVisible: true
+  statusDistribution: {
+    active: number
+    inactive: number
   }
-]
+}
 
 const getTemplateTypeIcon = (type: string) => {
   switch (type) {
@@ -610,35 +104,197 @@ const getFieldTypeIcon = (type: string) => {
 
 export default function InvoiceTemplatesPage() {
   const [activeTab, setActiveTab] = useState<'templates' | 'designer' | 'preview'>('templates')
+  const [templates, setTemplates] = useState<InvoiceTemplate[]>([])
+  const [stats, setStats] = useState<StatsData | null>(null)
+  const [loading, setLoading] = useState(true)
   const [selectedTemplate, setSelectedTemplate] = useState<InvoiceTemplate | null>(null)
+  const [templateFields, setTemplateFields] = useState<TemplateField[]>([])
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [showFieldModal, setShowFieldModal] = useState(false)
   const [selectedField, setSelectedField] = useState<TemplateField | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  
+  // Form states
+  const [templateForm, setTemplateForm] = useState({
+    name: '',
+    type: 'dine-in' as 'dine-in' | 'takeaway' | 'delivery' | 'general',
+    description: '',
+    isDefault: false,
+    isActive: true
+  })
+  
+  const [fieldForm, setFieldForm] = useState({
+    name: '',
+    type: 'text' as 'text' | 'image' | 'qr' | 'barcode' | 'signature' | 'stamp',
+    position: { x: 0, y: 0 },
+    size: { width: 100, height: 30 },
+    content: '',
+    isVisible: true
+  })
 
-  const filteredTemplates = mockTemplates.filter(template =>
-    (searchTerm === '' || 
-      template.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      template.description.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterType === 'all' || template.type === filterType) &&
-    (filterStatus === 'all' || (filterStatus === 'active' ? template.isActive : !template.isActive))
-  )
+  // Fetch templates
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const response = await fetch('/api/invoice-templates')
+      const result = await response.json()
+      if (result.success) {
+        setTemplates(result.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching templates:', error)
+      alert('خطا در دریافت قالب‌ها')
+    }
+  }, [])
+
+  // Fetch stats
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await fetch('/api/invoice-templates?type=stats')
+      const result = await response.json()
+      if (result.success) {
+        setStats(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error)
+    }
+  }, [])
+
+  // Fetch template fields
+  const fetchTemplateFields = useCallback(async (templateId: string) => {
+    try {
+      const response = await fetch(`/api/invoice-templates?type=fields&templateId=${templateId}`)
+      const result = await response.json()
+      if (result.success) {
+        setTemplateFields(result.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching template fields:', error)
+    }
+  }, [])
+
+  // Load data
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      await Promise.all([fetchTemplates(), fetchStats()])
+      setLoading(false)
+    }
+    loadData()
+  }, [fetchTemplates, fetchStats])
+
+  // Filtered templates
+  const filteredTemplates = useMemo(() => {
+    return templates.filter(template =>
+      (searchTerm === '' || 
+        (template.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (template.description || '').toLowerCase().includes(searchTerm.toLowerCase())) &&
+      (filterType === 'all' || template.type === filterType) &&
+      (filterStatus === 'all' || (filterStatus === 'active' ? template.isActive : !template.isActive))
+    )
+  }, [templates, searchTerm, filterType, filterStatus])
+
+  // Chart data
+  const templatesByTypeChartData = useMemo(() => {
+    if (!stats?.typeDistribution) return []
+    const colors = ['#3B82F6', '#10B981', '#F59E0B', '#6B7280']
+    return [
+      { name: 'سالن', value: stats.typeDistribution['dine-in'] || 0, color: colors[0] },
+      { name: 'بیرون‌بر', value: stats.typeDistribution['takeaway'] || 0, color: colors[1] },
+      { name: 'ارسال', value: stats.typeDistribution['delivery'] || 0, color: colors[2] },
+      { name: 'عمومی', value: stats.typeDistribution['general'] || 0, color: colors[3] }
+    ].filter(item => item.value > 0)
+  }, [stats])
+
+  const templatesStatusChartData = useMemo(() => {
+    if (!stats) return []
+    return [
+      { period: 'فعال', revenue: stats.activeTemplates },
+      { period: 'غیرفعال', revenue: stats.inactiveTemplates }
+    ].filter(item => (item.revenue || 0) > 0)
+  }, [stats])
 
   const handleCreateTemplate = () => {
     setSelectedTemplate(null)
+    setTemplateForm({
+      name: '',
+      type: 'dine-in',
+      description: '',
+      isDefault: false,
+      isActive: true
+    })
     setShowTemplateModal(true)
   }
 
   const handleEditTemplate = (template: InvoiceTemplate) => {
     setSelectedTemplate(template)
+    setTemplateForm({
+      name: template.name,
+      type: template.type,
+      description: template.description || '',
+      isDefault: template.isDefault,
+      isActive: template.isActive
+    })
     setShowTemplateModal(true)
   }
 
-  const handleDeleteTemplate = (templateId: string) => {
-    if (confirm('آیا از حذف این قالب اطمینان دارید؟')) {
-      alert('قالب با موفقیت حذف شد.')
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (!confirm('آیا از حذف این قالب اطمینان دارید؟')) {
+      return
+    }
+    try {
+      const response = await fetch(`/api/invoice-templates?id=${templateId}`, {
+        method: 'DELETE'
+      })
+      const result = await response.json()
+      if (result.success) {
+        alert('قالب با موفقیت حذف شد')
+        await Promise.all([fetchTemplates(), fetchStats()])
+      } else {
+        alert(result.message || 'خطا در حذف قالب')
+      }
+    } catch (error) {
+      console.error('Error deleting template:', error)
+      alert('خطا در حذف قالب')
+    }
+  }
+
+  const handleSaveTemplate = async () => {
+    try {
+      if (!templateForm.name) {
+        alert('نام قالب اجباری است')
+        return
+      }
+      const method = selectedTemplate ? 'PUT' : 'POST'
+      const body = {
+        ...(selectedTemplate && { id: selectedTemplate._id || selectedTemplate.id }),
+        ...templateForm
+      }
+      const response = await fetch('/api/invoice-templates', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      const result = await response.json()
+      if (result.success) {
+        alert(selectedTemplate ? 'قالب با موفقیت به‌روزرسانی شد' : 'قالب با موفقیت ایجاد شد')
+        setShowTemplateModal(false)
+        setSelectedTemplate(null)
+        setTemplateForm({
+          name: '',
+          type: 'dine-in',
+          description: '',
+          isDefault: false,
+          isActive: true
+        })
+        await Promise.all([fetchTemplates(), fetchStats()])
+      } else {
+        alert(result.message || 'خطا در ذخیره قالب')
+      }
+    } catch (error) {
+      console.error('Error saving template:', error)
+      alert('خطا در ذخیره قالب')
     }
   }
 
@@ -647,35 +303,117 @@ export default function InvoiceTemplatesPage() {
     setActiveTab('preview')
   }
 
-  const handleDesignTemplate = (template: InvoiceTemplate) => {
+  const handleDesignTemplate = async (template: InvoiceTemplate) => {
     setSelectedTemplate(template)
+    await fetchTemplateFields(template._id || template.id || '')
     setActiveTab('designer')
   }
 
   const handleCreateField = () => {
     setSelectedField(null)
+    setFieldForm({
+      name: '',
+      type: 'text',
+      position: { x: 0, y: 0 },
+      size: { width: 100, height: 30 },
+      content: '',
+      isVisible: true
+    })
     setShowFieldModal(true)
   }
 
   const handleEditField = (field: TemplateField) => {
     setSelectedField(field)
+    setFieldForm({
+      name: field.name,
+      type: field.type,
+      position: field.position,
+      size: field.size,
+      content: field.content,
+      isVisible: field.isVisible
+    })
     setShowFieldModal(true)
   }
 
-  const handleDeleteField = (fieldId: string) => {
-    if (confirm('آیا از حذف این فیلد اطمینان دارید؟')) {
-      alert('فیلد با موفقیت حذف شد.')
+  const handleDeleteField = async (fieldId: string) => {
+    if (!confirm('آیا از حذف این فیلد اطمینان دارید؟')) {
+      return
+    }
+    if (!selectedTemplate) return
+    try {
+      const currentFields = templateFields.filter(f => (f.id || f._id) !== fieldId)
+      const response = await fetch('/api/invoice-templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedTemplate._id || selectedTemplate.id,
+          fields: currentFields
+        })
+      })
+      const result = await response.json()
+      if (result.success) {
+        alert('فیلد با موفقیت حذف شد')
+        await fetchTemplateFields(selectedTemplate._id || selectedTemplate.id || '')
+      } else {
+        alert(result.message || 'خطا در حذف فیلد')
+      }
+    } catch (error) {
+      console.error('Error deleting field:', error)
+      alert('خطا در حذف فیلد')
     }
   }
 
-  const handleSaveTemplate = () => {
-    alert('قالب با موفقیت ذخیره شد.')
-    setShowTemplateModal(false)
+  const handleSaveField = async () => {
+    if (!selectedTemplate) {
+      alert('ابتدا یک قالب را انتخاب کنید')
+      return
+    }
+    try {
+      if (!fieldForm.name) {
+        alert('نام فیلد اجباری است')
+        return
+      }
+      let updatedFields = [...templateFields]
+      if (selectedField) {
+        // Update existing field
+        updatedFields = updatedFields.map(f => 
+          (f.id || f._id) === (selectedField.id || selectedField._id) ? fieldForm : f
+        )
+      } else {
+        // Add new field
+        updatedFields.push({ ...fieldForm, id: `field-${Date.now()}` })
+      }
+      const response = await fetch('/api/invoice-templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedTemplate._id || selectedTemplate.id,
+          fields: updatedFields
+        })
+      })
+      const result = await response.json()
+      if (result.success) {
+        alert(selectedField ? 'فیلد با موفقیت به‌روزرسانی شد' : 'فیلد با موفقیت ایجاد شد')
+        setShowFieldModal(false)
+        setSelectedField(null)
+        await fetchTemplateFields(selectedTemplate._id || selectedTemplate.id || '')
+      } else {
+        alert(result.message || 'خطا در ذخیره فیلد')
+      }
+    } catch (error) {
+      console.error('Error saving field:', error)
+      alert('خطا در ذخیره فیلد')
+    }
   }
 
-  const handleSaveField = () => {
-    alert('فیلد با موفقیت ذخیره شد.')
-    setShowFieldModal(false)
+  if (loading) {
+    return (
+      <div className="fade-in-animation space-y-6">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader className="w-8 h-8 animate-spin text-primary-600" />
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -689,6 +427,30 @@ export default function InvoiceTemplatesPage() {
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
           <button
+            onClick={async () => {
+              try {
+                const response = await fetch('/api/add-sample-invoice-templates', {
+                  method: 'POST'
+                })
+                const result = await response.json()
+                if (result.success) {
+                  alert(`✅ ${result.message}`)
+                  await Promise.all([fetchTemplates(), fetchStats()])
+                } else {
+                  alert(`❌ ${result.message || 'خطا در اضافه کردن قالب‌های نمونه'}`)
+                }
+              } catch (error) {
+                console.error('Error adding sample templates:', error)
+                alert('خطا در اضافه کردن قالب‌های نمونه')
+              }
+            }}
+            className="premium-button bg-green-600 hover:bg-green-700 flex items-center space-x-2 space-x-reverse"
+            title="اضافه کردن قالب‌های نمونه"
+          >
+            <Download className="w-5 h-5" />
+            <span>افزودن قالب‌های نمونه</span>
+          </button>
+          <button
             onClick={handleCreateTemplate}
             className="premium-button flex items-center space-x-2 space-x-reverse"
           >
@@ -697,6 +459,87 @@ export default function InvoiceTemplatesPage() {
           </button>
         </div>
       </div>
+
+      {/* Statistics Cards */}
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="premium-card p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">کل قالب‌ها</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {stats.totalTemplates}
+                </p>
+              </div>
+              <FileText className="w-10 h-10 text-blue-600 dark:text-blue-400" />
+            </div>
+          </div>
+          <div className="premium-card p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">فعال</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {stats.activeTemplates}
+                </p>
+              </div>
+              <Save className="w-10 h-10 text-green-600 dark:text-green-400" />
+            </div>
+          </div>
+          <div className="premium-card p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">پیش‌فرض</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {stats.defaultTemplates}
+                </p>
+              </div>
+              <Settings className="w-10 h-10 text-purple-600 dark:text-purple-400" />
+            </div>
+          </div>
+          <div className="premium-card p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">غیرفعال</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {stats.inactiveTemplates}
+                </p>
+              </div>
+              <X className="w-10 h-10 text-gray-600 dark:text-gray-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Charts */}
+      {stats && (templatesByTypeChartData.length > 0 || templatesStatusChartData.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {templatesByTypeChartData.length > 0 && (
+            <div className="premium-card p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                توزیع بر اساس نوع
+              </h3>
+              <div className="h-64">
+                <PieChart
+                  data={templatesByTypeChartData}
+                  title="توزیع قالب‌ها"
+                  centerLabel="کل قالب‌ها"
+                  centerValue={stats.totalTemplates}
+                />
+              </div>
+            </div>
+          )}
+          {templatesStatusChartData.length > 0 && (
+            <div className="premium-card p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                توزیع بر اساس وضعیت
+              </h3>
+              <div className="h-64">
+                <BarChart data={templatesStatusChartData} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="premium-card p-6">
@@ -775,10 +618,16 @@ export default function InvoiceTemplatesPage() {
 
             {/* Templates Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredTemplates.map(template => {
+              {filteredTemplates.length === 0 ? (
+                <div className="col-span-full text-center py-12">
+                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-300">قالبی یافت نشد</p>
+                </div>
+              ) : (
+                filteredTemplates.map(template => {
                 const TypeIcon = getTemplateTypeIcon(template.type)
                 return (
-                  <div key={template.id} className="premium-card p-6">
+                  <div key={template._id || template.id} className="premium-card p-6">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-3 space-x-reverse">
                         <div className={`w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center`}>
@@ -844,19 +693,23 @@ export default function InvoiceTemplatesPage() {
                           <Edit className="w-4 h-4" />
                         </button>
                         {!template.isDefault && (
-                          <button
-                            onClick={() => handleDeleteTemplate(template.id)}
-                            className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                            title="حذف"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteTemplate(template._id || template.id || '')
+                          }}
+                          className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                          title="حذف"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                         )}
                       </div>
                     </div>
                   </div>
                 )
-              })}
+              })
+              )}
             </div>
           </div>
         )}
@@ -890,11 +743,16 @@ export default function InvoiceTemplatesPage() {
                       </div>
                       
                       {/* Template Fields */}
-                      {mockTemplateFields.map(field => {
+                      {templateFields.length === 0 ? (
+                        <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+                          هیچ فیلدی تعریف نشده است
+                        </div>
+                      ) : (
+                        templateFields.map((field, index) => {
                         const FieldIcon = getFieldTypeIcon(field.type)
                         return (
                           <div
-                            key={field.id}
+                            key={field.id || field._id || `field-${index}`}
                             className="absolute border-2 border-dashed border-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 cursor-move"
                             style={{
                               left: field.position.x,
@@ -925,7 +783,8 @@ export default function InvoiceTemplatesPage() {
                             </div>
                           </div>
                         )
-                      })}
+                      })
+                      )}
                     </div>
                   </div>
                 </div>
@@ -946,10 +805,13 @@ export default function InvoiceTemplatesPage() {
                       
                       <div className="space-y-2">
                         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">فیلدهای موجود</h4>
-                        {mockTemplateFields.map(field => {
+                        {templateFields.length === 0 ? (
+                          <p className="text-sm text-gray-500 dark:text-gray-400">هیچ فیلدی وجود ندارد</p>
+                        ) : (
+                          templateFields.map((field, index) => {
                           const FieldIcon = getFieldTypeIcon(field.type)
                           return (
-                            <div key={field.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                            <div key={field.id || field._id || `field-${index}`} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
                               <div className="flex items-center space-x-2 space-x-reverse">
                                 <FieldIcon className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                                 <span className="text-sm text-gray-700 dark:text-gray-300">{field.name}</span>
@@ -970,7 +832,8 @@ export default function InvoiceTemplatesPage() {
                               </div>
                             </div>
                           )
-                        })}
+                        })
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1114,13 +977,18 @@ export default function InvoiceTemplatesPage() {
                 <input
                   type="text"
                   className="premium-input"
-                  defaultValue={selectedTemplate?.name || ''}
+                  value={templateForm.name}
+                  onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
                   placeholder="نام قالب را وارد کنید"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع قالب</label>
-                <select className="premium-input">
+                <select
+                  className="premium-input"
+                  value={templateForm.type}
+                  onChange={(e) => setTemplateForm({ ...templateForm, type: e.target.value as any })}
+                >
                   <option value="dine-in">سالن</option>
                   <option value="takeaway">بیرون‌بر</option>
                   <option value="delivery">ارسال</option>
@@ -1132,7 +1000,8 @@ export default function InvoiceTemplatesPage() {
                 <textarea
                   className="premium-input"
                   rows={3}
-                  defaultValue={selectedTemplate?.description || ''}
+                  value={templateForm.description}
+                  onChange={(e) => setTemplateForm({ ...templateForm, description: e.target.value })}
                   placeholder="توضیحات قالب را وارد کنید"
                 />
               </div>
@@ -1141,7 +1010,8 @@ export default function InvoiceTemplatesPage() {
                   <input
                     type="checkbox"
                     className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                    defaultChecked={selectedTemplate?.isDefault}
+                    checked={templateForm.isDefault}
+                    onChange={(e) => setTemplateForm({ ...templateForm, isDefault: e.target.checked })}
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">قالب پیش‌فرض</span>
                 </label>
@@ -1149,7 +1019,8 @@ export default function InvoiceTemplatesPage() {
                   <input
                     type="checkbox"
                     className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                    defaultChecked={selectedTemplate?.isActive}
+                    checked={templateForm.isActive}
+                    onChange={(e) => setTemplateForm({ ...templateForm, isActive: e.target.checked })}
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">فعال</span>
                 </label>
@@ -1197,13 +1068,18 @@ export default function InvoiceTemplatesPage() {
                 <input
                   type="text"
                   className="premium-input"
-                  defaultValue={selectedField?.name || ''}
+                  value={fieldForm.name}
+                  onChange={(e) => setFieldForm({ ...fieldForm, name: e.target.value })}
                   placeholder="نام فیلد را وارد کنید"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع فیلد</label>
-                <select className="premium-input">
+                <select
+                  className="premium-input"
+                  value={fieldForm.type}
+                  onChange={(e) => setFieldForm({ ...fieldForm, type: e.target.value as any })}
+                >
                   <option value="text">متن</option>
                   <option value="image">تصویر</option>
                   <option value="qr">QR کد</option>
@@ -1217,7 +1093,8 @@ export default function InvoiceTemplatesPage() {
                 <input
                   type="text"
                   className="premium-input"
-                  defaultValue={selectedField?.content || ''}
+                  value={fieldForm.content}
+                  onChange={(e) => setFieldForm({ ...fieldForm, content: e.target.value })}
                   placeholder="محتوای فیلد را وارد کنید"
                 />
               </div>
@@ -1227,7 +1104,11 @@ export default function InvoiceTemplatesPage() {
                   <input
                     type="number"
                     className="premium-input"
-                    defaultValue={selectedField?.position.x || 0}
+                    value={fieldForm.position.x}
+                    onChange={(e) => setFieldForm({
+                      ...fieldForm,
+                      position: { ...fieldForm.position, x: parseInt(e.target.value) || 0 }
+                    })}
                     placeholder="0"
                   />
                 </div>
@@ -1236,7 +1117,11 @@ export default function InvoiceTemplatesPage() {
                   <input
                     type="number"
                     className="premium-input"
-                    defaultValue={selectedField?.position.y || 0}
+                    value={fieldForm.position.y}
+                    onChange={(e) => setFieldForm({
+                      ...fieldForm,
+                      position: { ...fieldForm.position, y: parseInt(e.target.value) || 0 }
+                    })}
                     placeholder="0"
                   />
                 </div>
@@ -1247,7 +1132,11 @@ export default function InvoiceTemplatesPage() {
                   <input
                     type="number"
                     className="premium-input"
-                    defaultValue={selectedField?.size.width || 100}
+                    value={fieldForm.size.width}
+                    onChange={(e) => setFieldForm({
+                      ...fieldForm,
+                      size: { ...fieldForm.size, width: parseInt(e.target.value) || 100 }
+                    })}
                     placeholder="100"
                   />
                 </div>
@@ -1256,7 +1145,11 @@ export default function InvoiceTemplatesPage() {
                   <input
                     type="number"
                     className="premium-input"
-                    defaultValue={selectedField?.size.height || 30}
+                    value={fieldForm.size.height}
+                    onChange={(e) => setFieldForm({
+                      ...fieldForm,
+                      size: { ...fieldForm.size, height: parseInt(e.target.value) || 30 }
+                    })}
                     placeholder="30"
                   />
                 </div>
@@ -1265,7 +1158,8 @@ export default function InvoiceTemplatesPage() {
                 <input
                   type="checkbox"
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                  defaultChecked={selectedField?.isVisible}
+                  checked={fieldForm.isVisible}
+                  onChange={(e) => setFieldForm({ ...fieldForm, isVisible: e.target.checked })}
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">نمایش فیلد</span>
               </div>

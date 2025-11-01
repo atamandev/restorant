@@ -1,20 +1,16 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Printer,
   Plus,
   Edit,
   Trash2,
-  Eye,
   Save,
   X,
-  CheckCircle,
-  XCircle,
   AlertTriangle,
   Settings,
   Wifi,
-  WifiOff,
   Cable,
   TestTube,
   FileText,
@@ -23,429 +19,21 @@ import {
   Coffee,
   Pizza,
   IceCream,
-  Package,
-  ShoppingCart,
   Receipt,
-  CreditCard,
-  Bell,
-  Clock,
-  MapPin,
-  Building,
-  Users,
   Search,
-  Filter,
   RefreshCw,
-  Download,
-  Upload,
-  Copy,
-  RotateCcw,
-  RotateCw,
-  Power,
-  PowerOff,
-  Play,
-  Pause,
-  Square,
-  Volume2,
-  VolumeX,
-  Mic,
-  MicOff,
-  Video,
-  VideoOff,
-  Phone,
-  PhoneOff,
-  Mail,
-  Send,
-  Inbox,
-  Outbox,
-  Archive,
-  Trash,
-  Folder,
-  FolderOpen,
-  File,
-  FileText2,
-  Image,
-  Music,
-  Video2,
-  Film,
-  Headphones,
-  Speaker,
-  Radio,
-  Tv,
-  Laptop,
-  Smartphone,
-  Tablet,
-  Watch,
-  Camera,
-  Webcam,
-  HardDrive,
-  Server,
-  Database,
-  Cloud,
-  CloudOff,
-  Bluetooth,
-  BluetoothOff,
-  Usb,
-  Plug,
-  Battery,
-  BatteryLow,
-  BatteryMedium,
-  BatteryHigh,
-  BatteryFull,
-  Charging,
-  PowerPlug,
-  Lightbulb,
-  LightbulbOff,
-  Sun,
-  Moon,
-  Star,
-  Heart,
-  HeartOff,
-  ThumbsUp,
-  ThumbsDown,
-  Smile,
-  Frown,
-  Meh,
-  Laugh,
-  Angry,
-  Sad,
-  Surprised,
-  Wink,
-  Tongue,
-  Kiss,
-  Hug,
-  Hand,
-  Handshake,
-  Clap,
-  Wave,
-  Point,
-  Fingerprint,
-  Scan,
-  ScanLine,
-  QrCode,
-  Barcode,
+  Loader,
   Tag,
-  Tags,
-  Label,
-  Bookmark,
-  BookmarkCheck,
-  Flag,
-  FlagOff,
-  Pin,
-  PinOff,
-  Map,
-  MapPin2,
-  Navigation,
-  Compass,
-  Globe,
-  Earth,
-  Mountain,
-  Tree,
-  Flower,
-  Leaf,
-  Bug,
-  Bird,
-  Fish,
-  Cat,
-  Dog,
-  Rabbit,
-  Mouse,
-  Squirrel,
-  Bear,
-  Lion,
-  Tiger,
-  Elephant,
-  Whale,
-  Dolphin,
-  Shark,
-  Octopus,
-  Crab,
-  Lobster,
-  Shrimp,
-  Fish2,
-  Turtle,
-  Snake,
-  Lizard,
-  Frog,
-  Butterfly,
-  Bee,
-  Ant,
-  Spider,
-  Ladybug,
-  Dragonfly,
-  Firefly,
-  Snail,
-  Worm,
-  Carrot,
-  Apple,
-  Banana,
-  Orange,
-  Lemon,
-  Lime,
-  Grape,
-  Strawberry,
-  Cherry,
-  Peach,
-  Pear,
-  Pineapple,
-  Watermelon,
-  Melon,
-  Kiwi,
-  Mango,
-  Avocado,
-  Tomato,
-  Potato,
-  Onion,
-  Garlic,
-  Pepper,
-  Chili,
-  Corn,
-  Broccoli,
-  Cabbage,
-  Lettuce,
-  Spinach,
-  Kale,
-  Carrot2,
-  Radish,
-  Beet,
-  Turnip,
-  Parsnip,
-  Celery,
-  Cucumber,
-  Zucchini,
-  Eggplant,
-  Squash,
-  Pumpkin,
-  Mushroom,
-  Bread,
-  Croissant,
-  Bagel,
-  Pretzel,
-  Cookie,
-  Cake,
-  Pie,
-  Donut,
-  Muffin,
-  Pancake,
-  Waffle,
-  Toast,
-  Sandwich,
-  Burger,
-  Pizza2,
-  Hotdog,
-  Taco,
-  Burrito,
-  Salad,
-  Soup,
-  Pasta,
-  Rice,
-  Noodles,
-  Spaghetti,
-  Macaroni,
-  Lasagna,
-  Ravioli,
-  Dumpling,
-  Sushi,
-  Ramen,
-  Pho,
-  Curry,
-  StirFry,
-  Grill,
-  BBQ,
-  Roast,
-  Stew,
-  Casserole,
-  Quiche,
-  Omelette,
-  Scrambled,
-  Fried,
-  Boiled,
-  Steamed,
-  Baked,
-  Grilled2,
-  Sauteed,
-  Braised,
-  Poached,
-  Smoked,
-  Cured,
-  Pickled,
-  Fermented,
-  Dried,
-  Frozen,
-  Fresh,
-  Organic,
-  Local,
-  Seasonal,
-  Imported,
-  Exported,
-  Domestic,
-  International,
-  Premium,
-  Luxury,
-  Budget,
-  Economy,
-  Standard,
-  Deluxe,
-  Super,
-  Mega,
-  Ultra,
-  Max,
-  Pro,
-  Plus2,
-  Extra,
-  Special,
-  Limited,
-  Exclusive,
-  Rare,
-  Common,
-  Popular,
-  Trending,
-  New,
-  Old,
-  Classic,
-  Modern,
-  Vintage,
-  Retro,
-  Futuristic,
-  Traditional,
-  Contemporary,
-  Minimalist,
-  Maximalist,
-  Simple,
-  Complex,
-  Easy,
-  Hard,
-  Difficult,
-  Challenging,
-  Fun,
-  Boring,
-  Interesting,
-  Exciting,
-  Amazing,
-  Awesome,
-  Fantastic,
-  Incredible,
-  Unbelievable,
-  Outstanding,
-  Excellent,
-  Great,
-  Good,
-  Okay,
-  Fine,
-  Bad,
-  Terrible,
-  Awful,
-  Horrible,
-  Disgusting,
-  Beautiful,
-  Ugly,
-  Pretty,
-  Handsome,
-  Cute,
-  Adorable,
-  Lovely,
-  Gorgeous,
-  Stunning,
-  Magnificent,
-  Splendid,
-  Glorious,
-  Majestic,
-  Elegant,
-  Graceful,
-  Charming,
-  Attractive,
-  Alluring,
-  Seductive,
-  Sexy,
-  Hot,
-  Cool,
-  Cold,
-  Warm,
-  Hot2,
-  Cold2,
-  Freezing,
-  Boiling,
-  Melting,
-  Solid,
-  Liquid,
-  Gas,
-  Plasma,
-  Crystal,
-  Diamond,
-  Gold,
-  Silver,
-  Bronze,
-  Copper,
-  Iron,
-  Steel,
-  Aluminum,
-  Titanium,
-  Platinum,
-  Palladium,
-  Rhodium,
-  Osmium,
-  Iridium,
-  Ruthenium,
-  Rhenium,
-  Tungsten,
-  Molybdenum,
-  Tantalum,
-  Hafnium,
-  Zirconium,
-  Niobium,
-  Yttrium,
-  Strontium,
-  Rubidium,
-  Krypton,
-  Bromine,
-  Selenium,
-  Arsenic,
-  Germanium,
-  Gallium,
-  Zinc,
-  Cadmium,
-  Mercury,
-  Thallium,
-  Lead,
-  Bismuth,
-  Polonium,
-  Astatine,
-  Radon,
-  Francium,
-  Radium,
-  Actinium,
-  Thorium,
-  Protactinium,
-  Uranium,
-  Neptunium,
-  Plutonium,
-  Americium,
-  Curium,
-  Berkelium,
-  Californium,
-  Einsteinium,
-  Fermium,
-  Mendelevium,
-  Nobelium,
-  Lawrencium,
-  Rutherfordium,
-  Dubnium,
-  Seaborgium,
-  Bohrium,
-  Hassium,
-  Meitnerium,
-  Darmstadtium,
-  Roentgenium,
-  Copernicium,
-  Nihonium,
-  Flerovium,
-  Moscovium,
-  Livermorium,
-  Tennessine,
-  Oganesson
+  Usb,
+  Bluetooth,
+  Activity
 } from 'lucide-react'
+import PieChart from '@/components/Charts/PieChart'
+import BarChart from '@/components/Charts/BarChart'
 
 interface Printer {
-  id: string
+  id?: string
+  _id?: string
   name: string
   type: 'kitchen' | 'receipt' | 'label' | 'general'
   connection: 'usb' | 'network' | 'bluetooth'
@@ -456,152 +44,41 @@ interface Printer {
   paperSize: '58mm' | '80mm' | 'A4'
   autoCut: boolean
   autoOpen: boolean
-  createdAt: string
-  lastUsed: string
-  printCount: number
-  errorCount: number
+  createdAt?: string
+  lastUsed?: string | null
+  printCount?: number
+  errorCount?: number
 }
 
 interface PrintRoute {
-  id: string
+  id?: string
+  _id?: string
   name: string
   source: string
   target: string
   conditions: string[]
   isActive: boolean
-  createdAt: string
+  createdAt?: string
 }
 
-interface MenuCategory {
-  id: string
-  name: string
-  icon: React.ComponentType<any>
-  items: string[]
+interface StatsData {
+  totalPrinters: number
+  onlinePrinters: number
+  offlinePrinters: number
+  errorPrinters: number
+  totalRoutes: number
+  activeRoutes: number
+  inactiveRoutes: number
+  printersByType: {
+    kitchen: number
+    receipt: number
+    label: number
+    general: number
+  }
+  totalPrintCount: number
+  totalErrorCount: number
+  successRate: string
 }
-
-const mockPrinters: Printer[] = [
-  {
-    id: 'P001',
-    name: 'چاپگر آشپزخانه اصلی',
-    type: 'kitchen',
-    connection: 'network',
-    ipAddress: '192.168.1.100',
-    port: 9100,
-    status: 'online',
-    location: 'آشپزخانه اصلی',
-    paperSize: '58mm',
-    autoCut: true,
-    autoOpen: false,
-    createdAt: '1403/01/01',
-    lastUsed: '1403/09/15 14:30',
-    printCount: 1250,
-    errorCount: 5
-  },
-  {
-    id: 'P002',
-    name: 'چاپگر صندوق',
-    type: 'receipt',
-    connection: 'usb',
-    status: 'online',
-    location: 'صندوق اصلی',
-    paperSize: '80mm',
-    autoCut: true,
-    autoOpen: true,
-    createdAt: '1403/01/01',
-    lastUsed: '1403/09/15 14:25',
-    printCount: 2100,
-    errorCount: 2
-  },
-  {
-    id: 'P003',
-    name: 'چاپگر آشپزخانه فرعی',
-    type: 'kitchen',
-    connection: 'network',
-    ipAddress: '192.168.1.101',
-    port: 9100,
-    status: 'offline',
-    location: 'آشپزخانه فرعی',
-    paperSize: '58mm',
-    autoCut: true,
-    autoOpen: false,
-    createdAt: '1403/02/15',
-    lastUsed: '1403/09/14 18:45',
-    printCount: 850,
-    errorCount: 12
-  },
-  {
-    id: 'P004',
-    name: 'چاپگر برچسب',
-    type: 'label',
-    connection: 'usb',
-    status: 'online',
-    location: 'انبار',
-    paperSize: 'A4',
-    autoCut: false,
-    autoOpen: false,
-    createdAt: '1403/03/10',
-    lastUsed: '1403/09/15 10:15',
-    printCount: 320,
-    errorCount: 1
-  }
-]
-
-const mockPrintRoutes: PrintRoute[] = [
-  {
-    id: 'R001',
-    name: 'سفارشات غذاهای اصلی',
-    source: 'POS',
-    target: 'چاپگر آشپزخانه اصلی',
-    conditions: ['دسته‌بندی: غذاهای اصلی', 'وضعیت: جدید'],
-    isActive: true,
-    createdAt: '1403/01/01'
-  },
-  {
-    id: 'R002',
-    name: 'سفارشات نوشیدنی',
-    source: 'POS',
-    target: 'چاپگر آشپزخانه فرعی',
-    conditions: ['دسته‌بندی: نوشیدنی', 'وضعیت: جدید'],
-    isActive: true,
-    createdAt: '1403/01/01'
-  },
-  {
-    id: 'R003',
-    name: 'فاکتورهای فروش',
-    source: 'POS',
-    target: 'چاپگر صندوق',
-    conditions: ['نوع: فاکتور فروش', 'وضعیت: تکمیل شده'],
-    isActive: true,
-    createdAt: '1403/01/01'
-  }
-]
-
-const mockMenuCategories: MenuCategory[] = [
-  {
-    id: 'main-courses',
-    name: 'غذاهای اصلی',
-    icon: Pizza,
-    items: ['کباب کوبیده', 'جوجه کباب', 'قیمه', 'قورمه سبزی', 'فسنجان']
-  },
-  {
-    id: 'appetizers',
-    name: 'پیش‌غذاها',
-    icon: Utensils,
-    items: ['سالاد فصل', 'ماست و خیار', 'ترشی', 'زیتون', 'پنیر']
-  },
-  {
-    id: 'beverages',
-    name: 'نوشیدنی‌ها',
-    icon: Coffee,
-    items: ['چای', 'قهوه', 'دوغ', 'نوشابه', 'آب']
-  },
-  {
-    id: 'desserts',
-    name: 'دسرها',
-    icon: IceCream,
-    items: ['بستنی', 'کیک', 'شیرینی', 'حلوا', 'فرنی']
-  }
-]
 
 const getPrinterTypeIcon = (type: string) => {
   switch (type) {
@@ -643,63 +120,338 @@ const getStatusBadge = (status: string) => {
 
 export default function PrinterConfigPage() {
   const [activeTab, setActiveTab] = useState<'printers' | 'routes' | 'test'>('printers')
+  const [printers, setPrinters] = useState<Printer[]>([])
+  const [routes, setRoutes] = useState<PrintRoute[]>([])
+  const [stats, setStats] = useState<StatsData | null>(null)
+  const [loading, setLoading] = useState(true)
   const [selectedPrinter, setSelectedPrinter] = useState<Printer | null>(null)
+  const [selectedRoute, setSelectedRoute] = useState<PrintRoute | null>(null)
   const [showPrinterModal, setShowPrinterModal] = useState(false)
   const [showRouteModal, setShowRouteModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  
+  // Form states
+  const [printerForm, setPrinterForm] = useState({
+    name: '',
+    type: 'kitchen' as 'kitchen' | 'receipt' | 'label' | 'general',
+    connection: 'usb' as 'usb' | 'network' | 'bluetooth',
+    ipAddress: '',
+    port: 9100,
+    location: '',
+    paperSize: '80mm' as '58mm' | '80mm' | 'A4',
+    autoCut: false,
+    autoOpen: false
+  })
+  
+  const [routeForm, setRouteForm] = useState({
+    name: '',
+    source: 'POS',
+    target: '',
+    conditions: [] as string[],
+    isActive: true
+  })
 
-  const filteredPrinters = mockPrinters.filter(printer =>
-    (searchTerm === '' || 
-      printer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      printer.location.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterType === 'all' || printer.type === filterType) &&
-    (filterStatus === 'all' || printer.status === filterStatus)
-  )
+  // Fetch printers
+  const fetchPrinters = useCallback(async () => {
+    try {
+      const response = await fetch('/api/printer-config?type=printers')
+      const result = await response.json()
+      if (result.success) {
+        setPrinters(result.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching printers:', error)
+      alert('خطا در دریافت چاپگرها')
+    }
+  }, [])
 
+  // Fetch routes
+  const fetchRoutes = useCallback(async () => {
+    try {
+      const response = await fetch('/api/printer-config?type=routes')
+      const result = await response.json()
+      if (result.success) {
+        setRoutes(result.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching routes:', error)
+      alert('خطا در دریافت مسیرهای چاپ')
+    }
+  }, [])
+
+  // Fetch stats
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await fetch('/api/printer-config?type=stats')
+      const result = await response.json()
+      if (result.success) {
+        setStats(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error)
+    }
+  }, [])
+
+  // Load data
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      await Promise.all([
+        fetchPrinters(),
+        fetchRoutes(),
+        fetchStats()
+      ])
+      setLoading(false)
+    }
+    loadData()
+  }, [fetchPrinters, fetchRoutes, fetchStats])
+
+  const filteredPrinters = useMemo(() => {
+    return printers.filter(printer =>
+      (searchTerm === '' || 
+        printer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        printer.location.toLowerCase().includes(searchTerm.toLowerCase())) &&
+      (filterType === 'all' || printer.type === filterType) &&
+      (filterStatus === 'all' || printer.status === filterStatus)
+    )
+  }, [printers, searchTerm, filterType, filterStatus])
+
+  // CRUD Handlers
   const handleCreatePrinter = () => {
     setSelectedPrinter(null)
+    setPrinterForm({
+      name: '',
+      type: 'kitchen',
+      connection: 'usb',
+      ipAddress: '',
+      port: 9100,
+      location: '',
+      paperSize: '80mm',
+      autoCut: false,
+      autoOpen: false
+    })
     setShowPrinterModal(true)
   }
 
   const handleEditPrinter = (printer: Printer) => {
     setSelectedPrinter(printer)
+    setPrinterForm({
+      name: printer.name,
+      type: printer.type,
+      connection: printer.connection,
+      ipAddress: printer.ipAddress || '',
+      port: printer.port || 9100,
+      location: printer.location,
+      paperSize: printer.paperSize,
+      autoCut: printer.autoCut,
+      autoOpen: printer.autoOpen
+    })
     setShowPrinterModal(true)
   }
 
-  const handleDeletePrinter = (printerId: string) => {
-    if (confirm('آیا از حذف این چاپگر اطمینان دارید؟')) {
-      alert('چاپگر با موفقیت حذف شد.')
+  const handleDeletePrinter = async (printerId: string) => {
+    if (!confirm('آیا از حذف این چاپگر اطمینان دارید؟')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/printer-config?entity=printer&id=${printerId}`, {
+        method: 'DELETE'
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        alert('چاپگر با موفقیت حذف شد')
+        // Refresh data
+        await Promise.all([fetchPrinters(), fetchStats()])
+      } else {
+        alert(result.message || 'خطا در حذف چاپگر')
+      }
+    } catch (error) {
+      console.error('Error deleting printer:', error)
+      alert('خطا در حذف چاپگر')
     }
   }
 
-  const handleTestPrinter = (printerId: string) => {
-    alert('تست چاپگر انجام شد.')
+  const handleSavePrinter = async () => {
+    try {
+      if (!printerForm.name || !printerForm.type || !printerForm.connection) {
+        alert('نام، نوع و اتصال چاپگر اجباری است')
+        return
+      }
+
+      const method = selectedPrinter ? 'PUT' : 'POST'
+      const body = {
+        entity: 'printer',
+        ...(selectedPrinter && { id: selectedPrinter._id || selectedPrinter.id }),
+        ...printerForm
+      }
+
+      const response = await fetch('/api/printer-config', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        alert(selectedPrinter ? 'چاپگر با موفقیت به‌روزرسانی شد' : 'چاپگر با موفقیت ایجاد شد')
+        setShowPrinterModal(false)
+        setSelectedPrinter(null)
+        setPrinterForm({
+          name: '',
+          type: 'kitchen',
+          connection: 'usb',
+          ipAddress: '',
+          port: 9100,
+          location: '',
+          paperSize: '80mm',
+          autoCut: false,
+          autoOpen: false
+        })
+        // Refresh data
+        await Promise.all([fetchPrinters(), fetchStats()])
+      } else {
+        alert(result.message || 'خطا در ذخیره چاپگر')
+      }
+    } catch (error) {
+      console.error('Error saving printer:', error)
+      alert('خطا در ذخیره چاپگر')
+    }
+  }
+
+  const handleTestPrinter = async (printerId: string) => {
+    try {
+      // Test printer functionality - you can add actual test API call here
+      alert('تست چاپگر انجام شد. (این قابلیت در حال توسعه است)')
+    } catch (error) {
+      console.error('Error testing printer:', error)
+      alert('خطا در تست چاپگر')
+    }
   }
 
   const handleCreateRoute = () => {
+    setSelectedRoute(null)
+    setRouteForm({
+      name: '',
+      source: 'POS',
+      target: '',
+      conditions: [],
+      isActive: true
+    })
     setShowRouteModal(true)
   }
 
   const handleEditRoute = (route: PrintRoute) => {
+    setSelectedRoute(route)
+    setRouteForm({
+      name: route.name,
+      source: route.source,
+      target: route.target,
+      conditions: route.conditions || [],
+      isActive: route.isActive
+    })
     setShowRouteModal(true)
   }
 
-  const handleDeleteRoute = (routeId: string) => {
-    if (confirm('آیا از حذف این مسیر چاپ اطمینان دارید؟')) {
-      alert('مسیر چاپ با موفقیت حذف شد.')
+  const handleDeleteRoute = async (routeId: string) => {
+    if (!confirm('آیا از حذف این مسیر چاپ اطمینان دارید؟')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/printer-config?entity=route&id=${routeId}`, {
+        method: 'DELETE'
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        alert('مسیر چاپ با موفقیت حذف شد')
+        // Refresh data
+        await Promise.all([fetchRoutes(), fetchStats()])
+      } else {
+        alert(result.message || 'خطا در حذف مسیر چاپ')
+      }
+    } catch (error) {
+      console.error('Error deleting route:', error)
+      alert('خطا در حذف مسیر چاپ')
     }
   }
 
-  const handleSavePrinter = () => {
-    alert('چاپگر با موفقیت ذخیره شد.')
-    setShowPrinterModal(false)
+  const handleSaveRoute = async () => {
+    try {
+      if (!routeForm.name || !routeForm.source || !routeForm.target) {
+        alert('نام، منبع و مقصد مسیر چاپ اجباری است')
+        return
+      }
+
+      const method = selectedRoute ? 'PUT' : 'POST'
+      const body = {
+        entity: 'route',
+        ...(selectedRoute && { id: selectedRoute._id || selectedRoute.id }),
+        ...routeForm
+      }
+
+      const response = await fetch('/api/printer-config', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        alert(selectedRoute ? 'مسیر چاپ با موفقیت به‌روزرسانی شد' : 'مسیر چاپ با موفقیت ایجاد شد')
+        setShowRouteModal(false)
+        setSelectedRoute(null)
+        setRouteForm({
+          name: '',
+          source: 'POS',
+          target: '',
+          conditions: [],
+          isActive: true
+        })
+        // Refresh data
+        await Promise.all([fetchRoutes(), fetchStats()])
+      } else {
+        alert(result.message || 'خطا در ذخیره مسیر چاپ')
+      }
+    } catch (error) {
+      console.error('Error saving route:', error)
+      alert('خطا در ذخیره مسیر چاپ')
+    }
   }
 
-  const handleSaveRoute = () => {
-    alert('مسیر چاپ با موفقیت ذخیره شد.')
-    setShowRouteModal(false)
+  // Chart data
+  const printersByTypeChartData = useMemo(() => {
+    if (!stats?.printersByType) return []
+    const colors = ['#F97316', '#10B981', '#3B82F6', '#6B7280']
+    return [
+      { name: 'آشپزخانه', value: stats.printersByType.kitchen, color: colors[0] },
+      { name: 'فاکتور', value: stats.printersByType.receipt, color: colors[1] },
+      { name: 'برچسب', value: stats.printersByType.label, color: colors[2] },
+      { name: 'عمومی', value: stats.printersByType.general, color: colors[3] }
+    ].filter(item => item.value > 0)
+  }, [stats])
+
+  const printersStatusChartData = useMemo(() => {
+    if (!stats) return []
+    return [
+      { period: 'آنلاین', revenue: stats.onlinePrinters },
+      { period: 'آفلاین', revenue: stats.offlinePrinters },
+      { period: 'خطا', revenue: stats.errorPrinters }
+    ].filter(item => (item.revenue || 0) > 0)
+  }, [stats])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    )
   }
 
   return (
@@ -728,6 +480,70 @@ export default function PrinterConfigPage() {
           </button>
         </div>
       </div>
+
+      {/* Stats Dashboard */}
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="premium-card p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">کل چاپگرها</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalPrinters}</p>
+              </div>
+              <Printer className="w-8 h-8 text-primary-600" />
+            </div>
+          </div>
+          <div className="premium-card p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">آنلاین</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.onlinePrinters}</p>
+              </div>
+              <Activity className="w-8 h-8 text-green-600" />
+            </div>
+          </div>
+          <div className="premium-card p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">کل مسیرها</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalRoutes}</p>
+              </div>
+              <Settings className="w-8 h-8 text-blue-600" />
+            </div>
+          </div>
+          <div className="premium-card p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">نرخ موفقیت</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.successRate}%</p>
+              </div>
+              <Activity className="w-8 h-8 text-purple-600" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Charts */}
+      {(printersByTypeChartData.length > 0 || printersStatusChartData.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {printersByTypeChartData.length > 0 && (
+            <div className="premium-card p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">توزیع چاپگرها بر اساس نوع</h3>
+              <div className="h-64">
+                <PieChart data={printersByTypeChartData} title="انواع چاپگرها" />
+              </div>
+            </div>
+          )}
+          {printersStatusChartData.length > 0 && (
+            <div className="premium-card p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">وضعیت چاپگرها</h3>
+              <div className="h-64">
+                <BarChart data={printersStatusChartData} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="premium-card p-6">
@@ -807,11 +623,17 @@ export default function PrinterConfigPage() {
 
             {/* Printers Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPrinters.map(printer => {
-                const TypeIcon = getPrinterTypeIcon(printer.type)
-                const ConnectionIcon = getConnectionIcon(printer.connection)
-                return (
-                  <div key={printer.id} className="premium-card p-6">
+              {filteredPrinters.length === 0 ? (
+                <div className="col-span-full text-center py-12">
+                  <Printer className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-300">چاپگری یافت نشد</p>
+                </div>
+              ) : (
+                filteredPrinters.map(printer => {
+                  const TypeIcon = getPrinterTypeIcon(printer.type)
+                  const ConnectionIcon = getConnectionIcon(printer.connection)
+                  return (
+                    <div key={printer.id || printer._id} className="premium-card p-6">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-3 space-x-reverse">
                         <div className={`w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center`}>
@@ -856,31 +678,37 @@ export default function PrinterConfigPage() {
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-gray-600 dark:text-gray-400">تعداد چاپ:</span>
-                        <span className="text-gray-900 dark:text-white">{printer.printCount.toLocaleString('fa-IR')}</span>
+                        <span className="text-gray-900 dark:text-white">{(printer.printCount || 0).toLocaleString('fa-IR')}</span>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between">
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        آخرین استفاده: {printer.lastUsed}
+                        آخرین استفاده: {printer.lastUsed ? new Date(printer.lastUsed).toLocaleDateString('fa-IR') : '-'}
                       </div>
                       <div className="flex items-center space-x-2 space-x-reverse">
                         <button
-                          onClick={() => handleTestPrinter(printer.id)}
+                          onClick={() => handleTestPrinter(printer._id || printer.id || '')}
                           className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
                           title="تست چاپ"
                         >
                           <TestTube className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleEditPrinter(printer)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleEditPrinter(printer)
+                          }}
                           className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
                           title="ویرایش"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDeletePrinter(printer.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeletePrinter(printer._id || printer.id || '')
+                          }}
                           className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
                           title="حذف"
                         >
@@ -890,7 +718,8 @@ export default function PrinterConfigPage() {
                     </div>
                   </div>
                 )
-              })}
+                })
+              )}
             </div>
           </div>
         )}
@@ -912,46 +741,62 @@ export default function PrinterConfigPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {mockPrintRoutes.map(route => (
-                    <tr key={route.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{route.name}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{route.source}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{route.target}</td>
-                      <td className="px-4 py-3">
-                        <div className="space-y-1">
-                          {route.conditions.map((condition, index) => (
-                            <span key={index} className="inline-block px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs rounded-full">
-                              {condition}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {route.isActive ? (
-                          <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">فعال</span>
-                        ) : (
-                          <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">غیرفعال</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{route.createdAt}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center space-x-2 space-x-reverse">
-                          <button
-                            onClick={() => handleEditRoute(route)}
-                            className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteRoute(route.id)}
-                            className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                  {routes.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                        مسیر چاپی یافت نشد
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    routes.map(route => (
+                      <tr key={route.id || route._id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{route.name}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{route.source}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{route.target}</td>
+                        <td className="px-4 py-3">
+                          <div className="space-y-1">
+                            {(route.conditions || []).map((condition, index) => (
+                              <span key={index} className="inline-block px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs rounded-full">
+                                {condition}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {route.isActive ? (
+                            <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">فعال</span>
+                          ) : (
+                            <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">غیرفعال</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                          {route.createdAt ? new Date(route.createdAt).toLocaleDateString('fa-IR') : '-'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center space-x-2 space-x-reverse">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleEditRoute(route)
+                              }}
+                              className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteRoute(route._id || route.id || '')
+                              }}
+                              className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -962,47 +807,54 @@ export default function PrinterConfigPage() {
         {activeTab === 'test' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {mockPrinters.map(printer => {
-                const TypeIcon = getPrinterTypeIcon(printer.type)
-                return (
-                  <div key={printer.id} className="premium-card p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center space-x-3 space-x-reverse">
-                        <TypeIcon className={`w-6 h-6 ${getPrinterTypeColor(printer.type)}`} />
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{printer.name}</h3>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">{printer.location}</p>
+              {printers.length === 0 ? (
+                <div className="col-span-full text-center py-12">
+                  <Printer className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-300">چاپگری برای تست یافت نشد</p>
+                </div>
+              ) : (
+                printers.map(printer => {
+                  const TypeIcon = getPrinterTypeIcon(printer.type)
+                  return (
+                    <div key={printer.id || printer._id} className="premium-card p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-3 space-x-reverse">
+                          <TypeIcon className={`w-6 h-6 ${getPrinterTypeColor(printer.type)}`} />
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{printer.name}</h3>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">{printer.location}</p>
+                          </div>
                         </div>
+                        {getStatusBadge(printer.status)}
                       </div>
-                      {getStatusBadge(printer.status)}
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <button
-                        onClick={() => handleTestPrinter(printer.id)}
-                        className="w-full premium-button flex items-center justify-center space-x-2 space-x-reverse"
-                      >
-                        <TestTube className="w-5 h-5" />
-                        <span>تست چاپ</span>
-                      </button>
-                      <button
-                        className="w-full premium-button bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center justify-center space-x-2 space-x-reverse"
-                      >
-                        <FileText className="w-5 h-5" />
-                        <span>چاپ فاکتور نمونه</span>
-                      </button>
-                      {printer.type === 'kitchen' && (
+                      
+                      <div className="space-y-3">
                         <button
-                          className="w-full premium-button bg-orange-200 text-orange-800 hover:bg-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 flex items-center justify-center space-x-2 space-x-reverse"
+                          onClick={() => handleTestPrinter(printer._id || printer.id || '')}
+                          className="w-full premium-button flex items-center justify-center space-x-2 space-x-reverse"
                         >
-                          <ChefHat className="w-5 h-5" />
-                          <span>چاپ سفارش آشپزخانه</span>
+                          <TestTube className="w-5 h-5" />
+                          <span>تست چاپ</span>
                         </button>
-                      )}
+                        <button
+                          className="w-full premium-button bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center justify-center space-x-2 space-x-reverse"
+                        >
+                          <FileText className="w-5 h-5" />
+                          <span>چاپ فاکتور نمونه</span>
+                        </button>
+                        {printer.type === 'kitchen' && (
+                          <button
+                            className="w-full premium-button bg-orange-200 text-orange-800 hover:bg-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50 flex items-center justify-center space-x-2 space-x-reverse"
+                          >
+                            <ChefHat className="w-5 h-5" />
+                            <span>چاپ سفارش آشپزخانه</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })
+              )}
             </div>
           </div>
         )}
@@ -1026,18 +878,23 @@ export default function PrinterConfigPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام چاپگر</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام چاپگر *</label>
                 <input
                   type="text"
                   className="premium-input"
-                  defaultValue={selectedPrinter?.name || ''}
+                  value={printerForm.name}
+                  onChange={(e) => setPrinterForm({ ...printerForm, name: e.target.value })}
                   placeholder="نام چاپگر را وارد کنید"
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع چاپگر</label>
-                  <select className="premium-input">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع چاپگر *</label>
+                  <select
+                    className="premium-input"
+                    value={printerForm.type}
+                    onChange={(e) => setPrinterForm({ ...printerForm, type: e.target.value as any })}
+                  >
                     <option value="kitchen">آشپزخانه</option>
                     <option value="receipt">فاکتور</option>
                     <option value="label">برچسب</option>
@@ -1045,46 +902,59 @@ export default function PrinterConfigPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع اتصال</label>
-                  <select className="premium-input">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نوع اتصال *</label>
+                  <select
+                    className="premium-input"
+                    value={printerForm.connection}
+                    onChange={(e) => setPrinterForm({ ...printerForm, connection: e.target.value as any })}
+                  >
                     <option value="usb">USB</option>
                     <option value="network">شبکه</option>
                     <option value="bluetooth">بلوتوث</option>
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">آدرس IP</label>
-                  <input
-                    type="text"
-                    className="premium-input"
-                    defaultValue={selectedPrinter?.ipAddress || ''}
-                    placeholder="192.168.1.100"
-                  />
+              {printerForm.connection === 'network' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">آدرس IP</label>
+                    <input
+                      type="text"
+                      className="premium-input"
+                      value={printerForm.ipAddress}
+                      onChange={(e) => setPrinterForm({ ...printerForm, ipAddress: e.target.value })}
+                      placeholder="192.168.1.100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">پورت</label>
+                    <input
+                      type="number"
+                      className="premium-input"
+                      value={printerForm.port}
+                      onChange={(e) => setPrinterForm({ ...printerForm, port: parseInt(e.target.value) || 9100 })}
+                      placeholder="9100"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">پورت</label>
-                  <input
-                    type="number"
-                    className="premium-input"
-                    defaultValue={selectedPrinter?.port || ''}
-                    placeholder="9100"
-                  />
-                </div>
-              </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مکان</label>
                 <input
                   type="text"
                   className="premium-input"
-                  defaultValue={selectedPrinter?.location || ''}
+                  value={printerForm.location}
+                  onChange={(e) => setPrinterForm({ ...printerForm, location: e.target.value })}
                   placeholder="مکان چاپگر را وارد کنید"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">اندازه کاغذ</label>
-                <select className="premium-input">
+                <select
+                  className="premium-input"
+                  value={printerForm.paperSize}
+                  onChange={(e) => setPrinterForm({ ...printerForm, paperSize: e.target.value as any })}
+                >
                   <option value="58mm">58mm</option>
                   <option value="80mm">80mm</option>
                   <option value="A4">A4</option>
@@ -1095,7 +965,8 @@ export default function PrinterConfigPage() {
                   <input
                     type="checkbox"
                     className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                    defaultChecked={selectedPrinter?.autoCut}
+                    checked={printerForm.autoCut}
+                    onChange={(e) => setPrinterForm({ ...printerForm, autoCut: e.target.checked })}
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">برش خودکار</span>
                 </label>
@@ -1103,7 +974,8 @@ export default function PrinterConfigPage() {
                   <input
                     type="checkbox"
                     className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                    defaultChecked={selectedPrinter?.autoOpen}
+                    checked={printerForm.autoOpen}
+                    onChange={(e) => setPrinterForm({ ...printerForm, autoOpen: e.target.checked })}
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">باز کردن خودکار</span>
                 </label>
@@ -1112,7 +984,21 @@ export default function PrinterConfigPage() {
 
             <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6">
               <button
-                onClick={() => setShowPrinterModal(false)}
+                onClick={() => {
+                  setShowPrinterModal(false)
+                  setSelectedPrinter(null)
+                  setPrinterForm({
+                    name: '',
+                    type: 'kitchen',
+                    connection: 'usb',
+                    ipAddress: '',
+                    port: 9100,
+                    location: '',
+                    paperSize: '80mm',
+                    autoCut: false,
+                    autoOpen: false
+                  })
+                }}
                 className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
               >
                 انصراف
@@ -1131,12 +1017,24 @@ export default function PrinterConfigPage() {
 
       {/* Route Modal */}
       {showRouteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-lg">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">مسیر چاپ جدید</h2>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {selectedRoute ? 'ویرایش مسیر چاپ' : 'مسیر چاپ جدید'}
+              </h2>
               <button
-                onClick={() => setShowRouteModal(false)}
+                onClick={() => {
+                  setShowRouteModal(false)
+                  setSelectedRoute(null)
+                  setRouteForm({
+                    name: '',
+                    source: 'POS',
+                    target: '',
+                    conditions: [],
+                    isActive: true
+                  })
+                }}
                 className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 <X className="w-6 h-6" />
@@ -1145,48 +1043,116 @@ export default function PrinterConfigPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام مسیر</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">نام مسیر *</label>
                 <input
                   type="text"
                   className="premium-input"
+                  value={routeForm.name}
+                  onChange={(e) => setRouteForm({ ...routeForm, name: e.target.value })}
                   placeholder="نام مسیر چاپ را وارد کنید"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">منبع</label>
-                <select className="premium-input">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">منبع *</label>
+                <select
+                  className="premium-input"
+                  value={routeForm.source}
+                  onChange={(e) => setRouteForm({ ...routeForm, source: e.target.value })}
+                >
                   <option value="POS">سیستم POS</option>
                   <option value="Kitchen">آشپزخانه</option>
                   <option value="Inventory">انبار</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مقصد</label>
-                <select className="premium-input">
-                  {mockPrinters.map(printer => (
-                    <option key={printer.id} value={printer.name}>{printer.name}</option>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مقصد (چاپگر) *</label>
+                <select
+                  className="premium-input"
+                  value={routeForm.target}
+                  onChange={(e) => setRouteForm({ ...routeForm, target: e.target.value })}
+                >
+                  <option value="">انتخاب چاپگر</option>
+                  {printers.map(printer => (
+                    <option key={printer.id || printer._id} value={printer.name}>{printer.name}</option>
                   ))}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">شرایط</label>
-                <div className="space-y-2">
-                  {mockMenuCategories.map(category => (
-                    <label key={category.id} className="flex items-center space-x-3 space-x-reverse">
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                      />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">{category.name}</span>
-                    </label>
-                  ))}
+                <div className="space-y-2 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                  <label className="flex items-center space-x-3 space-x-reverse">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      checked={routeForm.conditions.includes('دسته‌بندی: غذاهای اصلی')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setRouteForm({ ...routeForm, conditions: [...routeForm.conditions, 'دسته‌بندی: غذاهای اصلی'] })
+                        } else {
+                          setRouteForm({ ...routeForm, conditions: routeForm.conditions.filter(c => c !== 'دسته‌بندی: غذاهای اصلی') })
+                        }
+                      }}
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">غذاهای اصلی</span>
+                  </label>
+                  <label className="flex items-center space-x-3 space-x-reverse">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      checked={routeForm.conditions.includes('دسته‌بندی: نوشیدنی')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setRouteForm({ ...routeForm, conditions: [...routeForm.conditions, 'دسته‌بندی: نوشیدنی'] })
+                        } else {
+                          setRouteForm({ ...routeForm, conditions: routeForm.conditions.filter(c => c !== 'دسته‌بندی: نوشیدنی') })
+                        }
+                      }}
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">نوشیدنی</span>
+                  </label>
+                  <label className="flex items-center space-x-3 space-x-reverse">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      checked={routeForm.conditions.includes('وضعیت: جدید')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setRouteForm({ ...routeForm, conditions: [...routeForm.conditions, 'وضعیت: جدید'] })
+                        } else {
+                          setRouteForm({ ...routeForm, conditions: routeForm.conditions.filter(c => c !== 'وضعیت: جدید') })
+                        }
+                      }}
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">وضعیت: جدید</span>
+                  </label>
                 </div>
+              </div>
+              <div>
+                <label className="flex items-center space-x-2 space-x-reverse">
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    checked={routeForm.isActive}
+                    onChange={(e) => setRouteForm({ ...routeForm, isActive: e.target.checked })}
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">فعال</span>
+                </label>
               </div>
             </div>
 
             <div className="flex items-center justify-end space-x-3 space-x-reverse mt-6">
               <button
-                onClick={() => setShowRouteModal(false)}
+                onClick={() => {
+                  setShowRouteModal(false)
+                  setSelectedRoute(null)
+                  setRouteForm({
+                    name: '',
+                    source: 'POS',
+                    target: '',
+                    conditions: [],
+                    isActive: true
+                  })
+                }}
                 className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
               >
                 انصراف

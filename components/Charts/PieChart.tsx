@@ -8,9 +8,17 @@ interface PieChartProps {
     value: number
     color: string
   }>
+  title?: string
+  centerLabel?: string
+  centerValue?: string | number
 }
 
-export default function PieChart({ data }: PieChartProps) {
+export default function PieChart({ 
+  data, 
+  title = 'روش‌های پرداخت',
+  centerLabel = 'کل پرداخت‌ها',
+  centerValue 
+}: PieChartProps) {
   const [hoveredSegment, setHoveredSegment] = useState<number | null>(null)
   const [animationProgress, setAnimationProgress] = useState(0)
   const [selectedSegment, setSelectedSegment] = useState<number | null>(null)
@@ -132,7 +140,7 @@ export default function PieChart({ data }: PieChartProps) {
         {data.map((item, index) => {
           const percentage = item.value / total
           const pathData = createPath(percentage, index)
-          const gradientId = `${item.name.toLowerCase()}Gradient`
+          const gradientId = `${(item.name || `item${index}`).toLowerCase().replace(/\s+/g, '')}Gradient`
           
           return (
             <g key={index}>
@@ -183,7 +191,7 @@ export default function PieChart({ data }: PieChartProps) {
             transform: `scale(${animationProgress})`
           }}
         >
-          کل پرداخت‌ها
+          {centerLabel}
         </text>
         <text
           x="120"
@@ -195,7 +203,7 @@ export default function PieChart({ data }: PieChartProps) {
             transform: `scale(${animationProgress})`
           }}
         >
-          {total}%
+          {centerValue !== undefined ? centerValue : `${total}%`}
         </text>
 
         {/* Modern title */}
@@ -209,19 +217,19 @@ export default function PieChart({ data }: PieChartProps) {
             transform: `translateY(${(1 - animationProgress) * 15}px)`
           }}
         >
-          روش‌های پرداخت
+          {title}
         </text>
       </svg>
 
       {/* Modern Legend Cards */}
-      <div className="absolute bottom-4 left-4 right-4">
-        <div className="space-y-2">
+      <div className="absolute bottom-2 left-2 right-2 max-h-32 overflow-y-auto">
+        <div className="space-y-1.5">
           {data.map((item, index) => (
             <div
               key={index}
-              className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all duration-300 backdrop-blur-sm ${
+              className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all duration-300 backdrop-blur-sm ${
                 hoveredSegment === index 
-                  ? 'bg-white/95 dark:bg-slate-800/95 shadow-lg scale-105 border border-emerald-200/30 dark:border-emerald-700/30' 
+                  ? 'bg-white/95 dark:bg-slate-800/95 shadow-md scale-[1.02] border border-emerald-200/30 dark:border-emerald-700/30' 
                   : 'bg-white/80 dark:bg-slate-800/80 hover:bg-white/90 dark:hover:bg-slate-700/90 border border-emerald-100/20 dark:border-emerald-800/20'
               }`}
               onMouseEnter={() => setHoveredSegment(index)}
@@ -229,24 +237,24 @@ export default function PieChart({ data }: PieChartProps) {
               onClick={() => setSelectedSegment(selectedSegment === index ? null : index)}
               style={{
                 opacity: animationProgress,
-                transform: `translateY(${(1 - animationProgress) * 20}px)`
+                transform: `translateY(${(1 - animationProgress) * 10}px)`
               }}
             >
-              <div className="flex items-center">
+              <div className="flex items-center flex-1 min-w-0">
                 <div
-                  className="w-4 h-4 rounded-full ml-3 shadow-sm"
+                  className="w-3 h-3 rounded-full ml-2 shadow-sm flex-shrink-0"
                   style={{ backgroundColor: item.color }}
                 />
-                <div>
-                  <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                    {item.name}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 truncate">
+                    {item.name || `آیتم ${index + 1}`}
                   </div>
-                  <div className="text-xs text-emerald-500 dark:text-emerald-400">
-                    {item.value}% از کل
+                  <div className="text-[10px] text-emerald-500 dark:text-emerald-400">
+                    {item.value}%
                   </div>
                 </div>
               </div>
-              <div className="text-lg font-bold text-emerald-800 dark:text-emerald-200">
+              <div className="text-sm font-bold text-emerald-800 dark:text-emerald-200 flex-shrink-0 mr-2">
                 {item.value}%
               </div>
             </div>
@@ -255,19 +263,25 @@ export default function PieChart({ data }: PieChartProps) {
       </div>
 
       {/* Modern floating info */}
-      <div className="absolute top-4 right-4 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-xl p-3 shadow-lg border border-indigo-200/30 dark:border-indigo-700/30">
-        <div className="text-xs text-indigo-500 dark:text-indigo-400 mb-1">محبوب‌ترین</div>
-        <div className="text-sm font-bold text-indigo-800 dark:text-indigo-200">
-          {data[0].name}
-        </div>
-      </div>
+      {data.length > 0 && (
+        <>
+          <div className="absolute top-2 right-2 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-lg p-2 shadow-md border border-indigo-200/30 dark:border-indigo-700/30">
+            <div className="text-[10px] text-indigo-500 dark:text-indigo-400 mb-0.5">بیشترین</div>
+            <div className="text-xs font-bold text-indigo-800 dark:text-indigo-200 truncate max-w-[80px]">
+              {data[0]?.name || 'آیتم 1'}
+            </div>
+          </div>
 
-      <div className="absolute top-4 left-4 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-xl p-3 shadow-lg border border-orange-200/30 dark:border-orange-700/30">
-        <div className="text-xs text-orange-500 dark:text-orange-400 mb-1">کمترین</div>
-        <div className="text-sm font-bold text-orange-800 dark:text-orange-200">
-          {data[data.length - 1].name}
-        </div>
-      </div>
+          {data.length > 1 && (
+            <div className="absolute top-2 left-2 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-lg p-2 shadow-md border border-orange-200/30 dark:border-orange-700/30">
+              <div className="text-[10px] text-orange-500 dark:text-orange-400 mb-0.5">کمترین</div>
+              <div className="text-xs font-bold text-orange-800 dark:text-orange-200 truncate max-w-[80px]">
+                {data[data.length - 1]?.name || `آیتم ${data.length}`}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
