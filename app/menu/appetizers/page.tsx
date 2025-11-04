@@ -132,10 +132,15 @@ export default function AppetizersPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadAppetizers()
+        // Optimistic update: update state immediately
+        setAppetizers(prev => prev.map(item => 
+          (item._id || item.id) === editingItem._id ? { ...item, ...formData } : item
+        ))
           setShowForm(false)
           setEditingItem(null)
           resetForm()
+        // Reload to get fresh data from server
+        await loadAppetizers()
         } else {
           alert('خطا در به‌روزرسانی پیش‌غذا: ' + result.message)
         }
@@ -157,9 +162,14 @@ export default function AppetizersPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadAppetizers()
+        // Optimistic update: add to state immediately
+        if (result.data) {
+          setAppetizers(prev => [...prev, result.data])
+        }
           setShowForm(false)
           resetForm()
+        // Reload to get fresh data from server
+        await loadAppetizers()
         } else {
           alert('خطا در ایجاد پیش‌غذا: ' + result.message)
         }
@@ -196,18 +206,26 @@ export default function AppetizersPage() {
 
     try {
       setLoading(true)
+      
+      // Optimistic update: remove from state immediately
+      setAppetizers(prev => prev.filter(item => (item._id || item.id) !== id))
+      
       const response = await fetch(`/api/appetizers?id=${id}`, {
         method: 'DELETE'
       })
 
       const result = await response.json()
-      if (result.success) {
+      
+      if (!result.success) {
+        // If delete failed, reload items to restore state
         await loadAppetizers()
-      } else {
         alert('خطا در حذف پیش‌غذا: ' + result.message)
       }
+      // If successful, state already updated (optimistic)
     } catch (error) {
       console.error('Error deleting appetizer:', error)
+      // On error, reload to restore state
+      await loadAppetizers()
       alert('خطا در حذف پیش‌غذا')
     } finally {
       setLoading(false)
@@ -230,8 +248,15 @@ export default function AppetizersPage() {
 
       const result = await response.json()
       if (result.success) {
+        // Optimistic update: update state immediately
+        setAppetizers(prev => prev.map(item => 
+          (item._id || item.id) === id ? { ...item, isAvailable: !currentStatus } : item
+        ))
+        // Reload to sync with server
         await loadAppetizers()
       } else {
+        // On error, reload to restore state
+        await loadAppetizers()
         alert('خطا در تغییر وضعیت: ' + result.message)
       }
     } catch (error) {

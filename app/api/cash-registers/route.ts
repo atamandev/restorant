@@ -2,13 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
-const client = new MongoClient(MONGO_URI)
+const DB_NAME = 'restoren'
+
+let client: MongoClient
+let db: any
+
+async function connectToDatabase() {
+  if (!client) {
+    client = new MongoClient(MONGO_URI)
+    await client.connect()
+    db = client.db(DB_NAME)
+  }
+  return db
+}
 
 // GET /api/cash-registers - دریافت لیست صندوق‌ها
 export async function GET(request: NextRequest) {
   try {
-    await client.connect()
-    const db = client.db('restoren')
+    const db = await connectToDatabase()
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -64,16 +75,14 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // POST /api/cash-registers - ایجاد صندوق جدید
 export async function POST(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
-    console.log('Received body:', body)
     
     const { name, location, branchId, isActive, currentAmount } = body
 
@@ -84,9 +93,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     // Check if branch exists
     const branch = await db.collection('branches').findOne({ _id: new ObjectId(branchId) })
@@ -108,13 +114,9 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     }
 
-    console.log('Creating cash register with data:', cashRegisterData)
-
     const result = await db.collection('cash_registers').insertOne(cashRegisterData)
     
     const cashRegister = await db.collection('cash_registers').findOne({ _id: result.insertedId })
-
-    console.log('Cash register created successfully:', cashRegister)
 
     return NextResponse.json({
       success: true,
@@ -131,14 +133,13 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // PUT /api/cash-registers - به‌روزرسانی صندوق
 export async function PUT(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
     const { id, ...updateData } = body
 
@@ -148,9 +149,6 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const updateFields = {
       ...updateData,
@@ -191,14 +189,13 @@ export async function PUT(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // DELETE /api/cash-registers - حذف صندوق
 export async function DELETE(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -208,9 +205,6 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const result = await db.collection('cash_registers').deleteOne({ _id: new ObjectId(id) })
 
@@ -235,7 +229,5 @@ export async function DELETE(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }

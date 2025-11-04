@@ -129,13 +129,13 @@ export async function POST(request: NextRequest) {
     ]
 
     const suppliersResult = await suppliersCollection.insertMany(sampleSuppliers)
-    const supplierIds = Object.values(suppliersResult.insertedIds)
+    const supplierIds = Object.values(suppliersResult.insertedIds) as any[]
 
     // اضافه کردن خریدهای نمونه
     const samplePurchases = [
       {
         invoiceNumber: 'PINV-20240115-0001',
-        supplierId: supplierIds[0].toString(),
+        supplierId: supplierIds[0]?.toString() || '',
         supplierName: 'شرکت مواد غذایی تهران',
         supplierPhone: '021-12345678',
         supplierAddress: 'تهران، خیابان ولیعصر، پلاک 123',
@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
       },
       {
         invoiceNumber: 'PINV-20240114-0001',
-        supplierId: supplierIds[1].toString(),
+        supplierId: supplierIds[1]?.toString() || '',
         supplierName: 'تأمین‌کننده سبزیجات',
         supplierPhone: '09123456789',
         supplierAddress: 'کرج، جاده مخصوص، کیلومتر 15',
@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
       },
       {
         invoiceNumber: 'PINV-20240113-0001',
-        supplierId: supplierIds[2].toString(),
+        supplierId: supplierIds[2]?.toString() || '',
         supplierName: 'شرکت تجهیزات آشپزخانه',
         supplierPhone: '021-87654321',
         supplierAddress: 'تهران، خیابان آزادی، پلاک 456',
@@ -272,7 +272,7 @@ export async function POST(request: NextRequest) {
       },
       {
         invoiceNumber: 'PINV-20240112-0001',
-        supplierId: supplierIds[3].toString(),
+        supplierId: supplierIds[3]?.toString() || '',
         supplierName: 'تأمین‌کننده نوشیدنی',
         supplierPhone: '09187654321',
         supplierAddress: 'اصفهان، خیابان چهارباغ، پلاک 789',
@@ -320,7 +320,7 @@ export async function POST(request: NextRequest) {
       },
       {
         invoiceNumber: 'PINV-20240111-0001',
-        supplierId: supplierIds[4].toString(),
+        supplierId: supplierIds[4]?.toString() || '',
         supplierName: 'شرکت خدمات نظافتی',
         supplierPhone: '021-55554444',
         supplierAddress: 'تهران، خیابان کریمخان، پلاک 321',

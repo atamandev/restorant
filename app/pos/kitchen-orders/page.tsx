@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import dynamic from 'next/dynamic'
 import { 
   ChefHat, 
   Clock, 
@@ -23,20 +24,32 @@ import {
   Minus
 } from 'lucide-react'
 
+// Dynamic import for FiltersSelect with no SSR to completely avoid hydration issues
+const FiltersSelect = dynamic(() => import('./FiltersSelect'), {
+  ssr: false,
+  loading: () => (
+    <>
+      <div className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 h-[42px] w-[150px] animate-pulse"></div>
+      <div className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 h-[42px] w-[150px] animate-pulse"></div>
+    </>
+  )
+})
+
 interface KitchenOrder {
   _id?: string
   orderNumber: string
   orderType: 'dine-in' | 'takeaway' | 'delivery'
   tableNumber?: string
   customerName: string
-  customerPhone: string
+  customerPhone?: string
+  deliveryAddress?: string
   items: KitchenOrderItem[]
   orderTime: string
   estimatedReadyTime: string
   status: 'pending' | 'preparing' | 'ready' | 'completed'
   priority: 'normal' | 'urgent'
-  notes: string
-  specialInstructions: string
+  notes?: string
+  specialInstructions?: string
   createdAt?: Date
   updatedAt?: Date
 }
@@ -59,17 +72,77 @@ export default function KitchenOrdersPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedOrder, setSelectedOrder] = useState<KitchenOrder | null>(null)
   const [loading, setLoading] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const loadOrders = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/kitchen-orders')
+      // اگر status خاصی انتخاب شده، آن را به API بفرست
+      const params = new URLSearchParams()
+      // اگر all انتخاب شده، همه سفارشات را بگیر (شامل completed)
+      if (selectedStatus === 'all') {
+        params.append('status', 'all')
+      } else if (selectedStatus !== 'all') {
+        params.append('status', selectedStatus)
+      }
+      if (selectedPriority !== 'all') {
+        params.append('priority', selectedPriority)
+      }
+      
+      const url = `/api/kitchen-orders${params.toString() ? `?${params.toString()}` : ''}`
+      const response = await fetch(url)
       const result = await response.json()
+      
       if (result.success) {
-        setOrders(result.data)
+        console.log('Loaded kitchen orders:', result.data?.length || 0)
+        // پاکسازی آیتم‌های تکراری از هر سفارش
+        const cleanedOrders = (result.data || []).map((order: KitchenOrder, orderIdx: number) => {
+          if (order.items && Array.isArray(order.items)) {
+            const originalLength = order.items.length
+            // حذف آیتم‌های تکراری بر اساس id
+            // فقط اولین آیتم با هر id نگه داشته می‌شود
+            const uniqueItems = order.items.filter((item: KitchenOrderItem, index: number, self: KitchenOrderItem[]) => {
+              const itemId = item.id
+              if (!itemId) {
+                // اگر id نداشت، همه آیتم‌های بدون id را نگه دار
+                return true
+              }
+              // پیدا کردن اولین آیتم با این id
+              const firstIndex = self.findIndex((i: KitchenOrderItem) => i.id === itemId)
+              return index === firstIndex
+            })
+            
+            // لاگ کردن در صورت حذف آیتم‌های تکراری
+            if (uniqueItems.length < originalLength) {
+              console.log(`✅ سفارش ${orderIdx} (${order.orderNumber}): ${originalLength} آیتم → ${uniqueItems.length} آیتم (${originalLength - uniqueItems.length} آیتم تکراری حذف شد)`)
+            }
+            
+            return {
+              ...order,
+              items: uniqueItems
+            }
+          }
+          return order
+        })
+        
+        // لاگ کردن تعداد آیتم‌های هر سفارش برای بررسی
+        console.log('📊 تعداد آیتم‌های هر سفارش:', cleanedOrders.map(o => ({ 
+          orderNumber: o.orderNumber, 
+          itemsCount: o.items?.length || 0 
+        })))
+        
+        setOrders(cleanedOrders)
+      } else {
+        console.error('Error loading kitchen orders:', result.message)
+        setOrders([])
       }
     } catch (error) {
       console.error('Error loading kitchen orders:', error)
+      setOrders([])
     } finally {
       setLoading(false)
     }
@@ -77,13 +150,20 @@ export default function KitchenOrdersPage() {
 
   useEffect(() => {
     loadOrders()
-  }, [])
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(() => {
+      loadOrders()
+    }, 10000)
+    
+    return () => clearInterval(interval)
+  }, [selectedStatus, selectedPriority])
 
   const filteredOrders = orders.filter(order => {
     const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus
     const matchesPriority = selectedPriority === 'all' || order.priority === selectedPriority
-    const matchesSearch = order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.customerName.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesSearch = searchTerm === '' || 
+                         order.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         order.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
     return matchesStatus && matchesPriority && matchesSearch
   })
 
@@ -166,6 +246,22 @@ export default function KitchenOrdersPage() {
   const getPreparingOrders = () => orders.filter(order => order.status === 'preparing').length
   const getReadyOrders = () => orders.filter(order => order.status === 'ready').length
 
+  // جلوگیری از Hydration Error - فقط بعد از mount رندر کن
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800/80 dark:to-gray-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800/80 dark:to-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
@@ -237,28 +333,85 @@ export default function KitchenOrdersPage() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="all">همه وضعیت‌ها</option>
-                <option value="pending">در انتظار</option>
-                <option value="preparing">در حال آماده‌سازی</option>
-                <option value="ready">آماده</option>
-                <option value="completed">تکمیل شده</option>
-              </select>
-              <select
-                value={selectedPriority}
-                onChange={(e) => setSelectedPriority(e.target.value)}
-                className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="all">همه اولویت‌ها</option>
-                <option value="normal">عادی</option>
-                <option value="urgent">فوری</option>
-              </select>
+              {mounted && (
+                <Suspense
+                  fallback={
+                    <>
+                      <div className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 h-[42px] w-[150px] animate-pulse"></div>
+                      <div className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 h-[42px] w-[150px] animate-pulse"></div>
+                    </>
+                  }
+                >
+                  <FiltersSelect
+                    selectedStatus={selectedStatus}
+                    selectedPriority={selectedPriority}
+                    onStatusChange={setSelectedStatus}
+                    onPriorityChange={setSelectedPriority}
+                  />
+                </Suspense>
+              )}
             </div>
             <div className="flex items-center space-x-2 space-x-reverse">
+              <button
+                onClick={async () => {
+                  // ابتدا از API تعداد سفارشات completed را بگیر
+                  try {
+                    const checkResponse = await fetch('/api/kitchen-orders?status=completed')
+                    const checkResult = await checkResponse.json()
+                    const completedCount = checkResult.success ? (checkResult.data?.length || 0) : 0
+                    
+                    if (completedCount === 0) {
+                      alert('هیچ سفارش تکمیل شده‌ای برای حذف وجود ندارد')
+                      return
+                    }
+                    
+                    if (confirm(`آیا از حذف ${completedCount} سفارش تکمیل شده اطمینان دارید؟`)) {
+                      const response = await fetch('/api/kitchen-orders/cleanup-completed', {
+                        method: 'DELETE'
+                      })
+                      const result = await response.json()
+                      if (result.success) {
+                        alert(result.message)
+                        await loadOrders()
+                      } else {
+                        alert('خطا: ' + result.message)
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error deleting completed orders:', error)
+                    alert('خطا در حذف سفارشات تکمیل شده')
+                  }
+                }}
+                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>حذف سفارشات تکمیل شده</span>
+              </button>
+              <button
+                onClick={async () => {
+                  if (confirm('آیا از حذف سفارشات تستی اطمینان دارید؟')) {
+                    try {
+                      const response = await fetch('/api/kitchen-orders/cleanup-test', {
+                        method: 'DELETE'
+                      })
+                      const result = await response.json()
+                      if (result.success) {
+                        alert(result.message)
+                        await loadOrders()
+                      } else {
+                        alert('خطا: ' + result.message)
+                      }
+                    } catch (error) {
+                      console.error('Error deleting test orders:', error)
+                      alert('خطا در حذف سفارشات تستی')
+                    }
+                  }
+                }}
+                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>حذف سفارشات تستی</span>
+              </button>
               <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
                 <Printer className="w-4 h-4" />
                 <span>چاپ KOT</span>
@@ -286,8 +439,17 @@ export default function KitchenOrdersPage() {
               <p className="text-gray-600 dark:text-gray-400">هیچ سفارشی یافت نشد</p>
             </div>
           ) : (
-            filteredOrders.map(order => (
-              <div key={order._id} className="premium-card p-6">
+            filteredOrders.map((order, index) => {
+              // Create a unique key by combining multiple identifiers to avoid duplicates
+              // Create a unique key using order ID, number, and index
+              const uniqueKey = order._id 
+                ? `${order._id}-${index}` 
+                : order.orderNumber 
+                  ? `${order.orderNumber}-${index}` 
+                  : `order-${index}`
+              
+              return (
+              <div key={uniqueKey} className="premium-card p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-3 space-x-reverse">
                     <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center">
@@ -314,9 +476,9 @@ export default function KitchenOrdersPage() {
                 <div className="space-y-3 mb-4">
                   <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
                     <Clock className="w-4 h-4" />
-                    <span>سفارش: {order.orderTime}</span>
+                    <span>سفارش: {order.orderTime ? new Date(order.orderTime).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : 'نامشخص'}</span>
                     <span>•</span>
-                    <span>آماده: {order.estimatedReadyTime}</span>
+                    <span>آماده: {order.estimatedReadyTime ? new Date(order.estimatedReadyTime).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : 'نامشخص'}</span>
                   </div>
                   {order.tableNumber && (
                     <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
@@ -324,65 +486,83 @@ export default function KitchenOrdersPage() {
                       <span>میز: {order.tableNumber}</span>
                     </div>
                   )}
-                  <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
-                    <Phone className="w-4 h-4" />
-                    <span>{order.customerPhone}</span>
-                  </div>
-                  {order.orderType === 'delivery' && (
+                  {order.customerPhone && (
                     <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
-                      <MapPin className="w-4 h-4" />
-                      <span>ارسال</span>
+                      <Phone className="w-4 h-4" />
+                      <span>{order.customerPhone}</span>
+                    </div>
+                  )}
+                  {order.orderType === 'delivery' && order.deliveryAddress && (
+                    <div className="flex items-start space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
+                      <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <span className="line-clamp-2">آدرس: {order.deliveryAddress}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Order Items */}
                 <div className="space-y-3 mb-4">
-                  <h4 className="font-medium text-gray-900 dark:text-white">آیتم‌های سفارش:</h4>
-                  {order.items.map(item => (
-                    <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-                      <div className="flex items-center space-x-3 space-x-reverse">
-                        <img src={item.image} alt={item.name} className="w-10 h-10 rounded object-cover" />
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">
-                            {item.quantity} عدد • {item.preparationTime} دقیقه
-                          </p>
-                          {item.notes && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{item.notes}</p>
-                          )}
+                  <h4 className="font-medium text-gray-900 dark:text-white mb-3">آیتم‌های سفارش:</h4>
+                  {order.items.map((item, itemIndex) => {
+                    // استفاده از ترکیب order._id و item.id و itemIndex برای کلید یکتا
+                    // حتی اگر item.id تکراری باشد، با order._id و itemIndex ترکیب می‌شود
+                    const orderId = order._id || order.orderNumber || 'order'
+                    const itemId = item.id || `item-${itemIndex}`
+                    const uniqueItemKey = `${orderId}-${itemId}-${itemIndex}`
+                    return (
+                      <div key={uniqueItemKey} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border-2 border-transparent hover:border-primary-200 dark:hover:border-primary-800 transition-all">
+                        <div className="flex items-center space-x-3 space-x-reverse flex-1">
+                          <img 
+                            src={item.image || '/api/placeholder/60/60'} 
+                            alt={item.name} 
+                            className="w-12 h-12 rounded-lg object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.src = '/api/placeholder/60/60'
+                            }}
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              {item.quantity} عدد • {item.preparationTime || 15} دقیقه
+                            </p>
+                            {item.notes && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{item.notes}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
+                            {getStatusText(item.status)}
+                          </span>
+                          <div className="flex space-x-1 space-x-reverse border-r border-gray-300 dark:border-gray-600 pr-2">
+                            <button
+                              onClick={() => updateItemStatus(order._id!, item.id, 'preparing')}
+                              className={`p-2 rounded-lg transition-all ${
+                                item.status === 'preparing' 
+                                  ? 'bg-orange-500 text-white shadow-lg' 
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-orange-100 dark:hover:bg-orange-900/30 hover:text-orange-600 dark:hover:text-orange-400'
+                              }`}
+                              title="در حال آماده‌سازی"
+                            >
+                              <Utensils className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => updateItemStatus(order._id!, item.id, 'ready')}
+                              className={`p-2 rounded-lg transition-all ${
+                                item.status === 'ready' || item.status === 'completed'
+                                  ? 'bg-green-500 text-white shadow-lg' 
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900/30 hover:text-green-600 dark:hover:text-green-400'
+                              }`}
+                              title="آماده است ✓"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2 space-x-reverse">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
-                          {getStatusText(item.status)}
-                        </span>
-                        <div className="flex space-x-1 space-x-reverse">
-                          <button
-                            onClick={() => updateItemStatus(order._id!, item.id, 'preparing')}
-                            className={`p-1 rounded ${item.status === 'preparing' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-600'}`}
-                            title="شروع آماده‌سازی"
-                          >
-                            <Utensils className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => updateItemStatus(order._id!, item.id, 'ready')}
-                            className={`p-1 rounded ${item.status === 'ready' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-600'}`}
-                            title="آماده"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => updateItemStatus(order._id!, item.id, 'completed')}
-                            className={`p-1 rounded ${item.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                            title="تکمیل شده"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {/* Special Instructions */}
@@ -409,6 +589,39 @@ export default function KitchenOrdersPage() {
 
                 {/* Action Buttons */}
                 <div className="flex items-center justify-end space-x-2 space-x-reverse">
+                  {order.status !== 'completed' && (
+                    <button
+                      onClick={async () => {
+                        if (confirm('آیا از تکمیل این سفارش اطمینان دارید؟')) {
+                          try {
+                            const response = await fetch('/api/kitchen-orders', {
+                              method: 'PUT',
+                              headers: {
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                id: order._id,
+                                status: 'completed'
+                              })
+                            })
+                            const result = await response.json()
+                            if (result.success) {
+                              await loadOrders()
+                            } else {
+                              alert('خطا: ' + result.message)
+                            }
+                          } catch (error) {
+                            console.error('Error completing order:', error)
+                            alert('خطا در تکمیل سفارش')
+                          }
+                        }
+                      }}
+                      className="flex items-center space-x-1 space-x-reverse px-3 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>تکمیل سفارش</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => setSelectedOrder(order)}
                     className="flex items-center space-x-1 space-x-reverse px-3 py-2 text-primary-600 hover:text-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
@@ -422,7 +635,8 @@ export default function KitchenOrdersPage() {
                   </button>
                 </div>
               </div>
-            ))
+              )
+            })
           )}
         </div>
 

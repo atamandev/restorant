@@ -8,12 +8,44 @@ let client: MongoClient
 let db: any
 
 async function connectToDatabase() {
-  if (!client) {
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    db = client.db(DB_NAME)
+  try {
+    if (!client) {
+      client = new MongoClient(MONGO_URI)
+      await client.connect()
+      db = client.db(DB_NAME)
+    } else if (!db) {
+      db = client.db(DB_NAME)
+    }
+    
+    // Test connection with a simple operation (optional, may fail in some setups)
+    if (db) {
+      try {
+        await db.admin().ping()
+      } catch (pingError) {
+        // Ping failed but connection might still work, continue anyway
+        console.warn('MongoDB ping failed, but continuing:', pingError)
+      }
+    }
+    
+    if (!db) {
+      throw new Error('Database connection failed: db is null')
+    }
+    
+    return db
+  } catch (error) {
+    console.error('Database connection error:', error)
+    // Reset connection on error
+    if (client) {
+      try {
+        await client.close()
+      } catch (e) {
+        // Ignore close errors
+      }
+      client = null as any
+    }
+    db = null
+    throw error
   }
-  return db
 }
 
 // Helper function to fetch invoices with date filter
@@ -50,7 +82,14 @@ async function fetchSalesInvoices(invoicesCollection: any, dateFilter: any) {
 // GET - گزارشات فروش
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const database = await connectToDatabase()
+    if (!database) {
+      return NextResponse.json(
+        { success: false, message: 'خطا در اتصال به پایگاه داده' },
+        { status: 500 }
+      )
+    }
+    db = database
     const invoicesCollection = db.collection('invoices')
     const ordersCollection = db.collection('orders')
     const receiptsPaymentsCollection = db.collection('receipts_payments')
@@ -111,6 +150,16 @@ export async function GET(request: NextRequest) {
       case 'category':
         return await getCategoryReport(invoicesCollection, menuItemsCollection, dateFilter)
       case 'payment':
+        if (!receiptsPaymentsCollection || !invoicesCollection) {
+          console.error('Collections are null:', {
+            receiptsPaymentsCollection: !!receiptsPaymentsCollection,
+            invoicesCollection: !!invoicesCollection
+          })
+          return NextResponse.json(
+            { success: false, message: 'خطا در دسترسی به collections' },
+            { status: 500 }
+          )
+        }
         return await getPaymentMethodReport(receiptsPaymentsCollection, invoicesCollection, dateFilter)
       default:
         return await getSummaryReport(invoicesCollection, ordersCollection, dateFilter)
@@ -324,75 +373,122 @@ async function getCategoryReport(invoicesCollection: any, menuItemsCollection: a
 // گزارش روش‌های پرداخت
 async function getPaymentMethodReport(receiptsPaymentsCollection: any, invoicesCollection: any, dateFilter: any) {
   try {
+    console.log('getPaymentMethodReport called with:', {
+      hasReceiptsCollection: !!receiptsPaymentsCollection,
+      hasInvoicesCollection: !!invoicesCollection,
+      dateFilter: dateFilter
+    })
     // دریافت پرداخت‌های فروش از receipts_payments
     let salesReceipts: any[] = []
     try {
-      salesReceipts = await receiptsPaymentsCollection.find({
-        type: 'receipt',
-        personType: 'customer',
-        date: { $gte: dateFilter.$gte, $lte: dateFilter.$lte }
-      }).toArray()
-    } catch (e) {
-      try {
-        salesReceipts = await receiptsPaymentsCollection.find({
+      if (receiptsPaymentsCollection) {
+        const query: any = {
           type: 'receipt',
-          personType: 'customer',
-          createdAt: { $gte: dateFilter.$gte, $lte: dateFilter.$lte }
-        }).toArray()
-      } catch (e2) {
-        console.error('Error fetching receipts:', e2)
+          personType: 'customer'
+        }
+        
+        // Try with date field first
+        if (dateFilter && dateFilter.$gte && dateFilter.$lte) {
+          query.date = { $gte: dateFilter.$gte, $lte: dateFilter.$lte }
+        }
+        
+        salesReceipts = await receiptsPaymentsCollection.find(query).toArray()
+        
+        // If no results, try with createdAt
+        if (salesReceipts.length === 0 && dateFilter && dateFilter.$gte && dateFilter.$lte) {
+          const queryCreatedAt: any = {
+            type: 'receipt',
+            personType: 'customer',
+            createdAt: { $gte: dateFilter.$gte, $lte: dateFilter.$lte }
+          }
+          salesReceipts = await receiptsPaymentsCollection.find(queryCreatedAt).toArray()
+        }
       }
+    } catch (e) {
+      console.error('Error fetching receipts:', e)
+      // Continue with empty array
+      salesReceipts = []
     }
 
     // همچنین از invoices هم استفاده کن
-    const salesInvoices = await fetchSalesInvoices(invoicesCollection, dateFilter)
+    let salesInvoices: any[] = []
+    try {
+      if (invoicesCollection) {
+        salesInvoices = await fetchSalesInvoices(invoicesCollection, dateFilter)
+      }
+    } catch (e) {
+      console.error('Error fetching sales invoices:', e)
+      salesInvoices = []
+    }
 
     // محاسبه بر اساس روش پرداخت
     const methodData: any = {}
     let totalAmount = 0
 
     // از receipts
-    salesReceipts.forEach((receipt: any) => {
-      const method = receipt.paymentMethod || receipt.method || 'cash'
-      const amount = receipt.amount || 0
+    if (Array.isArray(salesReceipts)) {
+      salesReceipts.forEach((receipt: any) => {
+        if (!receipt) return
+        
+        const method = receipt.paymentMethod || receipt.method || receipt.payment_method || 'cash'
+        const amount = Number(receipt.amount || 0)
 
-      if (!methodData[method]) {
-        methodData[method] = {
-          method: method === 'cash' ? 'نقدی' : method === 'card' ? 'کارتی' : method === 'cheque' ? 'چک' : method === 'bank_transfer' ? 'حواله' : 'اعتباری',
-          amount: 0,
-          count: 0
+        if (!methodData[method]) {
+          methodData[method] = {
+            method: method === 'cash' ? 'نقدی' : method === 'card' ? 'کارتی' : method === 'cheque' ? 'چک' : method === 'bank_transfer' ? 'حواله' : 'اعتباری',
+            amount: 0,
+            count: 0
+          }
         }
-      }
 
-      methodData[method].amount += amount
-      methodData[method].count += 1
-      totalAmount += amount
-    })
+        methodData[method].amount += amount
+        methodData[method].count += 1
+        totalAmount += amount
+      })
+    }
 
     // از invoices
-    salesInvoices.forEach((inv: any) => {
-      const method = inv.paymentMethod || inv.payment_method || 'cash'
-      const amount = inv.totalAmount || inv.total || 0
+    if (Array.isArray(salesInvoices)) {
+      salesInvoices.forEach((inv: any) => {
+        if (!inv) return
+        
+        const method = inv.paymentMethod || inv.payment_method || 'cash'
+        const amount = Number(inv.totalAmount || inv.total || 0)
 
-      if (!methodData[method]) {
-        methodData[method] = {
-          method: method === 'cash' ? 'نقدی' : method === 'card' ? 'کارتی' : method === 'cheque' ? 'چک' : method === 'bank_transfer' ? 'حواله' : 'اعتباری',
-          amount: 0,
-          count: 0
+        if (!methodData[method]) {
+          methodData[method] = {
+            method: method === 'cash' ? 'نقدی' : method === 'card' ? 'کارتی' : method === 'cheque' ? 'چک' : method === 'bank_transfer' ? 'حواله' : 'اعتباری',
+            amount: 0,
+            count: 0
+          }
         }
-      }
 
-      methodData[method].amount += amount
-      methodData[method].count += 1
-      totalAmount += amount
-    })
+        methodData[method].amount += amount
+        methodData[method].count += 1
+        totalAmount += amount
+      })
+    }
 
+    // If no data found, return default empty structure
     const paymentMethods = Object.values(methodData)
       .map((method: any) => ({
         ...method,
-        percentage: totalAmount > 0 ? Math.round((method.amount / totalAmount) * 100) : 0
+        percentage: totalAmount > 0 ? Math.round((method.amount / totalAmount) * 100) : 0,
+        value: method.amount
       }))
       .sort((a: any, b: any) => b.amount - a.amount)
+
+    // If no payment methods found, return default data structure
+    if (paymentMethods.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [
+          { method: 'نقدی', amount: 0, value: 0, count: 0, percentage: 0 },
+          { method: 'کارتی', amount: 0, value: 0, count: 0, percentage: 0 },
+          { method: 'چک', amount: 0, value: 0, count: 0, percentage: 0 }
+        ]
+      })
+    }
 
     return NextResponse.json({
       success: true,

@@ -5,22 +5,34 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhos
 const DB_NAME = 'restoren'
 const COLLECTION_NAME = 'orders'
 
-let client: MongoClient
+let client: MongoClient | undefined
 let db: any
+let clientPromise: Promise<MongoClient> | undefined
 
 async function connectToDatabase() {
+  try {
   if (!client) {
     client = new MongoClient(MONGO_URI)
-    await client.connect()
+      clientPromise = client.connect()
+      await clientPromise
+      db = client.db(DB_NAME)
+    } else if (!db) {
     db = client.db(DB_NAME)
   }
   return db
+  } catch (error) {
+    console.error('Database connection error:', error)
+    throw error
+  }
 }
 
 // GET - دریافت تمام سفارشات با فیلتر و مرتب‌سازی
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)
@@ -49,13 +61,32 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .toArray()
 
-    // آمار کلی
-    const stats = await collection.aggregate([
+    // آمار کلی - با try/catch برای جلوگیری از خطا
+    let stats = [{
+      totalOrders: 0,
+      totalRevenue: 0,
+      pendingOrders: 0,
+      confirmedOrders: 0,
+      preparingOrders: 0,
+      readyOrders: 0,
+      completedOrders: 0
+    }]
+    
+    try {
+      const statsResult = await collection.aggregate([
       {
         $group: {
           _id: null,
           totalOrders: { $sum: 1 },
-          totalRevenue: { $sum: '$total' },
+            totalRevenue: { 
+              $sum: { 
+                $cond: [
+                  { $ne: ['$total', null] },
+                  { $ifNull: ['$total', 0] },
+                  0
+                ]
+              }
+            },
           pendingOrders: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
           confirmedOrders: { $sum: { $cond: [{ $eq: ['$status', 'confirmed'] }, 1, 0] } },
           preparingOrders: { $sum: { $cond: [{ $eq: ['$status', 'preparing'] }, 1, 0] } },
@@ -64,6 +95,24 @@ export async function GET(request: NextRequest) {
         }
       }
     ]).toArray()
+      
+      if (statsResult && statsResult.length > 0) {
+        stats = statsResult
+      }
+    } catch (statsError) {
+      console.error('Error calculating stats:', statsError)
+      // محاسبه دستی آمار
+      const allOrders: any[] = await collection.find({}).toArray()
+      stats = [{
+        totalOrders: allOrders.length,
+        totalRevenue: allOrders.reduce((sum: number, order: any) => sum + (order.total || 0), 0),
+        pendingOrders: allOrders.filter((o: any) => o.status === 'pending').length,
+        confirmedOrders: allOrders.filter((o: any) => o.status === 'confirmed').length,
+        preparingOrders: allOrders.filter((o: any) => o.status === 'preparing').length,
+        readyOrders: allOrders.filter((o: any) => o.status === 'ready').length,
+        completedOrders: allOrders.filter((o: any) => o.status === 'completed').length
+      }]
+    }
 
     return NextResponse.json({
       success: true,
@@ -86,7 +135,11 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error fetching orders:', error)
     return NextResponse.json(
-      { success: false, message: 'خطا در دریافت سفارشات' },
+      { 
+        success: false, 
+        message: 'خطا در دریافت سفارشات',
+        error: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     )
   }
@@ -95,7 +148,10 @@ export async function GET(request: NextRequest) {
 // POST - ایجاد سفارش جدید
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const body = await request.json()
@@ -146,7 +202,10 @@ export async function POST(request: NextRequest) {
 // DELETE - حذف سفارش
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)

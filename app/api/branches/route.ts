@@ -2,13 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
-const client = new MongoClient(MONGO_URI)
+const DB_NAME = 'restoren'
+
+let client: MongoClient
+let db: any
+
+async function connectToDatabase() {
+  if (!client) {
+    client = new MongoClient(MONGO_URI)
+    await client.connect()
+    db = client.db(DB_NAME)
+  }
+  return db
+}
 
 // GET /api/branches - دریافت لیست شعبه‌ها
 export async function GET(request: NextRequest) {
   try {
-    await client.connect()
-    const db = client.db('restoren')
+    const db = await connectToDatabase()
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -69,16 +80,14 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // POST /api/branches - ایجاد شعبه جدید
 export async function POST(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
-    console.log('Received body:', body)
     
     const { name, address, phoneNumber, email, manager, capacity, openingHours, isActive } = body
 
@@ -89,9 +98,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const branchData = {
       name,
@@ -105,16 +111,12 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     }
 
-    console.log('Creating branch with data:', branchData)
-
     const result = await db.collection('branches').insertOne(branchData)
     
     const branch = await db.collection('branches').findOne({ _id: result.insertedId })
     
     // Add empty cashRegisters array to new branch
     branch.cashRegisters = []
-
-    console.log('Branch created successfully:', branch)
 
     return NextResponse.json({
       success: true,
@@ -131,14 +133,13 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // PUT /api/branches - به‌روزرسانی شعبه
 export async function PUT(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
     const { id, ...updateData } = body
 
@@ -148,9 +149,6 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const updateFields = {
       ...updateData,
@@ -192,14 +190,13 @@ export async function PUT(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // DELETE /api/branches - حذف شعبه
 export async function DELETE(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -209,9 +206,6 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const result = await db.collection('branches').deleteOne({ _id: new ObjectId(id) })
 
@@ -236,7 +230,5 @@ export async function DELETE(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }

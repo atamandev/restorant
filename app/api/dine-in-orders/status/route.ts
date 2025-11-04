@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
+import { 
+  reserveInventoryForOrder, 
+  consumeReservedInventory, 
+  releaseReservedInventory 
+} from '../inventory-reservations/helpers'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 
@@ -24,8 +29,20 @@ export async function PATCH(request: NextRequest) {
     await client.connect()
     const db = client.db('restoren')
     
+    // دریافت سفارش فعلی
+    const currentOrder = await db.collection('dine_in_orders').findOne({ _id: new ObjectId(id) })
+    if (!currentOrder) {
+      return NextResponse.json(
+        { success: false, message: 'سفارش حضوری مورد نظر یافت نشد' },
+        { status: 404 }
+      )
+    }
+
+    const oldStatus = currentOrder.status
+    const finalStatus = String(status)
+    
     const updateFields: any = {
-      status: String(status),
+      status: finalStatus,
       updatedAt: new Date()
     }
 
@@ -33,20 +50,80 @@ export async function PATCH(request: NextRequest) {
       updateFields.notes = String(notes)
     }
 
-    console.log('Updating dine-in order status with data:', updateFields)
+    console.log(`[STATUS UPDATE] Order ${currentOrder.orderNumber}: ${oldStatus} → ${finalStatus}`)
 
-    const result = await db.collection('dine_in_orders').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateFields }
-    )
+    // استفاده از transaction برای اطمینان از همگام‌سازی
+    const session = client.startSession()
+    
+    try {
+      await session.withTransaction(async () => {
+        // به‌روزرسانی status
+        await db.collection('dine_in_orders').updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateFields },
+          { session }
+        )
 
-    console.log('Status update result:', result)
+        // منطق رزرو/مصرف/آزاد کردن موجودی بر اساس وضعیت
+        
+        // 1. رزرو موجودی در وضعیت 'preparing' یا 'confirmed' یا 'accepted'
+        if ((oldStatus !== 'preparing' && oldStatus !== 'confirmed' && oldStatus !== 'accepted') && 
+            (finalStatus === 'preparing' || finalStatus === 'confirmed' || finalStatus === 'accepted')) {
+          
+          console.log(`[RESERVE] Order ${currentOrder.orderNumber}: Reserving inventory for status ${finalStatus}`)
+          
+          const reserveResult = await reserveInventoryForOrder(
+            db,
+            session,
+            id,
+            currentOrder.orderNumber,
+            'dine-in',
+            currentOrder.items || []
+          )
 
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'سفارش حضوری مورد نظر یافت نشد' },
-        { status: 404 }
-      )
+          if (!reserveResult.success) {
+            throw new Error(reserveResult.message || 'خطا در رزرو موجودی')
+          }
+        }
+
+        // 2. مصرف موجودی رزرو شده در وضعیت 'completed' یا 'paid'
+        if ((oldStatus !== 'completed' && oldStatus !== 'paid') && 
+            (finalStatus === 'completed' || finalStatus === 'paid')) {
+          
+          console.log(`[CONSUME] Order ${currentOrder.orderNumber}: Consuming reserved inventory`)
+          
+          const consumeResult = await consumeReservedInventory(
+            db,
+            session,
+            id,
+            currentOrder.orderNumber
+          )
+
+          if (!consumeResult.success) {
+            throw new Error(consumeResult.message || 'خطا در مصرف موجودی رزرو شده')
+          }
+        }
+
+        // 3. آزاد کردن رزرو در وضعیت 'cancelled'
+        if (oldStatus !== 'cancelled' && finalStatus === 'cancelled') {
+          
+          console.log(`[RELEASE] Order ${currentOrder.orderNumber}: Releasing reserved inventory`)
+          
+          const releaseResult = await releaseReservedInventory(
+            db,
+            session,
+            id,
+            currentOrder.orderNumber
+          )
+
+          if (!releaseResult.success) {
+            console.warn(`[RELEASE] Warning: ${releaseResult.message}`)
+            // در صورت لغو، خطا را throw نمی‌کنیم چون ممکن است سفارش قبلاً مصرف شده باشد
+          }
+        }
+      })
+    } finally {
+      await session.endSession()
     }
 
     const updatedOrder = await db.collection('dine_in_orders').findOne({ _id: new ObjectId(id) })

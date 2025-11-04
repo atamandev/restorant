@@ -2,13 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
-const client = new MongoClient(MONGO_URI)
+const DB_NAME = 'restoren'
+
+let client: MongoClient
+let db: any
+
+async function connectToDatabase() {
+  if (!client) {
+    client = new MongoClient(MONGO_URI)
+    await client.connect()
+    db = client.db(DB_NAME)
+  }
+  return db
+}
 
 // GET /api/tax-rates - دریافت لیست نرخ‌های مالیات
 export async function GET(request: NextRequest) {
   try {
-    await client.connect()
-    const db = client.db('restoren')
+    const db = await connectToDatabase()
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -60,16 +71,14 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // POST /api/tax-rates - ایجاد نرخ مالیات جدید
 export async function POST(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
-    console.log('Received body:', body)
     
     const { name, rate, type, description, isActive, appliesTo } = body
 
@@ -80,9 +89,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const taxRateData = {
       name,
@@ -95,13 +101,9 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     }
 
-    console.log('Creating tax rate with data:', taxRateData)
-
     const result = await db.collection('tax_rates').insertOne(taxRateData)
     
     const taxRate = await db.collection('tax_rates').findOne({ _id: result.insertedId })
-
-    console.log('Tax rate created successfully:', taxRate)
 
     return NextResponse.json({
       success: true,
@@ -118,14 +120,13 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // PUT /api/tax-rates - به‌روزرسانی نرخ مالیات
 export async function PUT(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
     const { id, ...updateData } = body
 
@@ -135,9 +136,6 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const updateFields = {
       ...updateData,
@@ -178,14 +176,13 @@ export async function PUT(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 
 // DELETE /api/tax-rates - حذف نرخ مالیات
 export async function DELETE(request: NextRequest) {
   try {
+    const db = await connectToDatabase()
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -195,9 +192,6 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    await client.connect()
-    const db = client.db('restoren')
     
     const result = await db.collection('tax_rates').deleteOne({ _id: new ObjectId(id) })
 
@@ -222,8 +216,6 @@ export async function DELETE(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    await client.close()
   }
 }
 

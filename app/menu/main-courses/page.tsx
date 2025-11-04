@@ -107,10 +107,15 @@ export default function MainCoursesPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadMainCourses()
+        // Optimistic update: update state immediately
+        setMainCourses(prev => prev.map(item => 
+          (item._id || item.id) === editingCourse._id ? { ...item, ...formData } : item
+        ))
           setShowForm(false)
           setEditingCourse(null)
           resetForm()
+        // Reload to get fresh data from server
+        await loadMainCourses()
         } else {
           alert('خطا در به‌روزرسانی غذا: ' + result.message)
         }
@@ -131,9 +136,14 @@ export default function MainCoursesPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadMainCourses()
+        // Optimistic update: add to state immediately
+        if (result.data) {
+          setMainCourses(prev => [...prev, result.data])
+        }
           setShowForm(false)
           resetForm()
+        // Reload to get fresh data from server
+        await loadMainCourses()
         } else {
           alert('خطا در ایجاد غذا: ' + result.message)
         }
@@ -153,18 +163,26 @@ export default function MainCoursesPage() {
 
     try {
       setLoading(true)
+      
+      // Optimistic update: remove from state immediately
+      setMainCourses(prev => prev.filter(item => (item._id || item.id) !== id))
+      
       const response = await fetch(`/api/main-courses?id=${id}`, {
         method: 'DELETE'
       })
 
       const result = await response.json()
-      if (result.success) {
+      
+      if (!result.success) {
+        // If delete failed, reload items to restore state
         await loadMainCourses()
-      } else {
         alert('خطا در حذف غذا: ' + result.message)
       }
+      // If successful, state already updated (optimistic)
     } catch (error) {
       console.error('Error deleting main course:', error)
+      // On error, reload to restore state
+      await loadMainCourses()
       alert('خطا در حذف غذا')
     } finally {
       setLoading(false)

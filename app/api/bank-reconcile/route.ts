@@ -133,72 +133,82 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// POST - وارد کردن صورت حساب بانکی
-export async function POST(request: NextRequest) {
+// PATCH - به‌روزرسانی تطبیق حساب
+export async function PATCH(request: NextRequest) {
   try {
     await connectToDatabase()
     const collection = db.collection(COLLECTION_NAME)
-    const transactionsCollection = db.collection('bank_transactions')
     
     const body = await request.json()
-    const { accountId, statementData, reconciliationDate } = body
+    const { id, ...updateData } = body
     
-    if (!accountId || !statementData || !Array.isArray(statementData)) {
+    if (!id) {
       return NextResponse.json(
-        { success: false, message: 'اطلاعات ناقص است' },
+        { success: false, message: 'شناسه تطبیق حساب اجباری است' },
         { status: 400 }
       )
     }
-
-    // پردازش داده‌های صورت حساب
-    const processedTransactions = statementData.map((item: any) => ({
-      accountId: accountId,
-      transactionType: item.type || 'deposit',
-      amount: item.amount,
-      currency: item.currency || 'IRR',
-      date: new Date(item.date),
-      description: item.description || '',
-      reference: item.reference || '',
-      balanceAfter: item.balance || 0,
-      status: 'completed',
-      isImported: true,
-      createdBy: 'system',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }))
-
-    // ثبت تراکنش‌های وارد شده
-    const result = await transactionsCollection.insertMany(processedTransactions)
     
-    // ایجاد تطبیق حساب
-    const reconciliation = {
-      accountId: accountId,
-      reconciliationDate: new Date(reconciliationDate || new Date()),
-      statementBalance: statementData[statementData.length - 1]?.balance || 0,
-      bookBalance: 0, // باید از دیتابیس محاسبه شود
-      discrepancyAmount: 0,
-      status: 'pending',
-      notes: `وارد شده از صورت حساب - ${processedTransactions.length} تراکنش`,
-      importedTransactions: result.insertedIds,
-      createdBy: 'system',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+    updateData.updatedAt = new Date().toISOString()
+    
+    const result = await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    )
+    
+    if (result.matchedCount === 0) {
+      return NextResponse.json(
+        { success: false, message: 'تطبیق حساب یافت نشد' },
+        { status: 404 }
+      )
     }
-
-    const reconciliationResult = await collection.insertOne(reconciliation)
     
     return NextResponse.json({
       success: true,
-      data: {
-        reconciliation: { ...reconciliation, _id: reconciliationResult.insertedId },
-        transactions: result.insertedIds
-      },
-      message: `${processedTransactions.length} تراکنش با موفقیت وارد شد`
+      message: 'تطبیق حساب با موفقیت به‌روزرسانی شد'
     })
   } catch (error) {
-    console.error('Error importing bank statement:', error)
+    console.error('Error updating bank reconciliation:', error)
     return NextResponse.json(
-      { success: false, message: 'خطا در وارد کردن صورت حساب' },
+      { success: false, message: 'خطا در به‌روزرسانی تطبیق حساب' },
+      { status: 500 }
+    )
+  }
+}
+
+// DELETE - حذف تطبیق حساب
+export async function DELETE(request: NextRequest) {
+  try {
+    await connectToDatabase()
+    const collection = db.collection(COLLECTION_NAME)
+    
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, message: 'شناسه تطبیق حساب اجباری است' },
+        { status: 400 }
+      )
+    }
+    
+    const result = await collection.deleteOne({ _id: new ObjectId(id) })
+    
+    if (result.deletedCount === 0) {
+      return NextResponse.json(
+        { success: false, message: 'تطبیق حساب یافت نشد' },
+        { status: 404 }
+      )
+    }
+    
+    return NextResponse.json({
+      success: true,
+      message: 'تطبیق حساب با موفقیت حذف شد'
+    })
+  } catch (error) {
+    console.error('Error deleting bank reconciliation:', error)
+    return NextResponse.json(
+      { success: false, message: 'خطا در حذف تطبیق حساب' },
       { status: 500 }
     )
   }

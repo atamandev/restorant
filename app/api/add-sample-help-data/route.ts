@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
     // Insert sections and get their IDs
     const insertedSections = await sectionsCollection.insertMany(sampleSections)
-    const sectionIds = Object.values(insertedSections.insertedIds)
+    const sectionIds = Object.values(insertedSections.insertedIds) as ObjectId[]
 
     // Sample FAQs
     const sampleFAQs = [

@@ -40,6 +40,8 @@ interface Customer {
   registrationDate: string
   totalOrders: number
   totalSpent: number
+  monthlySpent?: number // خرید ماهانه
+  monthlyOrders?: number // تعداد سفارشات ماهانه
   lastOrderDate?: string
   status: 'active' | 'inactive' | 'blocked'
   notes?: string
@@ -79,12 +81,21 @@ export default function CustomersListPage() {
     try {
       setLoading(true)
       const response = await fetch('/api/customers')
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
       const result = await response.json()
       if (result.success) {
-        setCustomers(result.data)
+        setCustomers(result.data || [])
+      } else {
+        console.error('API Error:', result.message)
+        setCustomers([])
       }
     } catch (error) {
       console.error('Error loading customers:', error)
+      setCustomers([])
     } finally {
       setLoading(false)
     }
@@ -92,6 +103,13 @@ export default function CustomersListPage() {
 
   useEffect(() => {
     loadCustomers()
+    
+    // Auto-refresh هر 10 ثانیه برای به‌روزرسانی خودکار آمار مشتریان
+    const interval = setInterval(() => {
+      loadCustomers()
+    }, 10000)
+    
+    return () => clearInterval(interval)
   }, [])
 
   const filteredCustomers = customers.filter(customer => {
@@ -273,19 +291,28 @@ export default function CustomersListPage() {
     
     try {
       setLoading(true)
+      
+      // Optimistic update: remove from state immediately
+      setCustomers(prev => prev.filter(customer => (customer._id || customer.id) !== customerId))
+      
       const response = await fetch(`/api/customers/${customerId}`, {
         method: 'DELETE'
       })
       
       const result = await response.json()
-      if (result.success) {
+      
+      if (!result.success) {
+        // If delete failed, reload to restore state
         await loadCustomers()
-        alert('مشتری با موفقیت حذف شد')
-      } else {
         alert('خطا در حذف مشتری: ' + result.message)
+      } else {
+        // Success - optionally reload to sync
+        await loadCustomers()
       }
     } catch (error) {
       console.error('Error deleting customer:', error)
+      // On error, reload to restore state
+      await loadCustomers()
       alert('خطا در حذف مشتری')
     } finally {
       setLoading(false)
@@ -488,8 +515,9 @@ export default function CustomersListPage() {
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">تماس</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">وضعیت</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">نوع</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">سفارشات</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">مجموع خرید</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">تعداد سفارشات</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">خرید کل</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">خرید ماهانه</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">امتیاز</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">عملیات</th>
                   </tr>
@@ -527,13 +555,33 @@ export default function CustomersListPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {customer.totalOrders}
+                        <div className="font-medium">{customer.totalOrders || 0}</div>
+                        {customer.monthlyOrders && customer.monthlyOrders > 0 && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            این ماه: {customer.monthlyOrders}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {customer.totalSpent.toLocaleString('fa-IR')} تومان
+                        <div className="font-medium">{(customer.totalSpent || 0).toLocaleString('fa-IR')} تومان</div>
+                        {customer.lastOrderDate && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            آخرین سفارش: {new Date(customer.lastOrderDate).toLocaleDateString('fa-IR')}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {customer.loyaltyPoints}
+                        <div className="font-medium text-primary-600 dark:text-primary-400">
+                          {(customer.monthlySpent || 0).toLocaleString('fa-IR')} تومان
+                        </div>
+                        {customer.monthlyOrders !== undefined && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {customer.monthlyOrders} سفارش
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                        {customer.loyaltyPoints || 0}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center space-x-2 space-x-reverse">

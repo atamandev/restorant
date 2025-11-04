@@ -178,9 +178,14 @@ export default function AllMenuItemsPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadMenuItems()
+        // Optimistic update: add to state immediately
+        if (result.data) {
+          setMenuItems(prev => [...prev, result.data])
+        }
           setShowForm(false)
           resetForm()
+        // Reload to get fresh data from server
+        await loadMenuItems()
         } else {
           alert('خطا در ایجاد آیتم: ' + result.message)
         }
@@ -222,18 +227,26 @@ export default function AllMenuItemsPage() {
 
     try {
       setLoading(true)
+      
+      // Optimistic update: remove from state immediately
+      setMenuItems(prev => prev.filter(item => (item._id || item.id) !== id))
+      
       const response = await fetch(`/api/menu-items?id=${id}`, {
         method: 'DELETE'
       })
 
       const result = await response.json()
-      if (result.success) {
+      
+      if (!result.success) {
+        // If delete failed, reload items to restore state
         await loadMenuItems()
-      } else {
         alert('خطا در حذف آیتم: ' + result.message)
       }
+      // If successful, state already updated (optimistic)
     } catch (error) {
       console.error('Error deleting menu item:', error)
+      // On error, reload to restore state
+      await loadMenuItems()
       alert('خطا در حذف آیتم')
     } finally {
       setLoading(false)
@@ -256,8 +269,15 @@ export default function AllMenuItemsPage() {
 
       const result = await response.json()
       if (result.success) {
+        // Optimistic update: update state immediately
+        setMenuItems(prev => prev.map(item => 
+          (item._id || item.id) === id ? { ...item, isAvailable: !currentStatus } : item
+        ))
+        // Reload to sync with server
         await loadMenuItems()
       } else {
+        // On error, reload to restore state
+        await loadMenuItems()
         alert('خطا در تغییر وضعیت: ' + result.message)
       }
     } catch (error) {
@@ -461,6 +481,51 @@ export default function AllMenuItemsPage() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
               <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری آیتم‌ها...</p>
             </div>
+          </div>
+        ) : filteredMenuItems.length === 0 ? (
+          <div className="premium-card p-12 text-center">
+            <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ آیتمی یافت نشد</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              {searchTerm || filterCategory !== 'all' || filterAvailability !== 'all' || filterPopular !== 'all'
+                ? 'با فیلترهای انتخابی هیچ آیتمی یافت نشد. لطفاً فیلترها را تغییر دهید.'
+                : 'هنوز هیچ آیتم منویی ایجاد نشده است. ممکن است داده‌ها در collection های قدیمی باشند.'}
+            </p>
+            {(!searchTerm && filterCategory === 'all' && filterAvailability === 'all' && filterPopular === 'all') && (
+              <div className="flex items-center justify-center space-x-4 space-x-reverse gap-4">
+                <button
+                  onClick={async () => {
+                    try {
+                      setLoading(true)
+                      const response = await fetch('/api/migrate-menu-items', { method: 'POST' })
+                      const result = await response.json()
+                      if (result.success) {
+                        alert(`Migration completed! ${result.data.totalMigrated} items migrated.`)
+                        await loadMenuItems()
+                      } else {
+                        alert('Migration failed: ' + result.message)
+                      }
+                    } catch (error) {
+                      console.error('Migration error:', error)
+                      alert('خطا در انتقال داده‌ها')
+                    } finally {
+                      setLoading(false)
+                    }
+                  }}
+                  className="inline-flex items-center space-x-2 space-x-reverse px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Package className="w-5 h-5" />
+                  <span>انتقال داده‌های قدیمی</span>
+                </button>
+                <button
+                  onClick={() => setShowForm(true)}
+                  className="inline-flex items-center space-x-2 space-x-reverse px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                  <span>افزودن آیتم جدید</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

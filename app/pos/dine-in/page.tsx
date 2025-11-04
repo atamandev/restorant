@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useMenuItems } from '@/hooks/useMenuItems'
 import { 
   Utensils, 
   Users, 
@@ -74,17 +75,6 @@ interface DineInOrder {
   updatedAt: string
 }
 
-const menuItems: MenuItem[] = [
-  { id: '1', name: 'کباب کوبیده', price: 120000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 25, description: 'کباب کوبیده سنتی با گوشت گوساله تازه' },
-  { id: '2', name: 'جوجه کباب', price: 135000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 20, description: 'جوجه کباب با سینه مرغ تازه و سس مخصوص' },
-  { id: '3', name: 'سالاد سزار', price: 45000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 10, description: 'سالاد سزار با کاهو تازه و پنیر پارمزان' },
-  { id: '4', name: 'نوشابه', price: 15000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 2, description: 'نوشابه گازدار سرد' },
-  { id: '5', name: 'دوغ محلی', price: 18000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 3, description: 'دوغ محلی تازه و خنک' },
-  { id: '6', name: 'میرزا قاسمی', price: 70000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 15, description: 'میرزا قاسمی با بادمجان کبابی و سیر' },
-  { id: '7', name: 'چلو گوشت', price: 180000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 35, description: 'چلو گوشت با گوشت گوساله و برنج ایرانی' },
-  { id: '8', name: 'بستنی سنتی', price: 35000, category: 'دسرها', image: '/api/placeholder/60/60', preparationTime: 5, description: 'بستنی سنتی با طعم زعفران و گلاب' },
-]
-
 const initialTables: Table[] = [
   { id: '1', number: '1', capacity: 2, status: 'available' },
   { id: '2', number: '2', capacity: 4, status: 'occupied', currentOrder: {
@@ -154,32 +144,47 @@ export default function DineInPage() {
   const [loading, setLoading] = useState(false)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [dineInOrders, setDineInOrders] = useState<DineInOrder[]>([])
+  const [branchId, setBranchId] = useState<string | null>(null)
 
-  // Load menu items from API
-  const loadMenuItems = async () => {
+  // Load default branch
+  useEffect(() => {
+    const loadDefaultBranch = async () => {
     try {
-      const response = await fetch('/api/menu-items')
+        const response = await fetch('/api/branches')
       const result = await response.json()
-      if (result.success) {
-        setMenuItems(result.data)
-      } else {
-        console.error('Error loading menu items:', result.message)
-        // Fallback to sample data
-        setMenuItems([
-          { id: '1', name: 'کباب کوبیده', price: 120000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 25, description: 'کباب کوبیده سنتی با گوشت گوساله تازه' },
-          { id: '2', name: 'جوجه کباب', price: 135000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 20, description: 'جوجه کباب با سینه مرغ تازه و سس مخصوص' },
-          { id: '3', name: 'سالاد سزار', price: 45000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 10, description: 'سالاد سزار با کاهو تازه و پنیر پارمزان' },
-          { id: '4', name: 'نوشابه', price: 15000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 2, description: 'نوشابه گازدار سرد' },
-          { id: '5', name: 'دوغ محلی', price: 18000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 3, description: 'دوغ محلی تازه و خنک' },
-          { id: '6', name: 'میرزا قاسمی', price: 70000, category: 'پیش‌غذاها', image: '/api/placeholder/60/60', preparationTime: 15, description: 'میرزا قاسمی با بادمجان کبابی و سیر' },
-          { id: '7', name: 'چلو گوشت', price: 180000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 35, description: 'چلو گوشت با گوشت گوساله و برنج ایرانی' },
-          { id: '8', name: 'بستنی سنتی', price: 35000, category: 'دسرها', image: '/api/placeholder/60/60', preparationTime: 5, description: 'بستنی سنتی با طعم زعفران و گلاب' },
-        ])
+        if (result.success && result.data && result.data.length > 0) {
+          const activeBranch = result.data.find((b: any) => b.isActive) || result.data[0]
+          if (activeBranch) {
+            setBranchId(activeBranch._id || activeBranch.id)
+          }
       }
     } catch (error) {
-      console.error('Error loading menu items:', error)
+        console.error('Error loading branch:', error)
+      }
     }
-  }
+    loadDefaultBranch()
+  }, [])
+
+  // Load menu items from API - استفاده از hook مشترک
+  const { menuItems: loadedMenuItems, loading: menuLoading, reload: reloadMenu } = useMenuItems({
+    isAvailable: true, // فقط آیتم‌های موجود
+    autoRefresh: true,
+    refreshInterval: 30000 // هر 30 ثانیه به‌روزرسانی
+  })
+
+  useEffect(() => {
+    // تبدیل فرمت به فرمت مورد نیاز component
+    const formattedItems = loadedMenuItems.map(item => ({
+      id: item._id || item.id || '',
+      name: item.name,
+      price: item.price,
+      category: item.category,
+      image: item.image || '/api/placeholder/60/60',
+      preparationTime: item.preparationTime || 15,
+      description: item.description || ''
+    }))
+    setMenuItems(formattedItems)
+  }, [loadedMenuItems])
 
   // Load dine-in orders from API
   const loadDineInOrders = async () => {
@@ -217,11 +222,13 @@ export default function DineInPage() {
 
   // Load data on component mount
   useEffect(() => {
-    loadMenuItems()
     loadDineInOrders()
   }, [])
 
-  const categories = ['all', 'غذاهای اصلی', 'پیش‌غذاها', 'نوشیدنی‌ها', 'دسرها']
+  // Menu items از hook مشترک load می‌شوند
+
+  // دریافت دسته‌بندی‌ها از menu items
+  const categories = ['all', ...Array.from(new Set(menuItems.map(item => item.category))).filter(Boolean)]
 
   const filteredMenuItems = menuItems.filter(item =>
     (selectedCategory === 'all' || item.category === selectedCategory) &&
@@ -288,6 +295,7 @@ export default function DineInPage() {
     try {
       const dineInOrder = {
         orderNumber: `DI-${Date.now().toString().slice(-6)}`,
+        branchId: branchId || undefined, // API will find default if not provided
         tableNumber: selectedTable.number,
         customerName,
         customerPhone,
@@ -313,6 +321,13 @@ export default function DineInPage() {
       })
 
       const result = await response.json()
+      
+      if (!response.ok) {
+        console.error('API Error:', result)
+        alert(`خطا در ثبت سفارش: ${result.message || result.error || 'خطای ناشناخته'}`)
+        setLoading(false)
+        return
+      }
       
       if (result.success) {
         // Update table status
@@ -468,7 +483,12 @@ export default function DineInPage() {
                     onClick={() => {
                       setSelectedTable(table)
                       if (table.currentOrder) {
-                        setOrder(table.currentOrder.items)
+                        // Add uniqueId to items if they don't have it
+                        const itemsWithUniqueId = table.currentOrder.items.map((item: OrderItem) => ({
+                          ...item,
+                          uniqueId: item.uniqueId || `${item.id}-${Date.now()}-${Math.random()}`
+                        }))
+                        setOrder(itemsWithUniqueId)
                         setCustomerName(table.currentOrder.customerName)
                         setCustomerPhone(table.currentOrder.customerPhone)
                         setNotes(table.currentOrder.notes)
@@ -627,10 +647,17 @@ export default function DineInPage() {
                   <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
                     <h3 className="font-semibold text-gray-900 dark:text-white mb-3">سفارش جاری</h3>
                     <div className="space-y-3">
-                      {order.map(item => (
-                        <div key={item.uniqueId} className="flex items-center justify-between bg-white dark:bg-gray-700 p-3 rounded-lg">
+                      {order.map((item, index) => (
+                        <div key={item.uniqueId || `order-item-${index}-${item.id}`} className="flex items-center justify-between bg-white dark:bg-gray-700 p-3 rounded-lg">
                           <div className="flex items-center space-x-3 space-x-reverse">
-                            <img src={item.image} alt={item.name} className="w-10 h-10 rounded object-cover" />
+                            <img 
+                              src={item.image || `/api/placeholder/${60}/${60}`} 
+                              alt={item.name} 
+                              className="w-10 h-10 rounded object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = `/api/placeholder/${60}/${60}`
+                              }}
+                            />
                             <div>
                               <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
                               <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -707,7 +734,14 @@ export default function DineInPage() {
                         onClick={() => addToOrder(item)}
                       >
                         <div className="flex items-center space-x-3 space-x-reverse">
-                          <img src={item.image} alt={item.name} className="w-12 h-12 rounded object-cover" />
+                          <img 
+                            src={item.image || `/api/placeholder/${60}/${60}`} 
+                            alt={item.name} 
+                            className="w-12 h-12 rounded object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = `/api/placeholder/${60}/${60}`
+                            }}
+                          />
                           <div>
                             <h4 className="font-medium text-gray-900 dark:text-white">{item.name}</h4>
                             <p className="text-sm text-gray-500 dark:text-gray-400">{item.category}</p>

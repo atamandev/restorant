@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 
 interface PieChartProps {
   data: Array<{
@@ -13,7 +13,7 @@ interface PieChartProps {
   centerValue?: string | number
 }
 
-export default function PieChart({ 
+function PieChart({ 
   data, 
   title = 'روش‌های پرداخت',
   centerLabel = 'کل پرداخت‌ها',
@@ -285,3 +285,5 @@ export default function PieChart({
     </div>
   )
 }
+
+export default memo(PieChart)

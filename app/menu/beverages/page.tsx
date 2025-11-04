@@ -111,10 +111,15 @@ export default function BeveragesPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadBeverages()
+          // Optimistic update: update state immediately
+          setBeverages(prev => prev.map(item => 
+            (item._id || item.id) === editingBeverage._id ? { ...item, ...formData } : item
+          ))
           setShowForm(false)
           setEditingBeverage(null)
           resetForm()
+          // Reload to get fresh data from server
+          await loadBeverages()
         } else {
           alert('خطا در به‌روزرسانی نوشیدنی: ' + result.message)
         }
@@ -135,9 +140,14 @@ export default function BeveragesPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadBeverages()
+          // Optimistic update: add to state immediately
+          if (result.data) {
+            setBeverages(prev => [...prev, result.data])
+          }
           setShowForm(false)
           resetForm()
+          // Reload to get fresh data from server
+          await loadBeverages()
         } else {
           alert('خطا در ایجاد نوشیدنی: ' + result.message)
         }
@@ -157,18 +167,28 @@ export default function BeveragesPage() {
 
     try {
       setLoading(true)
+      
+      // Optimistic update: remove from state immediately
+      setBeverages(prev => prev.filter(item => (item._id || item.id) !== id))
+      
       const response = await fetch(`/api/beverages?id=${id}`, {
         method: 'DELETE'
       })
 
       const result = await response.json()
-      if (result.success) {
+      
+      if (!result.success) {
+        // If delete failed, reload items to restore state
         await loadBeverages()
-      } else {
         alert('خطا در حذف نوشیدنی: ' + result.message)
       }
+      // If successful, state already updated (optimistic)
+      // Also reload to sync with server
+      await loadBeverages()
     } catch (error) {
       console.error('Error deleting beverage:', error)
+      // On error, reload to restore state
+      await loadBeverages()
       alert('خطا در حذف نوشیدنی')
     } finally {
       setLoading(false)

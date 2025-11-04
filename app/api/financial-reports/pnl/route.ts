@@ -5,21 +5,16 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhos
 const DB_NAME = 'restoren'
 const COLLECTION_NAME = 'financial_reports_pnl'
 
-let client: MongoClient | null = null
+let client: MongoClient
 let db: any
 
 async function connectToDatabase() {
-  try {
-    if (!client) {
-      client = new MongoClient(MONGO_URI)
-      await client.connect()
-      db = client.db(DB_NAME)
-    }
-    return db
-  } catch (error) {
-    console.error('Database connection error:', error)
-    throw error
+  if (!client) {
+    client = new MongoClient(MONGO_URI)
+    await client.connect()
+    db = client.db(DB_NAME)
   }
+  return db
 }
 
 // توابع کمکی برای محاسبه تاریخ دوره
@@ -64,68 +59,147 @@ function getPeriodName(period: string, startDate: Date, endDate: Date): string {
   return `${shamsiYear}/${shamsiMonth.toString().padStart(2, '0')}`
 }
 
-// محاسبه گزارش P&L از داده‌های واقعی
+// محاسبه گزارش P&L از داده‌های واقعی (از invoices, purchases, inventory)
 async function calculatePnLReport(
   period: string,
   branch: string | null,
   channel: string | null,
-  ordersCollection: any,
   invoicesCollection: any,
+  purchasesCollection: any,
+  itemLedgerCollection: any,
   inventoryCollection: any,
-  menuItemsCollection: any
+  menuItemsCollection: any,
+  receiptsPaymentsCollection: any
 ): Promise<any> {
   const { startDate, endDate } = calculatePeriodDates(period)
 
-  // فیلتر برای سفارشات
-  const orderFilter: any = {
-    createdAt: {
-      $gte: startDate.toISOString(),
-      $lte: endDate.toISOString()
+  // 1. محاسبه درآمد (Revenue) از فاکتورهای فروش
+  const salesInvoiceFilter: any = {
+    type: 'sales',
+    status: { $in: ['paid', 'sent'] },
+    date: {
+      $gte: startDate,
+      $lte: endDate
     }
   }
-  if (branch && branch !== 'all') orderFilter.branch = branch
-  if (channel && channel !== 'all') orderFilter.type = channel
-
-  // درآمد از سفارشات و فاکتورها
-  const orders = await ordersCollection.find(orderFilter).toArray()
-  const invoices = await invoicesCollection.find({
-    createdAt: {
-      $gte: startDate.toISOString(),
-      $lte: endDate.toISOString()
+  if (branch && branch !== 'all') {
+    try {
+      salesInvoiceFilter.branchId = new ObjectId(branch)
+    } catch {
+      salesInvoiceFilter.branchId = branch
     }
-  }).toArray()
+  }
 
+  const salesInvoices = await invoicesCollection.find(salesInvoiceFilter).toArray()
   let revenue = 0
-  orders.forEach((order: any) => {
-    revenue += order.totalAmount || 0
-  })
-  invoices.forEach((invoice: any) => {
+  for (const invoice of salesInvoices) {
     revenue += invoice.totalAmount || 0
-  })
+  }
 
-  // بهای تمام شده کالا (COGS) - از آیتم‌های منو و موجودی
-  let costOfGoodsSold = 0
-  for (const order of orders) {
-    if (order.items && Array.isArray(order.items)) {
-      for (const item of order.items) {
-        const menuItem = await menuItemsCollection.findOne({ _id: new ObjectId(item.menuItemId || item.id) })
-        if (menuItem && menuItem.cost) {
-          costOfGoodsSold += menuItem.cost * (item.quantity || 1)
-        }
-      }
+  // 2. محاسبه بهای تمام شده کالا (COGS) از item_ledger
+  // COGS = مجموع هزینه مواد اولیه استفاده شده در فروش
+  const cogsFilter: any = {
+    documentType: 'sale',
+    date: {
+      $gte: startDate,
+      $lte: endDate
     }
   }
 
-  // هزینه‌های عملیاتی (می‌توان از جدول هزینه‌ها یا تنظیمات استفاده کرد)
-  // فعلاً یک مقدار تقریبی بر اساس درصد درآمد
-  const operatingExpenses = revenue * 0.19 // حدود 19% از درآمد
+  const saleLedgerEntries = await itemLedgerCollection.find(cogsFilter).toArray()
+  let costOfGoodsSold = 0
+  for (const entry of saleLedgerEntries) {
+    // اگر quantityOut > 0 باشد، یعنی از انبار خارج شده (برای فروش)
+    if (entry.quantityOut > 0) {
+      // استفاده از averagePrice برای محاسبه هزینه
+      const cost = (entry.quantityOut || 0) * (entry.averagePrice || entry.unitPrice || 0)
+      costOfGoodsSold += cost
+    }
+  }
+
+  // 3. محاسبه هزینه‌های خرید (Purchase Costs) از فاکتورهای خرید
+  const purchaseInvoiceFilter: any = {
+    type: 'purchase',
+    status: 'paid',
+    date: {
+      $gte: startDate,
+      $lte: endDate
+    }
+  }
+
+  const purchaseInvoices = await invoicesCollection.find(purchaseInvoiceFilter).toArray()
+  let purchaseCosts = 0
+  for (const invoice of purchaseInvoices) {
+    purchaseCosts += invoice.totalAmount || 0
+  }
+
+  // 4. هزینه‌های عملیاتی (Operating Expenses) از receipts-payments با reference='expense'
+  const expenseFilter: any = {
+    type: 'payment',
+    reference: 'expense',
+    status: 'completed',
+    date: {
+      $gte: startDate,
+      $lte: endDate
+    }
+  }
+
+  const expenses = await receiptsPaymentsCollection.find(expenseFilter).toArray()
+  let operatingExpenses = 0
+  for (const expense of expenses) {
+    operatingExpenses += expense.amount || 0
+  }
+
+  // اگر هزینه‌های عملیاتی صفر است، یک مقدار تقریبی بر اساس درصد درآمد
+  if (operatingExpenses === 0 && revenue > 0) {
+    operatingExpenses = revenue * 0.19 // حدود 19% از درآمد
+  }
+
+  // 5. درآمدهای دیگر (Other Income) - مثلاً سود بانکی، درآمدهای جانبی
+  const otherIncomeFilter: any = {
+    type: 'receipt',
+    reference: { $in: ['other', 'interest', 'investment'] },
+    status: 'completed',
+    date: {
+      $gte: startDate,
+      $lte: endDate
+    }
+  }
+
+  const otherIncomeTransactions = await receiptsPaymentsCollection.find(otherIncomeFilter).toArray()
+  let otherIncome = 0
+  for (const transaction of otherIncomeTransactions) {
+    otherIncome += transaction.amount || 0
+  }
+
+  // 6. هزینه‌های دیگر (Other Expenses) - هزینه‌های غیرعملیاتی
+  const otherExpenseFilter: any = {
+    type: 'payment',
+    reference: { $in: ['other', 'loan', 'investment'] },
+    status: 'completed',
+    date: {
+      $gte: startDate,
+      $lte: endDate
+    }
+  }
+
+  const otherExpenseTransactions = await receiptsPaymentsCollection.find(otherExpenseFilter).toArray()
+  let otherExpenses = 0
+  for (const transaction of otherExpenseTransactions) {
+    otherExpenses += transaction.amount || 0
+  }
+
+  // 7. مالیات (Tax) - از فاکتورهای فروش
+  let totalTax = 0
+  for (const invoice of salesInvoices) {
+    totalTax += invoice.taxAmount || 0
+  }
 
   // محاسبات
   const grossProfit = revenue - costOfGoodsSold
   const operatingProfit = grossProfit - operatingExpenses
-  const otherIncome = 0 // درآمدهای دیگر
-  const otherExpenses = 0 // هزینه‌های دیگر
-  const netProfit = operatingProfit + otherIncome - otherExpenses
+  const profitBeforeTax = operatingProfit + otherIncome - otherExpenses
+  const netProfit = profitBeforeTax - totalTax
 
   // محاسبه حاشیه‌ها
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
@@ -134,17 +208,24 @@ async function calculatePnLReport(
 
   return {
     period: getPeriodName(period, startDate, endDate),
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
     revenue,
     costOfGoodsSold,
     grossProfit,
+    grossMargin,
     operatingExpenses,
     operatingProfit,
+    operatingMargin,
     otherIncome,
     otherExpenses,
+    profitBeforeTax,
+    tax: totalTax,
     netProfit,
-    grossMargin,
-    operatingMargin,
-    netMargin
+    netMargin,
+    purchaseCosts,
+    totalInvoices: salesInvoices.length,
+    totalPurchases: purchaseInvoices.length
   }
 }
 
@@ -162,19 +243,23 @@ export async function GET(request: NextRequest) {
 
     // اگر generate=true باشد، گزارش را از داده‌های واقعی محاسبه کن
     if (generate) {
-      const ordersCollection = db.collection('orders')
       const invoicesCollection = db.collection('invoices')
+      const purchasesCollection = db.collection('purchases')
+      const itemLedgerCollection = db.collection('item_ledger')
       const inventoryCollection = db.collection('inventory_items')
       const menuItemsCollection = db.collection('menu_items')
+      const receiptsPaymentsCollection = db.collection('receipts_payments')
 
       const pnlData = await calculatePnLReport(
         period,
         branch,
         channel,
-        ordersCollection,
         invoicesCollection,
+        purchasesCollection,
+        itemLedgerCollection,
         inventoryCollection,
-        menuItemsCollection
+        menuItemsCollection,
+        receiptsPaymentsCollection
       )
 
       // ذخیره در دیتابیس
@@ -189,25 +274,10 @@ export async function GET(request: NextRequest) {
 
       const result = await collection.insertOne(report)
 
-      // برگرداندن لیست کامل گزارشات
-      const filter: any = {}
-      if (period && period !== 'all') filter.periodType = period
-      if (branch && branch !== 'all') filter.branch = branch
-      if (channel && channel !== 'all') filter.channel = channel
-
-      const reports = await collection
-        .find(filter)
-        .sort({ createdAt: -1 })
-        .limit(100)
-        .toArray()
-
+      // برگرداندن گزارش جدید
       return NextResponse.json({
         success: true,
-        data: reports.map((r: any) => ({
-          ...r,
-          _id: r._id.toString(),
-          id: r._id.toString()
-        })),
+        data: { ...report, _id: result.insertedId.toString(), id: result.insertedId.toString() },
         message: 'گزارش P&L با موفقیت تولید شد'
       })
     }
@@ -235,7 +305,11 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error fetching P&L reports:', error)
     return NextResponse.json(
-      { success: false, message: 'خطا در دریافت گزارشات P&L' },
+      { 
+        success: false, 
+        message: 'خطا در دریافت گزارشات P&L',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }
@@ -270,6 +344,8 @@ export async function POST(request: NextRequest) {
     const report = {
       period: getPeriodName(period || 'current_month', startDate, endDate),
       periodType: period || 'current_month',
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
       branch: branch || null,
       channel: channel || null,
       revenue: revenue || 0,
@@ -279,6 +355,8 @@ export async function POST(request: NextRequest) {
       operatingProfit: operatingProfit || 0,
       otherIncome: otherIncome || 0,
       otherExpenses: otherExpenses || 0,
+      profitBeforeTax: (operatingProfit || 0) + (otherIncome || 0) - (otherExpenses || 0),
+      tax: 0,
       netProfit: netProfit || 0,
       grossMargin: grossMargin || 0,
       operatingMargin: operatingMargin || 0,
@@ -389,4 +467,3 @@ export async function DELETE(request: NextRequest) {
     )
   }
 }
-

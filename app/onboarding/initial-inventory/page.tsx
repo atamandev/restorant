@@ -85,6 +85,13 @@ export default function InitialInventoryPage() {
 
   useEffect(() => {
     fetchInventoryItems()
+    
+    // Auto-refresh هر 10 ثانیه برای به‌روزرسانی خودکار موجودی
+    const interval = setInterval(() => {
+      fetchInventoryItems()
+    }, 10000)
+    
+    return () => clearInterval(interval)
   }, [])
 
   const filteredInventory = inventory.filter(item => 
@@ -105,6 +112,29 @@ export default function InitialInventoryPage() {
       return
     }
 
+    // Optimistic update: به‌روزرسانی فوری UI
+    const previousInventory = [...inventory]
+    const newItem: InventoryItem = {
+      ...formData,
+      totalValue: formData.currentStock * formData.unitPrice,
+      isLowStock: formData.currentStock <= formData.minStock,
+      lastUpdated: new Date().toISOString(),
+      _id: editingItem?._id || editingItem?.id,
+      id: editingItem?._id || editingItem?.id
+    }
+
+    if (editingItem) {
+      // به‌روزرسانی فوری آیتم موجود
+      setInventory(prev => prev.map(item => 
+        (item._id || item.id) === (editingItem._id || editingItem.id) 
+          ? { ...item, ...newItem }
+          : item
+      ))
+    } else {
+      // اضافه کردن فوری آیتم جدید
+      setInventory(prev => [...prev, { ...newItem, _id: `temp-${Date.now()}` }])
+    }
+
     try {
       setSaving(true)
       setError('')
@@ -119,8 +149,6 @@ export default function InitialInventoryPage() {
           }
         : formData
 
-      console.log('Sending request:', { method, url, requestBody })
-
       const response = await fetch(url, {
         method,
         headers: {
@@ -131,15 +159,18 @@ export default function InitialInventoryPage() {
 
       const data = await response.json()
 
-      console.log('Response data:', data)
-
       if (data.success) {
-        await fetchInventoryItems() // دریافت مجدد لیست
+        // به‌روزرسانی با داده‌های واقعی از سرور
+        await fetchInventoryItems()
         resetForm()
       } else {
+        // در صورت خطا، به حالت قبلی برگردان
+        setInventory(previousInventory)
         setError(data.message || 'خطا در ذخیره آیتم موجودی')
       }
     } catch (error) {
+      // در صورت خطا، به حالت قبلی برگردان
+      setInventory(previousInventory)
       console.error('Error saving inventory item:', error)
       setError('خطا در اتصال به سرور')
     } finally {
@@ -168,19 +199,28 @@ export default function InitialInventoryPage() {
 
     try {
       setSaving(true)
+      
+      // Optimistic update: remove from state immediately
+      setInventory(prev => prev.filter(item => (item._id || item.id) !== id))
+      
       const response = await fetch(`/api/inventory-items?id=${id}`, {
         method: 'DELETE',
       })
 
       const data = await response.json()
 
-      if (data.success) {
-        await fetchInventoryItems() // دریافت مجدد لیست
-      } else {
+      if (!data.success) {
+        // If delete failed, reload items to restore state
+        await fetchInventoryItems()
         setError(data.message || 'خطا در حذف آیتم موجودی')
       }
+      // If successful, state already updated (optimistic)
+      // Also reload to sync with server
+      await fetchInventoryItems()
     } catch (error) {
       console.error('Error deleting inventory item:', error)
+      // On error, reload to restore state
+      await fetchInventoryItems()
       setError('خطا در اتصال به سرور')
     } finally {
       setSaving(false)

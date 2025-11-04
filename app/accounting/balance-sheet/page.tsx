@@ -22,7 +22,8 @@ import {
   PieChart,
   Activity,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react'
 
 interface BalanceSheetItem {
@@ -211,7 +212,7 @@ export default function BalanceSheetPage() {
   }
 
   const getAssetsByCategory = () => {
-    const categories = [...new Set(balanceSheetData.filter(item => item.type === 'asset').map(item => item.category))]
+    const categories = Array.from(new Set(balanceSheetData.filter(item => item.type === 'asset').map(item => item.category)))
     return categories.map(category => {
       const items = balanceSheetData.filter(item => item.type === 'asset' && item.category === category)
       const total = items.reduce((sum, item) => sum + item.amount, 0)
@@ -220,7 +221,7 @@ export default function BalanceSheetPage() {
   }
 
   const getLiabilitiesByCategory = () => {
-    const categories = [...new Set(balanceSheetData.filter(item => item.type === 'liability').map(item => item.category))]
+    const categories = Array.from(new Set(balanceSheetData.filter(item => item.type === 'liability').map(item => item.category)))
     return categories.map(category => {
       const items = balanceSheetData.filter(item => item.type === 'liability' && item.category === category)
       const total = items.reduce((sum, item) => sum + item.amount, 0)
@@ -229,7 +230,7 @@ export default function BalanceSheetPage() {
   }
 
   const getEquityByCategory = () => {
-    const categories = [...new Set(balanceSheetData.filter(item => item.type === 'equity').map(item => item.category))]
+    const categories = Array.from(new Set(balanceSheetData.filter(item => item.type === 'equity').map(item => item.category)))
     return categories.map(category => {
       const items = balanceSheetData.filter(item => item.type === 'equity' && item.category === category)
       const total = items.reduce((sum, item) => sum + item.amount, 0)
@@ -349,7 +350,7 @@ export default function BalanceSheetPage() {
                 className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
                 <option value="all">همه دسته‌ها</option>
-                {[...new Set(balanceSheetData.map(item => item.category))].map(category => (
+                {Array.from(new Set(balanceSheetData.map(item => item.category))).map(category => (
                   <option key={category} value={category}>{category}</option>
                 ))}
               </select>

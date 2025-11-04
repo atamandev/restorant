@@ -11,11 +11,13 @@ if (!client) {
   clientPromise = client.connect()
 }
 
+// GET - دریافت نوشیدنی‌ها (wrapper برای menu-items)
 export async function GET(request: NextRequest) {
   try {
     const client = await clientPromise
     const db = client.db('restoren')
-    const collection = db.collection('beverages')
+    // استفاده از collection مرکزی menu_items
+    const collection = db.collection('menu_items')
 
     const { searchParams } = new URL(request.url)
     const isAvailable = searchParams.get('isAvailable')
@@ -26,13 +28,15 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get('sortBy') || 'name'
     const sortOrder = searchParams.get('sortOrder') || 'asc'
 
-    let query: any = {}
+    let query: any = {
+      category: 'نوشیدنی‌ها' // فیلتر دسته‌بندی
+    }
 
     if (isAvailable !== null && isAvailable !== undefined) {
       query.isAvailable = isAvailable === 'true'
     }
     if (category && category !== 'all') {
-      query.category = category
+      query.category = category // زیردسته‌بندی
     }
     if (name) {
       query.name = { $regex: name, $options: 'i' }
@@ -56,7 +60,7 @@ export async function GET(request: NextRequest) {
         sortOptions.rating = sortOrder === 'desc' ? -1 : 1
         break
       case 'popularity':
-        sortOptions.popularity = sortOrder === 'desc' ? -1 : 1
+        sortOptions.salesCount = sortOrder === 'desc' ? -1 : 1
         break
       case 'preparation':
         sortOptions.preparationTime = sortOrder === 'desc' ? -1 : 1
@@ -80,18 +84,21 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST - ایجاد نوشیدنی (redirect به menu-items)
 export async function POST(request: NextRequest) {
   try {
     const client = await clientPromise
     const db = client.db('restoren')
-    const collection = db.collection('beverages')
+    const collection = db.collection('menu_items') // استفاده از collection مرکزی
 
     const body = await request.json()
     
+    // ایجاد در menu_items با category 'نوشیدنی‌ها'
     const beverage = {
       ...body,
+      category: 'نوشیدنی‌ها', // اطمینان از دسته‌بندی صحیح
       rating: body.rating || 4.5,
-      popularity: body.popularity || 70,
+      salesCount: body.salesCount || 0,
       createdAt: new Date(),
       updatedAt: new Date()
     }
@@ -103,7 +110,8 @@ export async function POST(request: NextRequest) {
       data: {
         _id: result.insertedId,
         ...beverage
-      }
+      },
+      message: 'نوشیدنی با موفقیت ایجاد شد'
     })
   } catch (error) {
     console.error('Error creating beverage:', error)
@@ -114,11 +122,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// DELETE - حذف نوشیدنی (از menu_items)
 export async function DELETE(request: NextRequest) {
   try {
     const client = await clientPromise
     const db = client.db('restoren')
-    const collection = db.collection('beverages')
+    const collection = db.collection('menu_items') // استفاده از collection مرکزی
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')

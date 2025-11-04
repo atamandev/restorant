@@ -107,10 +107,15 @@ export default function DessertsPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadDesserts()
+          // Optimistic update: update state immediately
+          setDesserts(prev => prev.map(item => 
+            (item._id || item.id) === editingDessert._id ? { ...item, ...formData } : item
+          ))
           setShowForm(false)
           setEditingDessert(null)
           resetForm()
+          // Reload to get fresh data from server
+          await loadDesserts()
         } else {
           alert('خطا در به‌روزرسانی دسر: ' + result.message)
         }
@@ -131,9 +136,14 @@ export default function DessertsPage() {
 
         const result = await response.json()
         if (result.success) {
-          await loadDesserts()
+          // Optimistic update: add to state immediately
+          if (result.data) {
+            setDesserts(prev => [...prev, result.data])
+          }
           setShowForm(false)
           resetForm()
+          // Reload to get fresh data from server
+          await loadDesserts()
         } else {
           alert('خطا در ایجاد دسر: ' + result.message)
         }
@@ -153,18 +163,28 @@ export default function DessertsPage() {
 
     try {
       setLoading(true)
+      
+      // Optimistic update: remove from state immediately
+      setDesserts(prev => prev.filter(item => (item._id || item.id) !== id))
+      
       const response = await fetch(`/api/desserts?id=${id}`, {
         method: 'DELETE'
       })
 
       const result = await response.json()
-      if (result.success) {
+      
+      if (!result.success) {
+        // If delete failed, reload items to restore state
         await loadDesserts()
-      } else {
         alert('خطا در حذف دسر: ' + result.message)
       }
+      // If successful, state already updated (optimistic)
+      // Also reload to sync with server
+      await loadDesserts()
     } catch (error) {
       console.error('Error deleting dessert:', error)
+      // On error, reload to restore state
+      await loadDesserts()
       alert('خطا در حذف دسر')
     } finally {
       setLoading(false)

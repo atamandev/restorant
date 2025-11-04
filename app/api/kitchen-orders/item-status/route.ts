@@ -50,14 +50,41 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Update the specific item status
+    // دریافت سفارش و پیدا کردن آیتم
+    const order = await collection.findOne({ _id: new ObjectId(orderId) })
+    if (!order) {
+      return NextResponse.json({
+        success: false,
+        message: 'سفارش یافت نشد'
+      }, { status: 404 })
+    }
+
+    // پیدا کردن و به‌روزرسانی آیتم
+    const items = order.items.map((item: any) => {
+      if (item.id === itemId || item.menuItemId === itemId) {
+        return { ...item, status }
+      }
+      return item
+    })
+
+    // بررسی اینکه آیا آیتم پیدا شد
+    const itemFound = items.some((item: any) => 
+      (item.id === itemId || item.menuItemId === itemId) && item.status === status
+    )
+
+    if (!itemFound && order.items.every((item: any) => item.id !== itemId && item.menuItemId !== itemId)) {
+      return NextResponse.json({
+        success: false,
+        message: 'آیتم در سفارش یافت نشد'
+      }, { status: 404 })
+    }
+
+    // به‌روزرسانی آیتم‌ها
     const result = await collection.updateOne(
-      { 
-        _id: new ObjectId(orderId),
-        'items.id': itemId
-      },
+      { _id: new ObjectId(orderId) },
       { 
         $set: {
-          'items.$.status': status,
+          items: items,
           updatedAt: new Date()
         }
       }
@@ -80,10 +107,12 @@ export async function PATCH(request: NextRequest) {
       const hasPreparingItems = updatedOrder.items.some((item: any) => item.status === 'preparing')
       
       let newOrderStatus = updatedOrder.status
-      if (allItemsCompleted) {
+      // وقتی همه آیتم‌ها ready یا completed شدند، سفارش را completed کن
+      if (allItemsReady && allItemsCompleted) {
         newOrderStatus = 'completed'
       } else if (allItemsReady) {
-        newOrderStatus = 'ready'
+        // وقتی همه آیتم‌ها ready شدند، سفارش را completed کن (نه ready)
+        newOrderStatus = 'completed'
       } else if (hasPreparingItems) {
         newOrderStatus = 'preparing'
       }

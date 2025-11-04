@@ -3,19 +3,25 @@ import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 
-let client: MongoClient
-let clientPromise: Promise<MongoClient>
+let client: MongoClient | undefined
+let clientPromise: Promise<MongoClient> | undefined
 
-if (!client) {
+if (!clientPromise) {
   client = new MongoClient(MONGO_URI)
   clientPromise = client.connect()
 }
 
+// GET - دریافت پیش‌غذاها (wrapper برای menu-items)
 export async function GET(request: NextRequest) {
   try {
-    const client = await clientPromise
-    const db = client.db('restoren')
-    const collection = db.collection('appetizers')
+    if (!clientPromise) {
+      client = new MongoClient(MONGO_URI)
+      clientPromise = client.connect()
+    }
+    const dbClient = await clientPromise
+    const db = dbClient.db('restoren')
+    // استفاده از collection مرکزی menu_items
+    const collection = db.collection('menu_items')
 
     const { searchParams } = new URL(request.url)
     const isAvailable = searchParams.get('isAvailable')
@@ -27,7 +33,7 @@ export async function GET(request: NextRequest) {
     const sortOrder = searchParams.get('sortOrder') || 'asc'
 
     let query: any = {
-      category: 'پیش‌غذاها'
+      category: 'پیش‌غذاها' // یا 'appetizer' بسته به category در منو
     }
 
     if (isAvailable !== null && isAvailable !== undefined) {
@@ -82,31 +88,38 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST - ایجاد پیش‌غذا (redirect به menu-items)
 export async function POST(request: NextRequest) {
   try {
-    const client = await clientPromise
-    const db = client.db('restoren')
-    const collection = db.collection('appetizers')
+    if (!clientPromise) {
+      client = new MongoClient(MONGO_URI)
+      clientPromise = client.connect()
+    }
+    const dbClient = await clientPromise
+    const db = dbClient.db('restoren')
+    const collection = db.collection('menu_items')
 
     const body = await request.json()
     
-    const appetizer = {
+    // ایجاد در menu_items با category 'پیش‌غذاها'
+    const menuItem = {
       ...body,
-      category: 'پیش‌غذاها',
+      category: 'پیش‌غذاها', // یا 'appetizer' بسته به استاندارد شما
       salesCount: body.salesCount || 0,
       rating: body.rating || 0,
       createdAt: new Date(),
       updatedAt: new Date()
     }
 
-    const result = await collection.insertOne(appetizer)
+    const result = await collection.insertOne(menuItem)
 
     return NextResponse.json({
       success: true,
       data: {
         _id: result.insertedId,
-        ...appetizer
-      }
+        ...menuItem
+      },
+      message: 'پیش‌غذا با موفقیت ایجاد شد'
     })
   } catch (error) {
     console.error('Error creating appetizer:', error)
@@ -116,42 +129,3 @@ export async function POST(request: NextRequest) {
     }, { status: 500 })
   }
 }
-
-export async function DELETE(request: NextRequest) {
-  try {
-    const client = await clientPromise
-    const db = client.db('restoren')
-    const collection = db.collection('appetizers')
-
-    const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
-
-    if (!id) {
-      return NextResponse.json({
-        success: false,
-        message: 'شناسه پیش‌غذا اجباری است'
-      }, { status: 400 })
-    }
-
-    const result = await collection.deleteOne({ _id: new ObjectId(id) })
-
-    if (result.deletedCount === 0) {
-      return NextResponse.json({
-        success: false,
-        message: 'پیش‌غذا یافت نشد'
-      }, { status: 404 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: 'پیش‌غذا با موفقیت حذف شد'
-    })
-  } catch (error) {
-    console.error('Error deleting appetizer:', error)
-    return NextResponse.json({
-      success: false,
-      message: 'خطا در حذف پیش‌غذا'
-    }, { status: 500 })
-  }
-}
-

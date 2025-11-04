@@ -192,19 +192,28 @@ export default function PeopleSetupPage() {
 
     try {
       setSaving(true)
+      
+      // Optimistic update: remove from state immediately
+      setPeople(prev => prev.filter(person => (person._id || person.id) !== id))
+      
       const response = await fetch(`/api/people?id=${id}`, {
         method: 'DELETE',
       })
 
       const data = await response.json()
 
-      if (data.success) {
-        await fetchPeople() // دریافت مجدد لیست
-      } else {
+      if (!data.success) {
+        // If delete failed, reload to restore state
+        await fetchPeople()
         setError(data.message || 'خطا در حذف شخص')
       }
+      // If successful, state already updated (optimistic)
+      // Also reload to sync with server
+      await fetchPeople()
     } catch (error) {
       console.error('Error deleting person:', error)
+      // On error, reload to restore state
+      await fetchPeople()
       setError('خطا در اتصال به سرور')
     } finally {
       setSaving(false)

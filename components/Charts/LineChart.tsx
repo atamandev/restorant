@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 
 interface LineChartProps {
   data: Array<{
@@ -8,9 +8,10 @@ interface LineChartProps {
     sales: number
     profit: number
   }>
+  showAllLabels?: boolean
 }
 
-export default function LineChart({ data }: LineChartProps) {
+function LineChart({ data, showAllLabels = false }: LineChartProps) {
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null)
   const [animationProgress, setAnimationProgress] = useState(0)
 
@@ -66,7 +67,7 @@ export default function LineChart({ data }: LineChartProps) {
       <div className="absolute inset-0 bg-gradient-to-br from-primary-50/40 via-transparent to-accent-50/40 dark:from-primary-900/20 dark:via-transparent dark:to-accent-900/20 rounded-xl"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-500/5 via-transparent to-transparent rounded-xl"></div>
       
-      <svg viewBox="0 0 500 300" className="w-full h-full relative z-10">
+      <svg viewBox="0 0 500 340" className="w-full h-full relative z-10" style={{ overflow: 'visible' }}>
         {/* Grid lines with gradient */}
         <defs>
           <linearGradient id="gridGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -219,18 +220,193 @@ export default function LineChart({ data }: LineChartProps) {
               className="transition-all duration-300"
             />
 
-            {/* Month labels */}
-            <text
-              x={getX(i) + 70}
-              y="280"
-              textAnchor="middle"
-              className="text-sm fill-gray-700 dark:fill-gray-200 font-semibold"
-              style={{
-                transform: `translateY(${(1 - animationProgress) * 20}px)`
-              }}
-            >
-              {d.month}
-            </text>
+            {/* Month labels - با فاصله‌گذاری هوشمند و مدرن */}
+            {(() => {
+              // تشخیص اینکه آیا برچسب ساعتی است (مثل "1:00", "12:00")
+              const isHourlyLabel = /^\d{1,2}:\d{2}$/.test(d.month)
+              
+              // تشخیص اینکه آیا برچسب روزانه است (مثل "1 فروردین", "15 شهریور")
+              const isDailyLabel = /\d+\s+(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)/.test(d.month) || 
+                                  /^\d+$/.test(d.month.trim()) // فقط عدد (روز ماه)
+              
+              // برای برچسب‌های ساعتی با داده‌های زیاد (24 ساعت)، فقط هر 3 ساعت یک بار نمایش بده
+              if (isHourlyLabel && data.length > 12) {
+                const hourValue = parseInt(d.month.split(':')[0])
+                const shouldShow = hourValue % 3 === 0 || i === 0 || i === data.length - 1
+                
+                if (!shouldShow) return null
+                
+                return (
+                  <g>
+                    <line
+                      x1={getX(i) + 70}
+                      y1="50"
+                      x2={getX(i) + 70}
+                      y2="250"
+                      stroke="currentColor"
+                      strokeWidth="0.5"
+                      strokeDasharray="3 3"
+                      opacity="0.15"
+                      className="text-gray-400 dark:text-gray-600"
+                    />
+                    <circle
+                      cx={getX(i) + 70}
+                      cy="250"
+                      r="3"
+                      fill="currentColor"
+                      opacity="0.4"
+                      className="text-gray-500 dark:text-gray-400"
+                    />
+                    <text
+                      x={getX(i) + 70}
+                      y="325"
+                      textAnchor="middle"
+                      className="text-xs fill-gray-700 dark:fill-gray-200 font-semibold"
+                      style={{
+                        transform: `translateY(${(1 - animationProgress) * 20}px)`,
+                        letterSpacing: '0.5px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      {d.month}
+                    </text>
+                  </g>
+                )
+              }
+              
+              // برای برچسب‌های روزانه با داده‌های زیاد (بیش از 15 روز)، فقط هر 5 روز یک بار نمایش بده
+              if (isDailyLabel && data.length > 15) {
+                // استخراج عدد روز از برچسب
+                const dayMatch = d.month.match(/^(\d+)/)
+                const dayValue = dayMatch ? parseInt(dayMatch[1]) : i + 1
+                
+                // نمایش: 1, 5, 10, 15, 20, 25, 30 و همچنین اولین و آخرین
+                const shouldShow = dayValue % 5 === 0 || dayValue === 1 || i === 0 || i === data.length - 1
+                
+                if (!shouldShow) return null
+                
+                return (
+                  <g>
+                    <line
+                      x1={getX(i) + 70}
+                      y1="50"
+                      x2={getX(i) + 70}
+                      y2="250"
+                      stroke="currentColor"
+                      strokeWidth="0.5"
+                      strokeDasharray="3 3"
+                      opacity="0.15"
+                      className="text-gray-400 dark:text-gray-600"
+                    />
+                    <circle
+                      cx={getX(i) + 70}
+                      cy="250"
+                      r="3"
+                      fill="currentColor"
+                      opacity="0.4"
+                      className="text-gray-500 dark:text-gray-400"
+                    />
+                    <text
+                      x={getX(i) + 70}
+                      y="325"
+                      textAnchor="middle"
+                      className="text-xs fill-gray-700 dark:fill-gray-200 font-semibold"
+                      style={{
+                        transform: `translateY(${(1 - animationProgress) * 20}px)`,
+                        letterSpacing: '0.5px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      {d.month}
+                    </text>
+                  </g>
+                )
+              }
+              
+              // برای برچسب‌های ماهانه یا داده‌های کم (کمتر از 15)
+              if (showAllLabels || data.length <= 15) {
+                return (
+                  <g>
+                    <line
+                      x1={getX(i) + 70}
+                      y1="50"
+                      x2={getX(i) + 70}
+                      y2="250"
+                      stroke="currentColor"
+                      strokeWidth="0.5"
+                      strokeDasharray="3 3"
+                      opacity="0.15"
+                      className="text-gray-400 dark:text-gray-600"
+                    />
+                    <circle
+                      cx={getX(i) + 70}
+                      cy="250"
+                      r="3"
+                      fill="currentColor"
+                      opacity="0.4"
+                      className="text-gray-500 dark:text-gray-400"
+                    />
+                    <text
+                      x={getX(i) + 70}
+                      y="325"
+                      textAnchor="middle"
+                      className="text-xs fill-gray-700 dark:fill-gray-200 font-semibold"
+                      style={{
+                        transform: `translateY(${(1 - animationProgress) * 20}px)`,
+                        letterSpacing: '0.5px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      {d.month}
+                    </text>
+                  </g>
+                )
+              }
+              
+              // برای سایر داده‌های زیاد، هر N ام را نمایش بده (حداکثر 12 برچسب)
+              const maxLabels = 12
+              const step = Math.max(1, Math.floor(data.length / maxLabels))
+              if (i % step === 0 || i === 0 || i === data.length - 1) {
+                return (
+                  <g>
+                    <line
+                      x1={getX(i) + 70}
+                      y1="50"
+                      x2={getX(i) + 70}
+                      y2="250"
+                      stroke="currentColor"
+                      strokeWidth="0.5"
+                      strokeDasharray="3 3"
+                      opacity="0.15"
+                      className="text-gray-400 dark:text-gray-600"
+                    />
+                    <circle
+                      cx={getX(i) + 70}
+                      cy="250"
+                      r="3"
+                      fill="currentColor"
+                      opacity="0.4"
+                      className="text-gray-500 dark:text-gray-400"
+                    />
+                    <text
+                      x={getX(i) + 70}
+                      y="325"
+                      textAnchor="middle"
+                      className="text-xs fill-gray-700 dark:fill-gray-200 font-semibold"
+                      style={{
+                        transform: `translateY(${(1 - animationProgress) * 20}px)`,
+                        letterSpacing: '0.5px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      {d.month}
+                    </text>
+                  </g>
+                )
+              }
+              
+              return null
+            })()}
 
             {/* Modern hover tooltip */}
             {hoveredPoint === i && (
@@ -325,3 +501,5 @@ export default function LineChart({ data }: LineChartProps) {
     </div>
   )
 }
+
+export default memo(LineChart)

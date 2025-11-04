@@ -2,15 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const DB_NAME = 'restoren'
+
+let client: MongoClient
+let db: any
+
+async function connectToDatabase() {
+  if (!client) {
+    client = new MongoClient(MONGO_URI)
+    await client.connect()
+    db = client.db(DB_NAME)
+  }
+  return db
+}
 
 // GET /api/inventory-items - دریافت لیست آیتم‌های موجودی
 export async function GET(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
+    await connectToDatabase()
+    const inventoryCollection = db.collection('inventory_items')
+    const stockAlertsCollection = db.collection('stock_alerts')
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -18,6 +29,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
     const category = searchParams.get('category')
     const isLowStock = searchParams.get('isLowStock')
+    const includeAlerts = searchParams.get('includeAlerts') === 'true'
     
     const skip = (page - 1) * limit
     
@@ -27,7 +39,8 @@ export async function GET(request: NextRequest) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
         { category: { $regex: search, $options: 'i' } },
-        { supplier: { $regex: search, $options: 'i' } }
+        { supplier: { $regex: search, $options: 'i' } },
+        { code: { $regex: search, $options: 'i' } }
       ]
     }
     if (category && category !== 'all') {
@@ -37,14 +50,25 @@ export async function GET(request: NextRequest) {
       query.isLowStock = isLowStock === 'true'
     }
     
-    const inventoryItems = await db.collection('inventory_items')
+    const inventoryItems = await inventoryCollection
       .find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .toArray()
     
-    const total = await db.collection('inventory_items').countDocuments(query)
+    // اگر includeAlerts=true باشد، هشدارهای مرتبط را هم بیاور
+    if (includeAlerts) {
+      for (const item of inventoryItems) {
+        const activeAlert = await stockAlertsCollection.findOne({
+          itemId: item._id.toString(),
+          status: 'active'
+        })
+        item.alert = activeAlert || null
+      }
+    }
+    
+    const total = await inventoryCollection.countDocuments(query)
     
     return NextResponse.json({
       success: true,
@@ -67,20 +91,17 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
 // POST /api/inventory-items - ایجاد آیتم موجودی جدید
 export async function POST(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
+    await connectToDatabase()
+    const inventoryCollection = db.collection('inventory_items')
+    const stockAlertsCollection = db.collection('stock_alerts')
+    
     const body = await request.json()
-    console.log('Received body:', body)
     
     const { 
       name, 
@@ -91,7 +112,10 @@ export async function POST(request: NextRequest) {
       maxStock, 
       unitPrice, 
       expiryDate, 
-      supplier 
+      supplier,
+      warehouse,
+      code,
+      description
     } = body
 
     // Validate required fields
@@ -102,10 +126,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
-    
     const stockValue = Number(currentStock) || 0
     const priceValue = Number(unitPrice) || 0
     const minValue = Number(minStock) || 0
@@ -115,26 +135,52 @@ export async function POST(request: NextRequest) {
       name: String(name),
       category: String(category),
       unit: String(unit),
+      code: code || `ITEM-${Date.now()}`,
       currentStock: stockValue,
       minStock: minValue,
       maxStock: maxValue,
       unitPrice: priceValue,
       totalValue: stockValue * priceValue,
-      expiryDate: expiryDate ? String(expiryDate) : null,
+      expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
       supplier: supplier ? String(supplier) : null,
+      warehouse: warehouse || 'انبار اصلی',
+      description: description || '',
       isLowStock: stockValue <= minValue,
       lastUpdated: new Date().toISOString(),
       createdAt: new Date(),
       updatedAt: new Date()
     }
 
-    console.log('Creating inventory item with data:', inventoryItemData)
-
-    const result = await db.collection('inventory_items').insertOne(inventoryItemData)
+    const result = await inventoryCollection.insertOne(inventoryItemData)
     
-    const inventoryItem = await db.collection('inventory_items').findOne({ _id: result.insertedId })
+    const inventoryItem = await inventoryCollection.findOne({ _id: result.insertedId })
 
-    console.log('Inventory item created successfully:', inventoryItem)
+    // اگر موجودی کم است، هشدار ایجاد کن
+    if (inventoryItem.isLowStock) {
+      const alertType = stockValue === 0 ? 'out_of_stock' : 'low_stock'
+      const severity = stockValue === 0 ? 'critical' : 'medium'
+      
+      await stockAlertsCollection.insertOne({
+        itemId: result.insertedId.toString(),
+        itemName: inventoryItem.name,
+        itemCode: inventoryItem.code,
+        category: inventoryItem.category,
+        warehouse: inventoryItem.warehouse,
+        type: alertType,
+        severity: severity,
+        currentStock: stockValue,
+        minStock: minValue,
+        maxStock: maxValue,
+        unit: inventoryItem.unit,
+        message: stockValue === 0 
+          ? `${inventoryItem.name} تمام شده است`
+          : `موجودی ${inventoryItem.name} کم است (${stockValue} ${inventoryItem.unit})`,
+        status: 'active',
+        priority: severity === 'critical' ? 'urgent' : 'normal',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+    }
 
     return NextResponse.json({
       success: true,
@@ -151,21 +197,17 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
 // PUT /api/inventory-items - به‌روزرسانی آیتم موجودی
 export async function PUT(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
-    const body = await request.json()
-    console.log('Received update body:', body)
+    await connectToDatabase()
+    const inventoryCollection = db.collection('inventory_items')
+    const stockAlertsCollection = db.collection('stock_alerts')
     
+    const body = await request.json()
     const { id, ...updateData } = body
 
     if (!id) {
@@ -175,10 +217,6 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
-    
     const updateFields: any = {
       updatedAt: new Date()
     }
@@ -187,15 +225,18 @@ export async function PUT(request: NextRequest) {
     if (updateData.name !== undefined) updateFields.name = String(updateData.name)
     if (updateData.category !== undefined) updateFields.category = String(updateData.category)
     if (updateData.unit !== undefined) updateFields.unit = String(updateData.unit)
+    if (updateData.code !== undefined) updateFields.code = String(updateData.code)
     if (updateData.currentStock !== undefined) updateFields.currentStock = Number(updateData.currentStock)
     if (updateData.minStock !== undefined) updateFields.minStock = Number(updateData.minStock)
     if (updateData.maxStock !== undefined) updateFields.maxStock = Number(updateData.maxStock)
     if (updateData.unitPrice !== undefined) updateFields.unitPrice = Number(updateData.unitPrice)
-    if (updateData.expiryDate !== undefined) updateFields.expiryDate = updateData.expiryDate ? String(updateData.expiryDate) : null
+    if (updateData.expiryDate !== undefined) updateFields.expiryDate = updateData.expiryDate ? new Date(updateData.expiryDate).toISOString() : null
     if (updateData.supplier !== undefined) updateFields.supplier = updateData.supplier ? String(updateData.supplier) : null
+    if (updateData.warehouse !== undefined) updateFields.warehouse = updateData.warehouse || 'انبار اصلی'
+    if (updateData.description !== undefined) updateFields.description = String(updateData.description || '')
 
     // Recalculate totalValue and isLowStock
-    const currentItem = await db.collection('inventory_items').findOne({ _id: new ObjectId(id) })
+    const currentItem = await inventoryCollection.findOne({ _id: new ObjectId(id) })
     if (currentItem) {
       const stock = updateFields.currentStock !== undefined ? updateFields.currentStock : currentItem.currentStock
       const price = updateFields.unitPrice !== undefined ? updateFields.unitPrice : currentItem.unitPrice
@@ -203,18 +244,85 @@ export async function PUT(request: NextRequest) {
       
       updateFields.totalValue = stock * price
       updateFields.isLowStock = stock <= min
+      updateFields.lastUpdated = new Date().toISOString()
+
+      // مدیریت هشدار کمبود موجودی
+      const wasLowStock = currentItem.isLowStock || false
+      const isNowLowStock = updateFields.isLowStock
+
+      // اگر موجودی کم شد، هشدار ایجاد/به‌روزرسانی کن
+      if (!wasLowStock && isNowLowStock) {
+        const alertType = stock === 0 ? 'out_of_stock' : 'low_stock'
+        const severity = stock === 0 ? 'critical' : 'medium'
+
+        // بررسی آیا هشدار فعال وجود دارد
+        const existingAlert = await stockAlertsCollection.findOne({
+          itemId: id,
+          status: 'active'
+        })
+
+        if (existingAlert) {
+          // به‌روزرسانی هشدار موجود
+          await stockAlertsCollection.updateOne(
+            { _id: existingAlert._id },
+            {
+              $set: {
+                type: alertType,
+                severity: severity,
+                currentStock: stock,
+                minStock: min,
+                message: stock === 0
+                  ? `${updateFields.name || currentItem.name} تمام شده است`
+                  : `موجودی ${updateFields.name || currentItem.name} کم است (${stock} ${updateFields.unit || currentItem.unit})`,
+                priority: severity === 'critical' ? 'urgent' : 'normal',
+                updatedAt: new Date().toISOString()
+              }
+            }
+          )
+        } else {
+          // ایجاد هشدار جدید
+          await stockAlertsCollection.insertOne({
+            itemId: id,
+            itemName: updateFields.name || currentItem.name,
+            itemCode: updateFields.code || currentItem.code,
+            category: updateFields.category || currentItem.category,
+            warehouse: updateFields.warehouse || currentItem.warehouse,
+            type: alertType,
+            severity: severity,
+            currentStock: stock,
+            minStock: min,
+            maxStock: updateFields.maxStock || currentItem.maxStock,
+            unit: updateFields.unit || currentItem.unit,
+            message: stock === 0
+              ? `${updateFields.name || currentItem.name} تمام شده است`
+              : `موجودی ${updateFields.name || currentItem.name} کم است (${stock} ${updateFields.unit || currentItem.unit})`,
+            status: 'active',
+            priority: severity === 'critical' ? 'urgent' : 'normal',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          })
+        }
+      }
+      // اگر موجودی به حالت عادی برگشت، هشدار را resolve کن
+      else if (wasLowStock && !isNowLowStock) {
+        await stockAlertsCollection.updateMany(
+          { itemId: id, status: 'active' },
+          {
+            $set: {
+              status: 'resolved',
+              resolvedAt: new Date().toISOString(),
+              resolution: 'موجودی به حالت عادی برگشت',
+              updatedAt: new Date().toISOString()
+            }
+          }
+        )
+      }
     }
 
-    updateFields.lastUpdated = new Date().toISOString()
-
-    console.log('Updating inventory item with data:', updateFields)
-
-    const result = await db.collection('inventory_items').updateOne(
+    const result = await inventoryCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: updateFields }
     )
-
-    console.log('Update result:', result)
 
     if (result.matchedCount === 0) {
       return NextResponse.json(
@@ -223,9 +331,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const updatedInventoryItem = await db.collection('inventory_items').findOne({ _id: new ObjectId(id) })
-
-    console.log('Updated inventory item:', updatedInventoryItem)
+    const updatedInventoryItem = await inventoryCollection.findOne({ _id: new ObjectId(id) })
 
     return NextResponse.json({
       success: true,
@@ -242,18 +348,17 @@ export async function PUT(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
 // DELETE /api/inventory-items - حذف آیتم موجودی
 export async function DELETE(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
+    await connectToDatabase()
+    const inventoryCollection = db.collection('inventory_items')
+    const stockAlertsCollection = db.collection('stock_alerts')
+    const ledgerCollection = db.collection('item_ledger')
+    
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -264,11 +369,13 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
+    // حذف تاریخچه تراکنش‌های مرتبط (اختیاری - اگر می‌خواهید تاریخچه را نگه دارید، این خط را حذف کنید)
+    // await ledgerCollection.deleteMany({ itemId: id })
+
+    // حذف هشدارهای مرتبط
+    await stockAlertsCollection.deleteMany({ itemId: id })
     
-    const result = await db.collection('inventory_items').deleteOne({ _id: new ObjectId(id) })
+    const result = await inventoryCollection.deleteOne({ _id: new ObjectId(id) })
 
     if (result.deletedCount === 0) {
       return NextResponse.json(
@@ -291,9 +398,5 @@ export async function DELETE(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }

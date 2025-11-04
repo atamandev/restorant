@@ -17,11 +17,14 @@ async function connectToDatabase() {
   return db
 }
 
-// GET - دریافت تمام مشتریان با فیلتر و مرتب‌سازی
+// GET - دریافت تمام مشتریان با فیلتر و مرتب‌سازی (با امکان جستجو و دریافت اطلاعات کامل)
 export async function GET(request: NextRequest) {
   try {
     await connectToDatabase()
-    const collection = db.collection(COLLECTION_NAME)
+    const customersCollection = db.collection(COLLECTION_NAME)
+    const loyaltiesCollection = db.collection('customer_loyalties')
+    const feedbackCollection = db.collection('customer_feedback')
+    const ordersCollection = db.collection('orders')
     
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
@@ -30,25 +33,206 @@ export async function GET(request: NextRequest) {
     const sortOrder = searchParams.get('sortOrder') || 'desc'
     const limit = parseInt(searchParams.get('limit') || '100')
     const skip = parseInt(searchParams.get('skip') || '0')
+    const search = searchParams.get('search') || '' // جستجو در نام، شماره تماس، ایمیل
+    const phone = searchParams.get('phone') // جستجو بر اساس شماره تماس (برای POS)
+    const customerId = searchParams.get('customerId') // دریافت مشتری خاص (برای POS)
+    const includeStats = searchParams.get('includeStats') === 'true' // شامل آمار سفارش‌ها و بازخوردها
+
+    // اگر customerId داده شده، مستقیماً برگردان
+    if (customerId) {
+      try {
+        const customer = await customersCollection.findOne({ _id: new ObjectId(customerId) })
+        if (!customer) {
+          return NextResponse.json(
+            { success: false, message: 'مشتری یافت نشد' },
+            { status: 404 }
+          )
+        }
+
+        // اگر includeStats=true باشد، آمار را هم بیاور
+        if (includeStats) {
+          const loyalty = await loyaltiesCollection.findOne({ customerId: customerId })
+          const feedbackCount = await feedbackCollection.countDocuments({ customerId: customerId })
+          const orderCount = await ordersCollection.countDocuments({ customerId: customerId })
+          const totalSpentResult = await ordersCollection.aggregate([
+            { $match: { customerId: customerId } },
+            { $group: { _id: null, total: { $sum: '$total' } } }
+          ]).toArray()
+
+          return NextResponse.json({
+            success: true,
+            data: {
+              ...customer,
+              loyalty: loyalty || null,
+              feedbackCount,
+              orderCount,
+              totalSpentFromOrders: totalSpentResult[0]?.total || 0
+            }
+          })
+        }
+
+        return NextResponse.json({
+          success: true,
+          data: customer
+        })
+      } catch (error) {
+        return NextResponse.json(
+          { success: false, message: 'شناسه مشتری نامعتبر است' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // اگر phone داده شده، بر اساس شماره تماس جستجو کن (برای POS)
+    if (phone) {
+      const customer = await customersCollection.findOne({ 
+        phone: phone,
+        status: { $ne: 'blocked' } // مشتریان مسدود شده را نشان نده
+      })
+      
+      if (!customer) {
+        return NextResponse.json({
+          success: false,
+          message: 'مشتری با این شماره تماس یافت نشد',
+          data: null
+        })
+      }
+
+      // اطلاعات کامل مشتری را برگردان
+      const loyalty = await loyaltiesCollection.findOne({ customerId: customer._id.toString() })
+      
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...customer,
+          loyalty: loyalty || null
+        }
+      })
+    }
 
     // ساخت فیلتر
     const filter: any = {}
     if (status && status !== 'all') filter.status = status
     if (customerType && customerType !== 'all') filter.customerType = customerType
+    
+    // جستجو
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { customerNumber: { $regex: search, $options: 'i' } }
+      ]
+    }
 
     // ساخت مرتب‌سازی
     const sort: any = {}
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1
 
-    const customers = await collection
+    const customers = await customersCollection
       .find(filter)
       .sort(sort)
       .skip(skip)
       .limit(limit)
       .toArray()
 
+    // محاسبه آمار واقعی از سفارشات برای هر مشتری
+    const orderStatsMap = new Map()
+    const monthlyStatsMap = new Map()
+
+    if (customers.length > 0) {
+      try {
+        const customerIds = customers.map(c => c._id.toString())
+        const customerObjectIds = customerIds.map(id => new ObjectId(id))
+        
+        // محاسبه تعداد سفارشات و خرید کل از orders
+        // customerId در orders به صورت ObjectId ذخیره می‌شود
+        const orderStats = await ordersCollection.aggregate([
+          {
+            $match: {
+              customerId: { $in: customerObjectIds }
+            }
+          },
+          {
+            $group: {
+              _id: { $toString: '$customerId' }, // تبدیل ObjectId به string
+              totalOrders: { $sum: 1 },
+              totalSpent: { $sum: { $ifNull: ['$total', 0] } },
+              lastOrderDate: { $max: '$orderTime' }
+            }
+          }
+        ]).toArray()
+
+        // محاسبه خرید ماهانه (ماه جاری)
+        const now = new Date()
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+
+        const monthlyStats = await ordersCollection.aggregate([
+          {
+            $match: {
+              customerId: { $in: customerObjectIds },
+              orderTime: {
+                $gte: startOfMonth.toISOString(),
+                $lte: endOfMonth.toISOString()
+              },
+              status: { $in: ['completed', 'paid', 'delivered'] }
+            }
+          },
+          {
+            $group: {
+              _id: { $toString: '$customerId' }, // تبدیل ObjectId به string
+              monthlySpent: { $sum: { $ifNull: ['$total', 0] } },
+              monthlyOrders: { $sum: 1 }
+            }
+          }
+        ]).toArray()
+
+        // ایجاد map برای دسترسی سریع
+        orderStats.forEach(stat => {
+          orderStatsMap.set(stat._id, stat) // _id حالا string است
+        })
+
+        monthlyStats.forEach(stat => {
+          monthlyStatsMap.set(stat._id, stat) // _id حالا string است
+        })
+      } catch (error) {
+        console.error('[CUSTOMERS] Error calculating order stats:', error)
+        // ادامه بده با مقادیر پیش‌فرض
+      }
+    }
+
+    // به‌روزرسانی اطلاعات هر مشتری با آمار واقعی
+    for (const customer of customers) {
+      const customerIdStr = customer._id.toString()
+      const orderStat = orderStatsMap.get(customerIdStr)
+      const monthlyStat = monthlyStatsMap.get(customerIdStr)
+
+      // به‌روزرسانی با آمار واقعی از سفارشات
+      customer.totalOrders = orderStat?.totalOrders || 0
+      customer.totalSpent = orderStat?.totalSpent || 0
+      customer.lastOrderDate = orderStat?.lastOrderDate || null
+      customer.monthlySpent = monthlyStat?.monthlySpent || 0
+      customer.monthlyOrders = monthlyStat?.monthlyOrders || 0
+
+      // اگر includeStats=true باشد، اطلاعات اضافی را هم بیاور
+      if (includeStats) {
+        try {
+          const loyalty = await loyaltiesCollection.findOne({ customerId: customerIdStr })
+          const feedbackCount = await feedbackCollection.countDocuments({ customerId: customerIdStr })
+          
+          customer.loyalty = loyalty || null
+          customer.feedbackCount = feedbackCount
+        } catch (error) {
+          console.error(`[CUSTOMERS] Error fetching stats for customer ${customerIdStr}:`, error)
+        }
+      }
+    }
+
     // آمار کلی
-    const stats = await collection.aggregate([
+    const stats = await customersCollection.aggregate([
       {
         $group: {
           _id: null,
@@ -78,63 +262,105 @@ export async function GET(request: NextRequest) {
       pagination: {
         limit,
         skip,
-        total: await collection.countDocuments(filter)
+        total: await customersCollection.countDocuments(filter)
       }
     })
   } catch (error) {
     console.error('Error fetching customers:', error)
     return NextResponse.json(
-      { success: false, message: 'خطا در دریافت مشتریان' },
+      { 
+        success: false, 
+        message: 'خطا در دریافت مشتریان',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }
 }
 
-// POST - ایجاد مشتری جدید
+// POST - ایجاد مشتری جدید (با اتصال به باشگاه مشتریان)
 export async function POST(request: NextRequest) {
   try {
     await connectToDatabase()
-    const collection = db.collection(COLLECTION_NAME)
+    const customersCollection = db.collection(COLLECTION_NAME)
+    const loyaltiesCollection = db.collection('customer_loyalties')
     
     const body = await request.json()
     
+    // بررسی تکراری نبودن شماره تماس
+    if (body.phone) {
+      const existingCustomer = await customersCollection.findOne({ phone: body.phone })
+      if (existingCustomer) {
+        return NextResponse.json(
+          { success: false, message: 'مشتری با این شماره تماس قبلاً ثبت شده است' },
+          { status: 400 }
+        )
+      }
+    }
+    
     // تولید شماره مشتری منحصر به فرد
-    const customerCount = await collection.countDocuments()
+    const customerCount = await customersCollection.countDocuments()
     const customerNumber = `CUST-${String(customerCount + 1).padStart(6, '0')}`
     
     const customer = {
       customerNumber,
-      firstName: body.firstName,
-      lastName: body.lastName,
-      name: body.firstName + ' ' + body.lastName,
-      phone: body.phone,
+      firstName: body.firstName || '',
+      lastName: body.lastName || '',
+      name: (body.firstName || '') + ' ' + (body.lastName || ''),
+      phone: body.phone || '',
       email: body.email || '',
       address: body.address || '',
-      birthDate: body.birthDate || '',
+      birthDate: body.birthDate || null,
       registrationDate: body.registrationDate || new Date().toISOString(),
-      totalOrders: body.totalOrders || 0,
-      totalSpent: body.totalSpent || 0,
-      lastOrderDate: body.lastOrderDate || '',
+      totalOrders: 0,
+      totalSpent: 0,
+      lastOrderDate: null,
       status: body.status || 'active',
       notes: body.notes || '',
       tags: body.tags || [],
-      loyaltyPoints: body.loyaltyPoints || 0,
+      loyaltyPoints: 0,
       customerType: body.customerType || 'regular',
       createdAt: new Date(),
       updatedAt: new Date()
     }
 
-    const result = await collection.insertOne(customer)
+    const result = await customersCollection.insertOne(customer)
+    const customerId = result.insertedId.toString()
+    
+    // ایجاد رکورد باشگاه مشتریان به صورت خودکار
+    const loyalty = {
+      customerId: customerId,
+      customerName: customer.name,
+      customerPhone: customer.phone,
+      totalPoints: 0,
+      currentTier: 'Bronze',
+      pointsEarned: 0,
+      pointsRedeemed: 0,
+      pointsExpired: 0,
+      totalOrders: 0,
+      totalSpent: 0,
+      lastOrderDate: null,
+      nextTierPoints: 100, // برای دستیابی به Silver
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+
+    await loyaltiesCollection.insertOne(loyalty)
     
     return NextResponse.json({
       success: true,
-      data: { ...customer, _id: result.insertedId },
-      message: 'مشتری با موفقیت ایجاد شد'
+      data: { ...customer, _id: result.insertedId, loyalty },
+      message: 'مشتری با موفقیت ایجاد شد و به باشگاه مشتریان اضافه شد'
     })
   } catch (error) {
     console.error('Error creating customer:', error)
     return NextResponse.json(
-      { success: false, message: 'خطا در ایجاد مشتری' },
+      { 
+        success: false, 
+        message: 'خطا در ایجاد مشتری',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }
@@ -144,7 +370,9 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     await connectToDatabase()
-    const collection = db.collection(COLLECTION_NAME)
+    const customersCollection = db.collection(COLLECTION_NAME)
+    const loyaltiesCollection = db.collection('customer_loyalties')
+    const ordersCollection = db.collection('orders')
     
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
@@ -156,7 +384,22 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const result = await collection.deleteOne({ _id: new ObjectId(id) })
+    // بررسی وجود سفارش‌های مرتبط
+    const hasOrders = await ordersCollection.countDocuments({ customerId: id }) > 0
+    if (hasOrders) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'امکان حذف مشتری با سفارش موجود وجود ندارد. ابتدا مشتری را غیرفعال کنید.' 
+        },
+        { status: 400 }
+      )
+    }
+
+    // حذف از باشگاه مشتریان
+    await loyaltiesCollection.deleteMany({ customerId: id })
+    
+    const result = await customersCollection.deleteOne({ _id: new ObjectId(id) })
     
     if (result.deletedCount === 0) {
       return NextResponse.json(

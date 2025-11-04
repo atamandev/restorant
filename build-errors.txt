@@ -1,0 +1,29 @@
+﻿
+> restaurant-management@0.1.0 build
+> next build
+
+   Γû▓ Next.js 14.0.4
+   - Environments: .env.local, .env
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully
+   Linting and checking validity of types ...
+node.exe : Failed to compile.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Failed to compile.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+./app/api/add-sample-delivery-data/route.ts:9:6
+Type error: Variable 'client' is used before being assigned.
+
+[0m [90m  7 |[39m [36mlet[39m clientPromise[33m:[39m 
+[33mPromise[39m[33m<[39m[33mMongoClient[39m[33m>[39m[0m
+[0m [90m  8 |[39m[0m
+[0m[31m[1m>[22m[39m[90m  9 |[39m [36mif[39m ([33m![39mclient) {[0m
+[0m [90m    |[39m      [31m[1m^[22m[39m[0m
+[0m [90m 10 |[39m   client [33m=[39m [36mnew[39m [33mMongoClient[39m([33mMONGO_URI[39m)[0m
+[0m [90m 11 |[39m   clientPromise [33m=[39m client[33m.[39mconnect()[0m
+[0m [90m 12 |[39m }[0m

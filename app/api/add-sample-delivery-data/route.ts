@@ -3,18 +3,21 @@ import { MongoClient } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 
-let client: MongoClient
-let clientPromise: Promise<MongoClient>
+let client: MongoClient | undefined = undefined
+let clientPromise: Promise<MongoClient> | undefined = undefined
 
-if (!client) {
-  client = new MongoClient(MONGO_URI)
-  clientPromise = client.connect()
+async function connectToDatabase() {
+  if (!clientPromise) {
+    client = new MongoClient(MONGO_URI)
+    clientPromise = client.connect()
+  }
+  return await clientPromise
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const client = await clientPromise
-    const db = client.db('restoren')
+    const dbClient = await connectToDatabase()
+    const db = dbClient.db('restoren')
     const collection = db.collection('delivery_orders')
 
     const sampleOrders = [

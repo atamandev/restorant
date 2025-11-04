@@ -2,15 +2,28 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const DB_NAME = 'restoren'
+const COLLECTION_NAME = 'cashier_sessions'
 
-// GET /api/cashier-sessions - دریافت لیست جلسات صندوق
-export async function GET(request: NextRequest) {
-  let client: MongoClient | null = null
-  
-  try {
+let client: MongoClient
+let db: any
+
+async function connectToDatabase() {
+  if (!client) {
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    db = client.db(DB_NAME)
+  }
+  return db
+}
+
+// GET /api/cashier-sessions - دریافت لیست جلسات صندوق (با آمار کامل)
+export async function GET(request: NextRequest) {
+  try {
+    await connectToDatabase()
+    const sessionsCollection = db.collection(COLLECTION_NAME)
+    const invoicesCollection = db.collection('invoices')
+    const receiptsPaymentsCollection = db.collection('receipts_payments')
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -19,6 +32,8 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
     const userId = searchParams.get('userId')
+    const branchId = searchParams.get('branchId')
+    const includeStats = searchParams.get('includeStats') === 'true'
     
     const skip = (page - 1) * limit
     
@@ -30,6 +45,9 @@ export async function GET(request: NextRequest) {
     if (userId) {
       query.userId = userId
     }
+    if (branchId) {
+      query.branchId = branchId
+    }
     if (dateFrom || dateTo) {
       query.createdAt = {}
       if (dateFrom) {
@@ -40,18 +58,79 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    const sessions = await db.collection('cashier_sessions')
+    const sessions = await sessionsCollection
       .find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .toArray()
     
-    const total = await db.collection('cashier_sessions').countDocuments(query)
+    // اگر includeStats=true باشد، آمار دقیق‌تر را از invoices و receipts-payments محاسبه کن
+    if (includeStats) {
+      for (const session of sessions) {
+        const sessionInvoices = await invoicesCollection.find({
+          cashierSessionId: session._id.toString(),
+          status: 'paid'
+        }).toArray()
+
+        let actualCashSales = 0
+        let actualCardSales = 0
+        let actualCreditSales = 0
+        let actualTotalSales = 0
+
+        for (const invoice of sessionInvoices) {
+          actualTotalSales += invoice.paidAmount || 0
+          if (invoice.paymentMethod === 'cash') {
+            actualCashSales += invoice.paidAmount || 0
+          } else if (invoice.paymentMethod === 'card') {
+            actualCardSales += invoice.paidAmount || 0
+          } else if (invoice.paymentMethod === 'credit') {
+            actualCreditSales += invoice.paidAmount || 0
+          }
+        }
+
+        session.actualCashSales = actualCashSales
+        session.actualCardSales = actualCardSales
+        session.actualCreditSales = actualCreditSales
+        session.actualTotalSales = actualTotalSales
+        session.invoiceCount = sessionInvoices.length
+      }
+    }
+    
+    const total = await sessionsCollection.countDocuments(query)
+    
+    // آمار کلی
+    const stats = await sessionsCollection.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalSessions: { $sum: 1 },
+          openSessions: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] } },
+          closedSessions: { $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] } },
+          totalSales: { $sum: '$totalSales' },
+          totalCashSales: { $sum: '$cashSales' },
+          totalCardSales: { $sum: '$cardSales' },
+          totalCreditSales: { $sum: '$creditSales' },
+          totalDiscounts: { $sum: '$discounts' },
+          totalTaxes: { $sum: '$taxes' }
+        }
+      }
+    ]).toArray()
     
     return NextResponse.json({
       success: true,
       data: sessions,
+      stats: stats[0] || {
+        totalSessions: 0,
+        openSessions: 0,
+        closedSessions: 0,
+        totalSales: 0,
+        totalCashSales: 0,
+        totalCardSales: 0,
+        totalCreditSales: 0,
+        totalDiscounts: 0,
+        totalTaxes: 0
+      },
       pagination: {
         page,
         limit,
@@ -70,23 +149,23 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
 // POST /api/cashier-sessions - ایجاد جلسه صندوق جدید
 export async function POST(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
+    await connectToDatabase()
+    const sessionsCollection = db.collection(COLLECTION_NAME)
+    const branchesCollection = db.collection('branches')
+    const cashRegistersCollection = db.collection('cash_registers')
+    
     const body = await request.json()
-    console.log('Received cashier session body:', body)
     
     const { 
       userId,
+      branchId,
+      cashRegisterId,
       startAmount,
       notes
     } = body
@@ -99,13 +178,51 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
+    // بررسی وجود شعبه و صندوق
+    if (branchId) {
+      const branch = await branchesCollection.findOne({ 
+        _id: new ObjectId(branchId),
+        isActive: true
+      })
+      if (!branch) {
+        return NextResponse.json(
+          { success: false, message: 'شعبه یافت نشد یا غیرفعال است' },
+          { status: 404 }
+        )
+      }
+    }
+
+    if (cashRegisterId) {
+      const cashRegister = await cashRegistersCollection.findOne({ 
+        _id: new ObjectId(cashRegisterId),
+        branchId: branchId ? new ObjectId(branchId) : undefined,
+        isActive: true
+      })
+      if (!cashRegister) {
+        return NextResponse.json(
+          { success: false, message: 'صندوق یافت نشد یا به این شعبه تعلق ندارد' },
+          { status: 404 }
+        )
+      }
+
+      // بررسی اینکه آیا جلسه باز دیگری برای این صندوق وجود دارد
+      const openSession = await sessionsCollection.findOne({
+        cashRegisterId: cashRegisterId,
+        status: 'open'
+      })
+      if (openSession) {
+        return NextResponse.json(
+          { success: false, message: 'یک جلسه صندوق باز برای این صندوق وجود دارد. ابتدا آن را ببندید.' },
+          { status: 400 }
+        )
+      }
+    }
     
     const sessionData = {
       userId: String(userId),
-      startTime: new Date().toLocaleTimeString('fa-IR'),
+      branchId: branchId ? new ObjectId(branchId) : null,
+      cashRegisterId: cashRegisterId ? new ObjectId(cashRegisterId) : null,
+      startTime: new Date().toISOString(),
       startAmount: Number(startAmount),
       totalSales: 0,
       totalTransactions: 0,
@@ -122,13 +239,9 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     }
 
-    console.log('Creating cashier session with data:', sessionData)
-
-    const result = await db.collection('cashier_sessions').insertOne(sessionData)
+    const result = await sessionsCollection.insertOne(sessionData)
     
-    const session = await db.collection('cashier_sessions').findOne({ _id: result.insertedId })
-
-    console.log('Cashier session created successfully:', session)
+    const session = await sessionsCollection.findOne({ _id: result.insertedId })
 
     return NextResponse.json({
       success: true,
@@ -145,21 +258,16 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
 // PUT /api/cashier-sessions - به‌روزرسانی جلسه صندوق
 export async function PUT(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
-    const body = await request.json()
-    console.log('Received update body:', body)
+    await connectToDatabase()
+    const sessionsCollection = db.collection(COLLECTION_NAME)
     
+    const body = await request.json()
     const { id, ...updateData } = body
 
     if (!id) {
@@ -169,73 +277,29 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
-    
     const updateFields: any = {
-      ...updateData,
       updatedAt: new Date()
     }
 
-    // Convert fields
-    if (updateFields.userId !== undefined) {
-      updateFields.userId = String(updateFields.userId)
-    }
-    if (updateFields.startTime !== undefined) {
-      updateFields.startTime = String(updateFields.startTime)
-    }
-    if (updateFields.endTime !== undefined) {
-      updateFields.endTime = String(updateFields.endTime)
-    }
-    if (updateFields.startAmount !== undefined) {
-      updateFields.startAmount = Number(updateFields.startAmount)
-    }
-    if (updateFields.endAmount !== undefined) {
-      updateFields.endAmount = Number(updateFields.endAmount)
-    }
-    if (updateFields.totalSales !== undefined) {
-      updateFields.totalSales = Number(updateFields.totalSales)
-    }
-    if (updateFields.totalTransactions !== undefined) {
-      updateFields.totalTransactions = Number(updateFields.totalTransactions)
-    }
-    if (updateFields.cashSales !== undefined) {
-      updateFields.cashSales = Number(updateFields.cashSales)
-    }
-    if (updateFields.cardSales !== undefined) {
-      updateFields.cardSales = Number(updateFields.cardSales)
-    }
-    if (updateFields.creditSales !== undefined) {
-      updateFields.creditSales = Number(updateFields.creditSales)
-    }
-    if (updateFields.refunds !== undefined) {
-      updateFields.refunds = Number(updateFields.refunds)
-    }
-    if (updateFields.discounts !== undefined) {
-      updateFields.discounts = Number(updateFields.discounts)
-    }
-    if (updateFields.taxes !== undefined) {
-      updateFields.taxes = Number(updateFields.taxes)
-    }
-    if (updateFields.serviceCharges !== undefined) {
-      updateFields.serviceCharges = Number(updateFields.serviceCharges)
-    }
-    if (updateFields.status !== undefined) {
-      updateFields.status = String(updateFields.status)
-    }
-    if (updateFields.notes !== undefined) {
-      updateFields.notes = updateFields.notes ? String(updateFields.notes) : null
-    }
+    // Update fields
+    if (updateData.userId !== undefined) updateFields.userId = String(updateData.userId)
+    if (updateData.startAmount !== undefined) updateFields.startAmount = Number(updateData.startAmount)
+    if (updateData.totalSales !== undefined) updateFields.totalSales = Number(updateData.totalSales)
+    if (updateData.totalTransactions !== undefined) updateFields.totalTransactions = Number(updateData.totalTransactions)
+    if (updateData.cashSales !== undefined) updateFields.cashSales = Number(updateData.cashSales)
+    if (updateData.cardSales !== undefined) updateFields.cardSales = Number(updateData.cardSales)
+    if (updateData.creditSales !== undefined) updateFields.creditSales = Number(updateData.creditSales)
+    if (updateData.refunds !== undefined) updateFields.refunds = Number(updateData.refunds)
+    if (updateData.discounts !== undefined) updateFields.discounts = Number(updateData.discounts)
+    if (updateData.taxes !== undefined) updateFields.taxes = Number(updateData.taxes)
+    if (updateData.serviceCharges !== undefined) updateFields.serviceCharges = Number(updateData.serviceCharges)
+    if (updateData.status !== undefined) updateFields.status = String(updateData.status)
+    if (updateData.notes !== undefined) updateFields.notes = updateData.notes ? String(updateData.notes) : null
 
-    console.log('Updating cashier session with data:', updateFields)
-
-    const result = await db.collection('cashier_sessions').updateOne(
+    const result = await sessionsCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: updateFields }
     )
-
-    console.log('Update result:', result)
 
     if (result.matchedCount === 0) {
       return NextResponse.json(
@@ -244,9 +308,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const updatedSession = await db.collection('cashier_sessions').findOne({ _id: new ObjectId(id) })
-
-    console.log('Updated cashier session:', updatedSession)
+    const updatedSession = await sessionsCollection.findOne({ _id: new ObjectId(id) })
 
     return NextResponse.json({
       success: true,
@@ -263,18 +325,16 @@ export async function PUT(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
 // DELETE /api/cashier-sessions - حذف جلسه صندوق
 export async function DELETE(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
+    await connectToDatabase()
+    const sessionsCollection = db.collection(COLLECTION_NAME)
+    const invoicesCollection = db.collection('invoices')
+    
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -285,11 +345,19 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
+    // بررسی اینکه آیا فاکتور مرتبط وجود دارد
+    const hasInvoices = await invoicesCollection.countDocuments({ cashierSessionId: id }) > 0
+    if (hasInvoices) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'امکان حذف جلسه صندوق با فاکتور مرتبط وجود ندارد' 
+        },
+        { status: 400 }
+      )
+    }
     
-    const result = await db.collection('cashier_sessions').deleteOne({ _id: new ObjectId(id) })
+    const result = await sessionsCollection.deleteOne({ _id: new ObjectId(id) })
 
     if (result.deletedCount === 0) {
       return NextResponse.json(
@@ -312,9 +380,5 @@ export async function DELETE(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { useAuth } from './AuthProvider'
 import { 
   Bell, 
@@ -17,7 +17,7 @@ import {
 import MobileMenu from './MobileMenu'
 import DarkModeToggle from './DarkModeToggle'
 
-export default function Header() {
+function Header() {
   const { user, logout } = useAuth()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -139,3 +139,5 @@ export default function Header() {
     </header>
   )
 }
+
+export default memo(Header)

@@ -223,6 +223,9 @@ export async function POST(request: NextRequest) {
     const result = await ledgerCollection.insertOne(entry)
 
     // به‌روزرسانی موجودی آیتم
+    const wasLowStock = item.isLowStock || false
+    const isNowLowStock = newBalance <= (item.minStock || 0)
+    
     await inventoryCollection.updateOne(
       { _id: new ObjectId(itemId) },
       {
@@ -230,12 +233,80 @@ export async function POST(request: NextRequest) {
           currentStock: newBalance,
           totalValue: newValue,
           unitPrice: newBalance > 0 ? newValue / newBalance : price,
-          isLowStock: newBalance <= (item.minStock || 0),
+          isLowStock: isNowLowStock,
           lastUpdated: new Date().toISOString(),
           updatedAt: new Date()
         }
       }
     )
+
+    // مدیریت هشدار کمبود موجودی
+    const stockAlertsCollection = db.collection('stock_alerts')
+    
+    // اگر موجودی کم شد، هشدار ایجاد/به‌روزرسانی کن
+    if (!wasLowStock && isNowLowStock) {
+      const alertType = newBalance === 0 ? 'out_of_stock' : 'low_stock'
+      const severity = newBalance === 0 ? 'critical' : 'medium'
+
+      const existingAlert = await stockAlertsCollection.findOne({
+        itemId,
+        status: 'active'
+      })
+
+      if (existingAlert) {
+        await stockAlertsCollection.updateOne(
+          { _id: existingAlert._id },
+          {
+            $set: {
+              type: alertType,
+              severity: severity,
+              currentStock: newBalance,
+              minStock: item.minStock || 0,
+              message: newBalance === 0
+                ? `${item.name} تمام شده است`
+                : `موجودی ${item.name} کم است (${newBalance} ${item.unit || 'عدد'})`,
+              priority: severity === 'critical' ? 'urgent' : 'normal',
+              updatedAt: new Date().toISOString()
+            }
+          }
+        )
+      } else {
+        await stockAlertsCollection.insertOne({
+          itemId,
+          itemName: item.name,
+          itemCode: item.code || '',
+          category: item.category || '',
+          warehouse: item.warehouse || 'انبار اصلی',
+          type: alertType,
+          severity: severity,
+          currentStock: newBalance,
+          minStock: item.minStock || 0,
+          maxStock: item.maxStock || 0,
+          unit: item.unit || 'عدد',
+          message: newBalance === 0
+            ? `${item.name} تمام شده است`
+            : `موجودی ${item.name} کم است (${newBalance} ${item.unit || 'عدد'})`,
+          status: 'active',
+          priority: severity === 'critical' ? 'urgent' : 'normal',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+      }
+    }
+    // اگر موجودی به حالت عادی برگشت، هشدار را resolve کن
+    else if (wasLowStock && !isNowLowStock) {
+      await stockAlertsCollection.updateMany(
+        { itemId, status: 'active' },
+        {
+          $set: {
+            status: 'resolved',
+            resolvedAt: new Date().toISOString(),
+            resolution: 'موجودی به حالت عادی برگشت',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      )
+    }
 
     return NextResponse.json({
       success: true,
@@ -352,7 +423,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 // تابع کمکی برای محاسبه مجدد مانده‌ها
-export async function recalculateBalances(itemId: string, ledgerCollection: any, inventoryCollection: any) {
+async function recalculateBalances(itemId: string, ledgerCollection: any, inventoryCollection: any) {
   const entries = await ledgerCollection
     .find({ itemId })
     .sort({ date: 1, createdAt: 1 })
@@ -406,6 +477,9 @@ export async function recalculateBalances(itemId: string, ledgerCollection: any,
   // به‌روزرسانی موجودی آیتم
   if (entries.length > 0) {
     const lastEntry = entries[entries.length - 1]
+    const wasLowStock = item.isLowStock || false
+    const isNowLowStock = lastEntry.runningBalance <= (item.minStock || 0)
+    
     await inventoryCollection.updateOne(
       { _id: new ObjectId(itemId) },
       {
@@ -413,12 +487,77 @@ export async function recalculateBalances(itemId: string, ledgerCollection: any,
           currentStock: lastEntry.runningBalance,
           totalValue: lastEntry.runningValue,
           unitPrice: lastEntry.averagePrice,
-          isLowStock: lastEntry.runningBalance <= (item.minStock || 0),
+          isLowStock: isNowLowStock,
           lastUpdated: new Date().toISOString(),
           updatedAt: new Date()
         }
       }
     )
+
+    // مدیریت هشدار کمبود موجودی
+    const stockAlertsCollection = db.collection('stock_alerts')
+    
+    if (!wasLowStock && isNowLowStock) {
+      const alertType = lastEntry.runningBalance === 0 ? 'out_of_stock' : 'low_stock'
+      const severity = lastEntry.runningBalance === 0 ? 'critical' : 'medium'
+
+      const existingAlert = await stockAlertsCollection.findOne({
+        itemId,
+        status: 'active'
+      })
+
+      if (existingAlert) {
+        await stockAlertsCollection.updateOne(
+          { _id: existingAlert._id },
+          {
+            $set: {
+              type: alertType,
+              severity: severity,
+              currentStock: lastEntry.runningBalance,
+              minStock: item.minStock || 0,
+              message: lastEntry.runningBalance === 0
+                ? `${item.name} تمام شده است`
+                : `موجودی ${item.name} کم است (${lastEntry.runningBalance} ${item.unit || 'عدد'})`,
+              priority: severity === 'critical' ? 'urgent' : 'normal',
+              updatedAt: new Date().toISOString()
+            }
+          }
+        )
+      } else {
+        await stockAlertsCollection.insertOne({
+          itemId,
+          itemName: item.name,
+          itemCode: item.code || '',
+          category: item.category || '',
+          warehouse: item.warehouse || 'انبار اصلی',
+          type: alertType,
+          severity: severity,
+          currentStock: lastEntry.runningBalance,
+          minStock: item.minStock || 0,
+          maxStock: item.maxStock || 0,
+          unit: item.unit || 'عدد',
+          message: lastEntry.runningBalance === 0
+            ? `${item.name} تمام شده است`
+            : `موجودی ${item.name} کم است (${lastEntry.runningBalance} ${item.unit || 'عدد'})`,
+          status: 'active',
+          priority: severity === 'critical' ? 'urgent' : 'normal',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+      }
+    } else if (wasLowStock && !isNowLowStock) {
+      await stockAlertsCollection.updateMany(
+        { itemId, status: 'active' },
+        {
+          $set: {
+            status: 'resolved',
+            resolvedAt: new Date().toISOString(),
+            resolution: 'موجودی به حالت عادی برگشت',
+            updatedAt: new Date().toISOString()
+          }
+        }
+      )
+    }
   }
 }
 

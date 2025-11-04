@@ -20,8 +20,26 @@ import {
   Utensils,
   Loader2,
   Edit,
-  Trash2
+  Trash2,
+  Search,
+  Warehouse
 } from 'lucide-react'
+
+interface InventoryItem {
+  _id: string
+  name: string
+  category: string
+  unit: string
+  currentStock: number
+  code?: string
+}
+
+interface RecipeItem {
+  ingredientId: string
+  ingredientName: string
+  quantity: number
+  unit: string
+}
 
 interface MenuItem {
   _id?: string
@@ -33,6 +51,7 @@ interface MenuItem {
   description: string
   ingredients: string[]
   allergens: string[]
+  recipe?: RecipeItem[]
   isAvailable: boolean
   isPopular: boolean
   imageUrl?: string
@@ -41,11 +60,11 @@ interface MenuItem {
 }
 
 const categories = [
-  { id: 'main_course', name: 'غذاهای اصلی', icon: Pizza, color: 'bg-orange-500' },
-  { id: 'appetizer', name: 'پیش‌غذاها', icon: Utensils, color: 'bg-green-500' },
-  { id: 'dessert', name: 'دسرها', icon: IceCream, color: 'bg-pink-500' },
-  { id: 'beverage', name: 'نوشیدنی‌ها', icon: Coffee, color: 'bg-blue-500' },
-  { id: 'other', name: 'سایر', icon: Package, color: 'bg-gray-500' }
+  { id: 'غذاهای اصلی', name: 'غذاهای اصلی', icon: Pizza, color: 'bg-orange-500' },
+  { id: 'پیش‌غذاها', name: 'پیش‌غذاها', icon: Utensils, color: 'bg-green-500' },
+  { id: 'دسرها', name: 'دسرها', icon: IceCream, color: 'bg-pink-500' },
+  { id: 'نوشیدنی‌ها', name: 'نوشیدنی‌ها', icon: Coffee, color: 'bg-blue-500' },
+  { id: 'سایر', name: 'سایر', icon: Package, color: 'bg-gray-500' }
 ]
 
 export default function MenuSetupPage() {
@@ -55,28 +74,39 @@ export default function MenuSetupPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [refreshTrigger, setRefreshTrigger] = useState(0) // برای force re-render
   
   const [formData, setFormData] = useState<MenuItem>({
     name: '',
-    category: 'main_course',
+    category: 'غذاهای اصلی', // استفاده از نام فارسی برای یکپارچگی
     price: 0,
     preparationTime: 15,
     description: '',
     ingredients: [],
     allergens: [],
+    recipe: [],
     isAvailable: true,
     isPopular: false,
     imageUrl: ''
   })
   const [ingredientsText, setIngredientsText] = useState('')
   const [allergensText, setAllergensText] = useState('')
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(['main_course'])
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(['غذاهای اصلی'])
+  
+  // Recipe management states
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
+  const [recipeItems, setRecipeItems] = useState<RecipeItem[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedInventoryIds, setSelectedInventoryIds] = useState<Set<string>>(new Set())
+  const [quantities, setQuantities] = useState<Record<string, number>>({})
 
   // دریافت لیست آیتم‌های منو
-  const fetchMenuItems = async () => {
+  const fetchMenuItems = async (showLoading = false) => {
     try {
-      setLoading(true)
-      const response = await fetch('/api/menu-items')
+      if (showLoading) {
+        setLoading(true)
+      }
+      const response = await fetch('/api/menu-items?includeRecipe=true')
       const data = await response.json()
       
       if (data.success) {
@@ -88,13 +118,111 @@ export default function MenuSetupPage() {
       console.error('Error fetching menu items:', error)
       setError('خطا در اتصال به سرور')
     } finally {
-      setLoading(false)
+      if (showLoading) {
+        setLoading(false)
+      }
+    }
+  }
+
+  // دریافت لیست آیتم‌های موجودی
+  const fetchInventoryItems = async () => {
+    try {
+      const response = await fetch('/api/inventory-items?limit=1000')
+      const data = await response.json()
+      
+      if (data.success) {
+        setInventoryItems(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching inventory items:', error)
     }
   }
 
   useEffect(() => {
-    fetchMenuItems()
+    fetchMenuItems(true) // فقط در بارگذاری اولیه loading نمایش بده
+    fetchInventoryItems()
+    
+    // Auto-refresh هر 15 ثانیه برای به‌روزرسانی خودکار منو
+    const interval = setInterval(() => {
+      fetchMenuItems(false) // بدون نمایش loading
+    }, 15000)
+    
+    return () => clearInterval(interval)
   }, [])
+
+  // فیلتر کردن inventory items بر اساس جستجو
+  const filteredInventoryItems = inventoryItems.filter(item => {
+    const searchLower = searchTerm.toLowerCase()
+    return item.name.toLowerCase().includes(searchLower) ||
+           item.code?.toLowerCase().includes(searchLower) ||
+           item.category.toLowerCase().includes(searchLower)
+  })
+
+  // تیک زدن/بردارن کردن checkbox
+  const handleToggleInventoryItem = (itemId: string) => {
+    const newSelectedIds = new Set(selectedInventoryIds)
+    if (newSelectedIds.has(itemId)) {
+      newSelectedIds.delete(itemId)
+      // حذف از recipe items
+      const updatedRecipeItems = recipeItems.filter(item => item.ingredientId !== itemId)
+      setRecipeItems(updatedRecipeItems)
+      // به‌روزرسانی فیلد نمایشی
+      setIngredientsText(updatedRecipeItems.map(item => item.ingredientName).join(', '))
+      // حذف از quantities
+      const newQuantities = { ...quantities }
+      delete newQuantities[itemId]
+      setQuantities(newQuantities)
+    } else {
+      newSelectedIds.add(itemId)
+      const selectedItem = inventoryItems.find(item => item._id.toString() === itemId)
+      if (selectedItem) {
+        const quantity = quantities[itemId] || 1
+        const newRecipeItem: RecipeItem = {
+          ingredientId: itemId,
+          ingredientName: selectedItem.name,
+          quantity: quantity,
+          unit: selectedItem.unit
+        }
+        const updatedRecipeItems = [...recipeItems, newRecipeItem]
+        setRecipeItems(updatedRecipeItems)
+        // به‌روزرسانی فیلد نمایشی
+        setIngredientsText(updatedRecipeItems.map(item => item.ingredientName).join(', '))
+      }
+    }
+    setSelectedInventoryIds(newSelectedIds)
+    setError('')
+  }
+
+  // تغییر مقدار ماده اولیه
+  const handleQuantityChange = (itemId: string, quantity: number) => {
+    if (quantity <= 0) {
+      setError('مقدار باید بیشتر از صفر باشد')
+      return
+    }
+    setQuantities({ ...quantities, [itemId]: quantity })
+    // به‌روزرسانی recipe items
+    setRecipeItems(recipeItems.map(item => 
+      item.ingredientId === itemId 
+        ? { ...item, quantity: quantity }
+        : item
+    ))
+    setError('')
+  }
+
+  // حذف ماده اولیه از recipe
+  const handleRemoveRecipeItem = (ingredientId: string) => {
+    const updatedRecipeItems = recipeItems.filter(item => item.ingredientId !== ingredientId)
+    setRecipeItems(updatedRecipeItems)
+    // به‌روزرسانی فیلد نمایشی
+    setIngredientsText(updatedRecipeItems.map(item => item.ingredientName).join(', '))
+    const newSelectedIds = new Set(selectedInventoryIds)
+    newSelectedIds.delete(ingredientId)
+    setSelectedInventoryIds(newSelectedIds)
+    const newQuantities = { ...quantities }
+    delete newQuantities[ingredientId]
+    setQuantities(newQuantities)
+  }
+
 
   const handleInputChange = (field: keyof MenuItem, value: any) => {
     setFormData(prev => ({
@@ -137,6 +265,44 @@ export default function MenuSetupPage() {
       return
     }
 
+    // Optimistic update: به‌روزرسانی فوری UI قبل از دریافت پاسخ
+    const previousMenuItems = [...menuItems]
+    const recipe = recipeItems.map(item => ({
+      ingredientId: item.ingredientId,
+      quantity: item.quantity,
+      unit: item.unit
+    }))
+
+    if (editingItem) {
+      // به‌روزرسانی فوری آیتم موجود
+      const editId = editingItem._id || editingItem.id
+      const updatedItem: MenuItem = {
+        ...formData,
+        _id: editId,
+        id: editId,
+        ingredients: ingredientsText.split(',').map(item => item.trim()).filter(item => item),
+        allergens: allergensText.split(',').map(item => item.trim()).filter(item => item),
+        recipe: recipe
+      }
+      setMenuItems(prevItems => prevItems.map(item => {
+        const itemId = item._id || item.id
+        return (itemId === editId || itemId === editId?.toString()) ? updatedItem : item
+      }))
+      setRefreshTrigger(prev => prev + 1)
+    } else {
+      // اضافه کردن فوری آیتم جدید
+      const newItem: MenuItem = {
+        ...formData,
+        _id: `temp-${Date.now()}`,
+        id: `temp-${Date.now()}`,
+        ingredients: ingredientsText.split(',').map(item => item.trim()).filter(item => item),
+        allergens: allergensText.split(',').map(item => item.trim()).filter(item => item),
+        recipe: recipe
+      }
+      setMenuItems(prev => [...prev, newItem])
+      setRefreshTrigger(prev => prev + 1)
+    }
+
     try {
       setSaving(true)
       setError('')
@@ -144,20 +310,27 @@ export default function MenuSetupPage() {
       const url = '/api/menu-items'
       const method = editingItem ? 'PUT' : 'POST'
       
+      // تبدیل recipeItems به فرمت مورد نیاز API
+      const recipe = recipeItems.map(item => ({
+        ingredientId: item.ingredientId,
+        quantity: item.quantity,
+        unit: item.unit
+      }))
+      
       const requestBody = editingItem 
         ? { 
             id: editingItem._id || editingItem.id, 
             ...formData,
             ingredients: ingredientsText.split(',').map(item => item.trim()).filter(item => item),
-            allergens: allergensText.split(',').map(item => item.trim()).filter(item => item)
+            allergens: allergensText.split(',').map(item => item.trim()).filter(item => item),
+            recipe: recipe
           }
         : {
             ...formData,
             ingredients: ingredientsText.split(',').map(item => item.trim()).filter(item => item),
-            allergens: allergensText.split(',').map(item => item.trim()).filter(item => item)
+            allergens: allergensText.split(',').map(item => item.trim()).filter(item => item),
+            recipe: recipe
           }
-
-      console.log('Sending request:', { method, url, requestBody })
 
       const response = await fetch(url, {
         method,
@@ -169,15 +342,61 @@ export default function MenuSetupPage() {
 
       const data = await response.json()
 
-      console.log('Response data:', data)
-
       if (data.success) {
-        await fetchMenuItems() // دریافت مجدد لیست
+        // به‌روزرسانی با داده‌های واقعی از سرور
+        if (editingItem) {
+          // ویرایش: به‌روزرسانی آیتم با داده‌های واقعی
+          const editId = editingItem._id || editingItem.id
+          const updatedItem: MenuItem = {
+            ...data.data,
+            _id: data.data?._id || editId,
+            id: data.data?._id || editId,
+            recipe: recipe
+          }
+          
+          setMenuItems(prevItems => prevItems.map(item => {
+            const itemId = item._id || item.id
+            return (itemId === editId || itemId === editId?.toString()) ? updatedItem : item
+          }))
+          setRefreshTrigger(prev => prev + 1)
+        } else {
+          // افزودن جدید: جایگزین کردن آیتم موقت با داده‌های واقعی
+          const newItem: MenuItem = {
+            ...data.data,
+            _id: data.data?._id || data.data?.id,
+            id: data.data?._id || data.data?.id,
+            recipe: recipe,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+          
+          setMenuItems(prevItems => {
+            // بررسی اینکه آیا قبلاً اضافه نشده
+            const exists = prevItems.some(item => {
+              const itemId = item._id || item.id
+              const newId = newItem._id || newItem.id
+              return itemId === newId || itemId === newId?.toString()
+            })
+            if (!exists) {
+              return [...prevItems, newItem]
+            }
+            return prevItems
+          })
+          // Force re-render
+          setRefreshTrigger(prev => prev + 1)
+        }
+        
         resetForm()
       } else {
+        // در صورت خطا، به حالت قبلی برگردان
+        setMenuItems(previousMenuItems)
+        setRefreshTrigger(prev => prev + 1)
         setError(data.message || 'خطا در ذخیره آیتم منو')
       }
     } catch (error) {
+      // در صورت خطا، به حالت قبلی برگردان
+      setMenuItems(previousMenuItems)
+      setRefreshTrigger(prev => prev + 1)
       console.error('Error saving menu item:', error)
       setError('خطا در اتصال به سرور')
     } finally {
@@ -185,7 +404,7 @@ export default function MenuSetupPage() {
     }
   }
 
-  const handleEdit = (item: MenuItem) => {
+  const handleEdit = async (item: MenuItem) => {
     // فقط فیلدهای مورد نیاز را در formData قرار می‌دهیم
     setFormData({
       name: item.name,
@@ -195,6 +414,7 @@ export default function MenuSetupPage() {
       description: item.description || '',
       ingredients: item.ingredients || [],
       allergens: item.allergens || [],
+      recipe: item.recipe || [],
       isAvailable: item.isAvailable,
       isPopular: item.isPopular,
       imageUrl: item.imageUrl || ''
@@ -202,6 +422,32 @@ export default function MenuSetupPage() {
     setIngredientsText((item.ingredients || []).join(', '))
     setAllergensText((item.allergens || []).join(', '))
     setSelectedCategories([item.category])
+    
+    // بارگذاری recipe items
+    if (item.recipe && item.recipe.length > 0) {
+      // اگر recipe با جزئیات کامل است (از API با includeRecipe=true)
+      const loadedRecipeItems: RecipeItem[] = item.recipe.map((r: any) => ({
+        ingredientId: r.ingredientId || r._id || '',
+        ingredientName: r.ingredientName || r.name || '',
+        quantity: r.quantity || 1,
+        unit: r.unit || 'عدد'
+      }))
+      setRecipeItems(loadedRecipeItems)
+      // تنظیم selectedInventoryIds و quantities
+      const newSelectedIds = new Set<string>()
+      const newQuantities: Record<string, number> = {}
+      loadedRecipeItems.forEach(ri => {
+        newSelectedIds.add(ri.ingredientId)
+        newQuantities[ri.ingredientId] = ri.quantity
+      })
+      setSelectedInventoryIds(newSelectedIds)
+      setQuantities(newQuantities)
+    } else {
+      setRecipeItems([])
+      setSelectedInventoryIds(new Set())
+      setQuantities({})
+    }
+    
     setEditingItem(item)
     setIsAddingNew(true)
   }
@@ -211,19 +457,40 @@ export default function MenuSetupPage() {
 
     try {
       setSaving(true)
+      setError('')
+      
+      // حذف فوری از UI (optimistic update) - با استفاده از callback برای اطمینان از update
+      setMenuItems(prevItems => {
+        const filtered = prevItems.filter(item => {
+          const itemId = item._id || item.id
+          return itemId !== id && itemId !== id.toString()
+        })
+        return filtered
+      })
+      // Force re-render
+      setRefreshTrigger(prev => prev + 1)
+      
+      // اگر در حال ویرایش همان آیتم هستیم، فرم را ببند
+      if (editingItem && ((editingItem._id || editingItem.id) === id)) {
+        resetForm()
+      }
+      
       const response = await fetch(`/api/menu-items?id=${id}`, {
         method: 'DELETE',
       })
 
       const data = await response.json()
 
-      if (data.success) {
-        await fetchMenuItems() // دریافت مجدد لیست
-      } else {
+      if (!data.success) {
+        // اگر خطا رخ داد، لیست را دوباره دریافت کن
+        await fetchMenuItems(false)
         setError(data.message || 'خطا در حذف آیتم منو')
       }
+      // اگر موفق بود، نیازی به fetch مجدد نیست چون قبلاً از UI حذف کردیم
     } catch (error) {
       console.error('Error deleting menu item:', error)
+      // در صورت خطا، لیست را دوباره دریافت کن
+      await fetchMenuItems(false)
       setError('خطا در اتصال به سرور')
     } finally {
       setSaving(false)
@@ -233,19 +500,24 @@ export default function MenuSetupPage() {
   const resetForm = () => {
     setFormData({
       name: '',
-      category: 'main_course',
+      category: 'غذاهای اصلی', // استفاده از نام فارسی
       price: 0,
       preparationTime: 15,
       description: '',
       ingredients: [],
       allergens: [],
+      recipe: [],
       isAvailable: true,
       isPopular: false,
       imageUrl: ''
     })
     setIngredientsText('')
     setAllergensText('')
-    setSelectedCategories(['main_course'])
+    setSelectedCategories(['غذاهای اصلی'])
+    setRecipeItems([])
+    setSelectedInventoryIds(new Set())
+    setQuantities({})
+    setSearchTerm('')
     setIsAddingNew(false)
     setEditingItem(null)
     setError('')
@@ -416,22 +688,180 @@ export default function MenuSetupPage() {
 
             {/* Right Column */}
             <div className="space-y-6">
-              {/* Ingredients */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  مواد اولیه (با کاما جدا کنید)
-                </label>
-                <textarea
-                  value={ingredientsText}
-                  onChange={(e) => handleIngredientsChange(e.target.value)}
-                  placeholder="گوشت گوساله، برنج، سبزیجات"
-                  rows={3}
-                  className="premium-input w-full resize-none"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  مواد اولیه را با کاما از هم جدا کنید
+              {/* Recipe Editor - Materials - FIRST AND MAIN */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 border-2 border-blue-300 dark:border-blue-700 rounded-xl p-5 shadow-md">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-base font-bold text-gray-900 dark:text-white flex items-center space-x-2 space-x-reverse">
+                    <Warehouse className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                    <span>مواد اولیه و مقادیر مصرفی *</span>
+                  </label>
+                  <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">ضروری</span>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-3 mb-3 border border-blue-200 dark:border-blue-700">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">📝 راهنمای استفاده:</p>
+                  <ol className="text-xs text-gray-600 dark:text-gray-400 space-y-1 mr-4 list-decimal">
+                    <li>مواد اولیه مورد نیاز را از لیست زیر با تیک زدن انتخاب کنید</li>
+                    <li>مقدار مصرفی هر ماده را در کنار آن وارد کنید</li>
+                    <li>واحد به صورت خودکار نمایش داده می‌شود</li>
+                    <li>مواد انتخاب شده در بخش "مواد اولیه انتخاب شده" نمایش داده می‌شوند</li>
+                  </ol>
+                </div>
+
+                {/* Search Input for filtering */}
+                <div className="relative mb-3">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="جستجوی ماده اولیه..."
+                    className="premium-input pr-10 w-full"
+                  />
+                </div>
+
+                {/* Inventory Items List with Checkboxes */}
+                <div className="max-h-96 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 p-3 mb-3">
+                  {filteredInventoryItems.length === 0 ? (
+                    <p className="text-center text-gray-500 dark:text-gray-400 py-4">
+                      هیچ ماده اولیه‌ای یافت نشد
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredInventoryItems.map((item) => {
+                        const itemId = item._id.toString()
+                        const isSelected = selectedInventoryIds.has(itemId)
+                        const quantity = quantities[itemId] || 1
+                        
+                        return (
+                          <div
+                            key={item._id}
+                            className={`flex items-center space-x-3 space-x-reverse p-3 rounded-lg border transition-all ${
+                              isSelected
+                                ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700'
+                                : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleInventoryItem(itemId)}
+                              className="w-5 h-5 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 dark:focus:ring-primary-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer"
+                            />
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {item.category} • موجودی: {item.currentStock} {item.unit}
+                                  </p>
+                                </div>
+                              </div>
+                              {isSelected && (
+                                <div className="mt-2 flex items-center space-x-2 space-x-reverse">
+                                  <label className="text-xs text-gray-600 dark:text-gray-400">مقدار:</label>
+                                  <input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={quantity}
+                                    onChange={(e) => handleQuantityChange(itemId, Number(e.target.value))}
+                                    className="premium-input w-24 text-sm h-8"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">{item.unit}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Recipe Items List - Selected Items Summary */}
+                {recipeItems.length > 0 && (
+                  <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <p className="text-sm font-semibold text-green-800 dark:text-green-200 mb-3 flex items-center space-x-2 space-x-reverse">
+                      <CheckCircle className="w-5 h-5" />
+                      <span>مواد اولیه انتخاب شده ({recipeItems.length} مورد):</span>
+                    </p>
+                    <div className="space-y-2">
+                      {recipeItems.map((item) => {
+                        return (
+                          <div
+                            key={item.ingredientId}
+                            className="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded-lg border border-green-200 dark:border-green-700"
+                          >
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {item.ingredientName}
+                              </p>
+                              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                مقدار: <span className="font-semibold">{item.quantity} {item.unit}</span>
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveRecipeItem(item.ingredientId)}
+                              className="p-2 text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                              title="حذف"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Example Section */}
+                {recipeItems.length === 0 && (
+                  <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                    <p className="text-xs font-medium text-yellow-800 dark:text-yellow-200 mb-2">💡 مثال:</p>
+                    <div className="text-xs text-yellow-700 dark:text-yellow-300 space-y-1">
+                      <p><strong>قرمه سبزی:</strong></p>
+                      <ul className="mr-4 list-disc space-y-0.5">
+                        <li>گوشت گوساله: 300 گرم</li>
+                        <li>برنج: 200 گرم</li>
+                        <li>تره: 50 گرم</li>
+                      </ul>
+                      <p className="mt-2"><strong>نوشابه:</strong></p>
+                      <ul className="mr-4 list-disc">
+                        <li>نوشابه: 1 عدد</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                  ✅ مواد اولیه را از لیست موجودی انتخاب کنید و مقدار مصرفی را وارد کنید
                 </p>
               </div>
+
+              {/* Ingredients (for display only - kept for backward compatibility) - HIDDEN/DISABLED */}
+              <details className="border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                <summary className="cursor-pointer p-4 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200">
+                  <span className="flex items-center space-x-2 space-x-reverse">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>مواد اولیه نمایشی (اختیاری - فقط برای نمایش در منو)</span>
+                  </span>
+                </summary>
+                <div className="p-4 pt-0">
+                  <textarea
+                    value={ingredientsText}
+                    onChange={(e) => handleIngredientsChange(e.target.value)}
+                    placeholder="گوشت گوساله، برنج، سبزیجات"
+                    rows={2}
+                    className="premium-input w-full resize-none"
+                  />
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2 flex items-center space-x-1 space-x-reverse">
+                    <AlertTriangle className="w-3 h-3" />
+                    <span>این فیلد فقط برای نمایش در منو است و در محاسبه موجودی استفاده نمی‌شود. برای کنترل موجودی از بخش "مواد اولیه و مقادیر مصرفی" استفاده کنید.</span>
+                  </p>
+                </div>
+              </details>
 
               {/* Allergens */}
               <div>
@@ -521,14 +951,14 @@ export default function MenuSetupPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" key={refreshTrigger}>
             {menuItems.map((item, index) => {
               const CategoryIcon = getCategoryIcon(item.category)
               const categoryColor = getCategoryColor(item.category)
               const category = categories.find(cat => cat.id === item.category)
               
               return (
-                <div key={item._id || item.id || index} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-6 hover:shadow-medium transition-all duration-300">
+                <div key={`${item._id || item.id || index}-${refreshTrigger}`} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-6 hover:shadow-medium transition-all duration-300">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center space-x-3 space-x-reverse">
                       <div className={`w-10 h-10 ${categoryColor} rounded-lg flex items-center justify-center`}>
@@ -570,9 +1000,35 @@ export default function MenuSetupPage() {
                     </p>
                   )}
 
-                  {item.ingredients.length > 0 && (
+                  {/* Recipe Display */}
+                  {item.recipe && item.recipe.length > 0 && (
                     <div className="mb-4">
-                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">مواد اولیه:</p>
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 flex items-center space-x-1 space-x-reverse">
+                        <Warehouse className="w-3 h-3" />
+                        <span>مواد اولیه (Recipe):</span>
+                      </p>
+                      <div className="space-y-1">
+                        {item.recipe.slice(0, 3).map((recipeItem: any, index: number) => (
+                          <div key={index} className="text-xs bg-blue-50 dark:bg-blue-900/20 text-gray-700 dark:text-gray-300 px-2 py-1 rounded flex items-center justify-between">
+                            <span>{recipeItem.ingredientName || recipeItem.name || 'نامشخص'}</span>
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {recipeItem.quantity} {recipeItem.unit || 'عدد'}
+                            </span>
+                          </div>
+                        ))}
+                        {item.recipe.length > 3 && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            +{item.recipe.length - 3} ماده اولیه بیشتر
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ingredients Display (for backward compatibility) */}
+                  {item.ingredients && item.ingredients.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">مواد اولیه نمایشی:</p>
                       <div className="flex flex-wrap gap-1">
                         {item.ingredients.slice(0, 3).map((ingredient, index) => (
                           <span key={index} className="text-xs bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 px-2 py-1 rounded">

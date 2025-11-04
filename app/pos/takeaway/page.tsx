@@ -87,7 +87,15 @@ export default function TakeawayPage() {
       const response = await fetch('/api/menu-items')
       const result = await response.json()
       if (result.success) {
-        setMenuItems(result.data)
+        // تبدیل فرمت داده‌ها: تبدیل _id به id
+        const formattedItems = result.data.map((item: any) => ({
+          ...item,
+          id: item._id || item.id || '',
+          image: item.image || '/api/placeholder/60/60',
+          preparationTime: item.preparationTime || 15,
+          description: item.description || ''
+        }))
+        setMenuItems(formattedItems)
       }
     } catch (error) {
       console.error('Error loading menu items:', error)
@@ -184,6 +192,13 @@ export default function TakeawayPage() {
 
       const result = await response.json()
       
+      if (!response.ok) {
+        console.error('API Error:', result)
+        alert(`خطا در ثبت سفارش: ${result.message || result.error || 'خطای ناشناخته'}`)
+        setLoading(false)
+        return
+      }
+      
       if (result.success) {
         alert(`سفارش بیرون‌بر با موفقیت ثبت شد!\nشماره سفارش: ${takeawayOrder.orderNumber}\nزمان آماده‌سازی: ${takeawayOrder.estimatedReadyTime}\nمبلغ کل: ${total.toLocaleString('fa-IR')} تومان`)
         
@@ -217,7 +232,7 @@ export default function TakeawayPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Menu Items */}
-          <div className="lg:col-span-2 premium-card p-6">
+          <div key="menu-column" className="lg:col-span-2 premium-card p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">منوی رستوران</h2>
               <div className="flex items-center space-x-4 space-x-reverse">
@@ -236,8 +251,8 @@ export default function TakeawayPage() {
                   onChange={(e) => setSelectedCategory(e.target.value)}
                   className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
-                  {categories.map(category => (
-                    <option key={category} value={category}>
+                  {categories.map((category, idx) => (
+                    <option key={`cat-${idx}-${category}`} value={category}>
                       {category === 'all' ? 'همه دسته‌ها' : category}
                     </option>
                   ))}
@@ -247,9 +262,13 @@ export default function TakeawayPage() {
 
             {/* Menu Items Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-[800px] overflow-y-auto custom-scrollbar">
-              {filteredMenuItems.map(item => (
+              {filteredMenuItems.map((item, index) => {
+                // اطمینان از key منحصر به فرد - استفاده از index به عنوان fallback اصلی
+                const itemId = String(item.id || (item as any)._id || '')
+                const itemKey = itemId ? `menu-${itemId}-${index}` : `menu-item-${index}`
+                return (
                 <div
-                  key={item.id}
+                  key={itemKey}
                   className="premium-card p-4 flex flex-col items-center text-center cursor-pointer hover:shadow-glow transition-all duration-300"
                   onClick={() => addToOrder(item)}
                 >
@@ -265,12 +284,13 @@ export default function TakeawayPage() {
                     {item.price.toLocaleString('fa-IR')} <span className="text-sm">تومان</span>
                   </p>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 
           {/* Right Column: Order Summary & Checkout */}
-          <div className="lg:col-span-1 premium-card p-6 flex flex-col">
+          <div key="order-column" className="lg:col-span-1 premium-card p-6 flex flex-col">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">سفارش بیرون‌بر</h2>
 
             {/* Customer Info */}
@@ -305,8 +325,11 @@ export default function TakeawayPage() {
                 <p className="text-gray-500 dark:text-gray-400 text-center py-8">سبد خرید خالی است.</p>
               ) : (
                 <div className="space-y-4">
-                  {order.map(item => (
-                    <div key={item.uniqueId} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
+                  {order.map((item, index) => {
+                    // اطمینان از key منحصر به فرد - uniqueId همیشه باید وجود داشته باشد
+                    const orderKey = item.uniqueId ? `order-${item.uniqueId}-${index}` : `order-${item.id || 'item'}-${index}`
+                    return (
+                    <div key={orderKey} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg">
                       <div className="flex items-center space-x-3 space-x-reverse">
                         <img src={item.image} alt={item.name} className="w-10 h-10 rounded object-cover" />
                         <div>
@@ -338,7 +361,8 @@ export default function TakeawayPage() {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

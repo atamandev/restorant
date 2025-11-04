@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   Home,
@@ -256,7 +256,7 @@ const settingsItems: MenuItem[] = [
   }
 ]
 
-export default function Sidebar() {
+function Sidebar() {
   const [isOpen, setIsOpen] = useState(true)
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const router = useRouter()
@@ -347,3 +347,5 @@ export default function Sidebar() {
     </aside>
   )
 }
+
+export default memo(Sidebar)
