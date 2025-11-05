@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const orderType = searchParams.get('orderType')
     const priority = searchParams.get('priority')
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
     const sortBy = searchParams.get('sortBy') || 'orderTime'
     const sortOrder = searchParams.get('sortOrder') || 'desc'
     const limit = parseInt(searchParams.get('limit') || '100')
@@ -49,16 +51,72 @@ export async function GET(request: NextRequest) {
     if (status && status !== 'all') filter.status = status
     if (orderType && orderType !== 'all') filter.orderType = orderType
     if (priority && priority !== 'all') filter.priority = priority
+    
+    // فیلتر تاریخ - دقیق‌تر برای روزانه
+    if (startDate || endDate) {
+      const start = startDate ? new Date(startDate) : null
+      const end = endDate ? new Date(endDate) : null
+      
+      if (start) {
+        start.setHours(0, 0, 0, 0)
+      }
+      if (end) {
+        end.setHours(23, 59, 59, 999)
+      }
+      
+      // فیلتر بر اساس orderTime یا createdAt
+      const dateConditions: any[] = []
+      
+      if (start && end) {
+        dateConditions.push(
+          { orderTime: { $gte: start, $lte: end } },
+          { orderTime: { $gte: start.toISOString(), $lte: end.toISOString() } },
+          { createdAt: { $gte: start, $lte: end } }
+        )
+      } else if (start) {
+        dateConditions.push(
+          { orderTime: { $gte: start } },
+          { orderTime: { $gte: start.toISOString() } },
+          { createdAt: { $gte: start } }
+        )
+      } else if (end) {
+        dateConditions.push(
+          { orderTime: { $lte: end } },
+          { orderTime: { $lte: end.toISOString() } },
+          { createdAt: { $lte: end } }
+        )
+      }
+      
+      if (dateConditions.length > 0) {
+        filter.$or = dateConditions
+      }
+    }
 
     // ساخت مرتب‌سازی
     const sort: any = {}
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1
 
+    // بهینه‌سازی: محدود کردن نتایج و فقط فیلدهای ضروری
     const orders = await collection
-      .find(filter)
+      .find(filter, {
+        projection: {
+          orderNumber: 1,
+          customerName: 1,
+          customerPhone: 1,
+          orderType: 1,
+          tableNumber: 1,
+          items: { $slice: 10 }, // محدود کردن آیتم‌ها
+          total: 1,
+          status: 1,
+          paymentMethod: 1,
+          orderTime: 1,
+          createdAt: 1,
+          priority: 1
+        }
+      })
       .sort(sort)
       .skip(skip)
-      .limit(limit)
+      .limit(Math.min(limit, 200)) // محدود کردن به حداکثر 200
       .toArray()
 
     // آمار کلی - با try/catch برای جلوگیری از خطا

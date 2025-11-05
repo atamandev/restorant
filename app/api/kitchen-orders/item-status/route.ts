@@ -105,15 +105,17 @@ export async function PATCH(request: NextRequest) {
       const allItemsCompleted = updatedOrder.items.every((item: any) => item.status === 'completed')
       const allItemsReady = updatedOrder.items.every((item: any) => item.status === 'ready' || item.status === 'completed')
       const hasPreparingItems = updatedOrder.items.some((item: any) => item.status === 'preparing')
+      const hasReadyItems = updatedOrder.items.some((item: any) => item.status === 'ready' || item.status === 'completed')
       
       let newOrderStatus = updatedOrder.status
-      // وقتی همه آیتم‌ها ready یا completed شدند، سفارش را completed کن
-      if (allItemsReady && allItemsCompleted) {
-        newOrderStatus = 'completed'
-      } else if (allItemsReady) {
-        // وقتی همه آیتم‌ها ready شدند، سفارش را completed کن (نه ready)
-        newOrderStatus = 'completed'
+      // وقتی همه آیتم‌ها ready یا completed شدند، سفارش را ready کن (نه completed)
+      // completed فقط در orders/management انجام می‌شود
+      if (allItemsReady) {
+        newOrderStatus = 'ready' // سفارش آماده است و باید به orders/management برود
       } else if (hasPreparingItems) {
+        newOrderStatus = 'preparing'
+      } else if (hasReadyItems && !allItemsReady) {
+        // اگر بعضی آیتم‌ها ready هستند اما همه نیستند
         newOrderStatus = 'preparing'
       }
 

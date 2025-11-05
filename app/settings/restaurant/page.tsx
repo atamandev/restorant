@@ -56,6 +56,7 @@ interface RestaurantSettings {
     serviceCharge: number
     discountLimit: number
     minimumOrder: number
+    goldenCustomerDiscount: number
   }
   pos: {
     receiptPrinter: string
@@ -110,7 +111,8 @@ const initialSettings: RestaurantSettings = {
     taxRate: 9,
     serviceCharge: 10,
     discountLimit: 20,
-    minimumOrder: 50000
+    minimumOrder: 50000,
+    goldenCustomerDiscount: 2
   },
   pos: {
     receiptPrinter: 'EPSON TM-T20III',
@@ -165,7 +167,14 @@ export default function RestaurantSettingsPage() {
       const response = await fetch('/api/restaurant-settings')
       const result = await response.json()
       if (result.success && result.data) {
-        setSettings(result.data)
+        // اطمینان از وجود goldenCustomerDiscount
+        const fetchedSettings = result.data
+        if (!fetchedSettings.financial) {
+          fetchedSettings.financial = initialSettings.financial
+        } else if (fetchedSettings.financial.goldenCustomerDiscount === undefined || fetchedSettings.financial.goldenCustomerDiscount === null) {
+          fetchedSettings.financial.goldenCustomerDiscount = 2
+        }
+        setSettings(fetchedSettings)
       } else {
         console.error('Failed to fetch settings:', result.message)
         // Use initial settings as fallback
@@ -584,6 +593,32 @@ export default function RestaurantSettingsPage() {
                     }))}
                     className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <span className="flex items-center space-x-2 space-x-reverse">
+                      <span>درصد تخفیف مشتریان طلایی</span>
+                      <Info className="w-4 h-4 text-gray-400" title="تخفیف خودکار برای مشتریانی که به عنوان طلایی ثبت شده‌اند" />
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={settings.financial.goldenCustomerDiscount || 2}
+                      onChange={(e) => setSettings(prev => ({
+                        ...prev,
+                        financial: { ...prev.financial, goldenCustomerDiscount: Number(e.target.value) }
+                      }))}
+                      className="w-full px-3 py-2 pr-8 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    این تخفیف به صورت خودکار برای مشتریان طلایی در هنگام ثبت سفارش اعمال می‌شود
+                  </p>
                 </div>
               </div>
             </div>

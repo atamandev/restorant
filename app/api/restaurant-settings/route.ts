@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
           taxRate: 9,
           serviceCharge: 10,
           discountLimit: 20,
-          minimumOrder: 50000
+          minimumOrder: 50000,
+          goldenCustomerDiscount: 2 // درصد تخفیف برای مشتریان طلایی (پیش‌فرض 2%)
         },
         pos: {
           receiptPrinter: 'EPSON TM-T20III',

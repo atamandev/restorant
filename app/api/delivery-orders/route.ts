@@ -434,21 +434,10 @@ export async function POST(request: NextRequest) {
     // محاسبه مجدد مقادیر
     const calculatedSubtotal = processedItems.reduce((sum, item) => sum + item.total, 0)
     const calculatedDeliveryFee = deliveryFee || 0
-    const calculatedServiceCharge = serviceCharge || (calculatedSubtotal * serviceChargeRate / 100)
-    const calculatedDiscountAmount = discountAmount || (discount ? (calculatedSubtotal * discount / 100) : 0)
-    const calculatedTax = tax || ((calculatedSubtotal + calculatedServiceCharge + calculatedDeliveryFee - calculatedDiscountAmount) * taxRate / 100)
-    const calculatedTotal = calculatedSubtotal + calculatedServiceCharge + calculatedDeliveryFee - calculatedDiscountAmount + calculatedTax
-
-    // تولید شماره سفارش
-    const finalOrderNumber = orderNumber || await generateOrderNumber()
     
-    // محاسبه زمان آماده‌سازی و تحویل
-    const estimatedReady = estimatedReadyTime || new Date(Date.now() + maxPreparationTime * 60 * 1000 + 10 * 60 * 1000)
-    const estimatedDelivery = estimatedDeliveryTime || new Date(estimatedReady.getTime() + 30 * 60 * 1000) // 30 دقیقه اضافه برای تحویل
-
-    // ثبت یا به‌روزرسانی مشتری قبل از ایجاد سفارش
+    // ثبت یا به‌روزرسانی مشتری قبل از محاسبه تخفیف
     let finalCustomerId = customerId
-    if (customerPhone || customerName || deliveryAddress) {
+    if (customerPhone || customerName || deliveryAddress || customerId) {
       await connectToDatabase()
       if (!client) {
         throw new Error('MongoDB client is not initialized')
@@ -472,6 +461,33 @@ export async function POST(request: NextRequest) {
         await session.endSession()
       }
     }
+    
+    // محاسبه تخفیف مشتریان طلایی
+    const { calculateGoldenCustomerDiscount } = await import('../customers/helpers')
+    const goldenDiscount = await calculateGoldenCustomerDiscount(
+      db,
+      calculatedSubtotal,
+      finalCustomerId,
+      customerPhone
+    )
+    
+    // محاسبه تخفیف کل (تخفیف دستی + تخفیف مشتریان طلایی)
+    const manualDiscountAmount = discountAmount || (discount ? (calculatedSubtotal * discount / 100) : 0)
+    const totalDiscountAmount = manualDiscountAmount + goldenDiscount.discountAmount
+    const totalDiscountPercent = goldenDiscount.discountPercent > 0 
+      ? (discount || 0) + goldenDiscount.discountPercent 
+      : (discount || 0)
+    
+    const calculatedServiceCharge = serviceCharge || (calculatedSubtotal * serviceChargeRate / 100)
+    const calculatedTax = tax || ((calculatedSubtotal + calculatedServiceCharge + calculatedDeliveryFee - totalDiscountAmount) * taxRate / 100)
+    const calculatedTotal = calculatedSubtotal + calculatedServiceCharge + calculatedDeliveryFee - totalDiscountAmount + calculatedTax
+
+    // تولید شماره سفارش
+    const finalOrderNumber = orderNumber || await generateOrderNumber()
+    
+    // محاسبه زمان آماده‌سازی و تحویل
+    const estimatedReady = estimatedReadyTime || new Date(Date.now() + maxPreparationTime * 60 * 1000 + 10 * 60 * 1000)
+    const estimatedDelivery = estimatedDeliveryTime || new Date(estimatedReady.getTime() + 30 * 60 * 1000) // 30 دقیقه اضافه برای تحویل
 
     // تابع اجرای عملیات (قابل استفاده با یا بدون transaction)
     const executeOperations = async (session?: any) => {
@@ -491,8 +507,12 @@ export async function POST(request: NextRequest) {
         subtotal: calculatedSubtotal,
         tax: calculatedTax,
         serviceCharge: calculatedServiceCharge,
-        discount: discount || 0,
-        discountAmount: calculatedDiscountAmount,
+        discount: totalDiscountPercent,
+        discountAmount: totalDiscountAmount,
+        goldenCustomerDiscount: goldenDiscount.discountAmount > 0 ? {
+          percent: goldenDiscount.discountPercent,
+          amount: goldenDiscount.discountAmount
+        } : null,
         total: calculatedTotal,
         estimatedReadyTime: estimatedReady instanceof Date ? estimatedReady.toISOString() : estimatedReady,
         estimatedDeliveryTime: estimatedDelivery instanceof Date ? estimatedDelivery.toISOString() : estimatedDelivery,

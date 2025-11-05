@@ -1,6 +1,93 @@
 import { ObjectId } from 'mongodb'
 
 /**
+ * دریافت درصد تخفیف مشتریان طلایی از تنظیمات
+ */
+export async function getGoldenCustomerDiscount(db: any): Promise<number> {
+  try {
+    const settingsCollection = db.collection('restaurant_settings')
+    const settings = await settingsCollection.findOne({ type: 'restaurant' })
+    
+    if (settings && settings.financial && settings.financial.goldenCustomerDiscount !== undefined) {
+      return settings.financial.goldenCustomerDiscount
+    }
+    
+    // پیش‌فرض 2%
+    return 2
+  } catch (error) {
+    console.error('[GOLDEN_CUSTOMER_DISCOUNT] Error fetching discount:', error)
+    return 2 // پیش‌فرض
+  }
+}
+
+/**
+ * بررسی اینکه آیا مشتری طلایی است یا نه
+ */
+export async function isGoldenCustomer(
+  db: any,
+  customerId: string | null | undefined,
+  customerPhone: string | null | undefined
+): Promise<boolean> {
+  try {
+    if (!customerId && !customerPhone) {
+      return false
+    }
+    
+    const customersCollection = db.collection('customers')
+    let customer = null
+    
+    if (customerId) {
+      try {
+        customer = await customersCollection.findOne({ _id: new ObjectId(customerId) })
+      } catch (e) {
+        // Invalid ObjectId
+      }
+    }
+    
+    if (!customer && customerPhone) {
+      customer = await customersCollection.findOne({ phone: customerPhone.trim() })
+    }
+    
+    if (!customer) {
+      return false
+    }
+    
+    // بررسی نوع مشتری
+    const customerType = customer.customerType
+    return customerType === 'golden' || customerType === 'طلایی' || customerType === 'vip'
+  } catch (error) {
+    console.error('[IS_GOLDEN_CUSTOMER] Error checking customer type:', error)
+    return false
+  }
+}
+
+/**
+ * محاسبه تخفیف مشتریان طلایی
+ */
+export async function calculateGoldenCustomerDiscount(
+  db: any,
+  subtotal: number,
+  customerId: string | null | undefined,
+  customerPhone: string | null | undefined
+): Promise<{ discountPercent: number; discountAmount: number }> {
+  try {
+    const isGolden = await isGoldenCustomer(db, customerId, customerPhone)
+    
+    if (!isGolden) {
+      return { discountPercent: 0, discountAmount: 0 }
+    }
+    
+    const discountPercent = await getGoldenCustomerDiscount(db)
+    const discountAmount = (subtotal * discountPercent) / 100
+    
+    return { discountPercent, discountAmount }
+  } catch (error) {
+    console.error('[CALCULATE_GOLDEN_DISCOUNT] Error calculating discount:', error)
+    return { discountPercent: 0, discountAmount: 0 }
+  }
+}
+
+/**
  * ثبت یا به‌روزرسانی مشتری بر اساس اطلاعات سفارش
  * اگر customerId داده شده باشد، مشتری را پیدا می‌کند
  * اگر customerPhone داده شده باشد، مشتری را بر اساس شماره تماس پیدا یا ایجاد می‌کند

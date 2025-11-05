@@ -142,10 +142,12 @@ export default function MenuSetupPage() {
     fetchMenuItems(true) // فقط در بارگذاری اولیه loading نمایش بده
     fetchInventoryItems()
     
-    // Auto-refresh هر 15 ثانیه برای به‌روزرسانی خودکار منو
+    // Auto-refresh هر 60 ثانیه برای به‌روزرسانی خودکار منو (بهینه شده)
     const interval = setInterval(() => {
-      fetchMenuItems(false) // بدون نمایش loading
-    }, 15000)
+      if (document.visibilityState === 'visible') {
+        fetchMenuItems(false) // بدون نمایش loading
+      }
+    }, 60000)
     
     return () => clearInterval(interval)
   }, [])

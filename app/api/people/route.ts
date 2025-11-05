@@ -4,7 +4,7 @@ import { MongoClient, ObjectId } from 'mongodb'
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 const client = new MongoClient(MONGO_URI)
 
-// GET /api/people - دریافت لیست اشخاص
+// GET /api/people - دریافت لیست اشخاص (شامل مشتریان از collection customers)
 export async function GET(request: NextRequest) {
   try {
     await client.connect()
@@ -12,17 +12,17 @@ export async function GET(request: NextRequest) {
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '10')
+    const limit = parseInt(searchParams.get('limit') || '1000') // افزایش limit برای نمایش همه
     const search = searchParams.get('search') || ''
     const type = searchParams.get('type')
     const isActive = searchParams.get('isActive')
     
     const skip = (page - 1) * limit
     
-    // Build query
-    const query: any = {}
+    // دریافت از collection people
+    const peopleQuery: any = {}
     if (search) {
-      query.$or = [
+      peopleQuery.$or = [
         { firstName: { $regex: search, $options: 'i' } },
         { lastName: { $regex: search, $options: 'i' } },
         { phoneNumber: { $regex: search, $options: 'i' } },
@@ -31,24 +31,185 @@ export async function GET(request: NextRequest) {
       ]
     }
     if (type && type !== 'all') {
-      query.type = type
+      peopleQuery.type = type
     }
     if (isActive !== null && isActive !== undefined) {
-      query.isActive = isActive === 'true'
+      peopleQuery.isActive = isActive === 'true'
     }
     
-    const people = await db.collection('people')
-      .find(query)
+    const peopleFromCollection = await db.collection('people')
+      .find(peopleQuery)
       .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
       .toArray()
     
-    const total = await db.collection('people').countDocuments(query)
+    // دریافت مشتریان از collection customers (فقط برای type='customer' یا 'all')
+    let customersFromCollection: any[] = []
+    if (!type || type === 'all' || type === 'customer') {
+      const customersQuery: any = {}
+      if (search) {
+        customersQuery.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { firstName: { $regex: search, $options: 'i' } },
+          { lastName: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { address: { $regex: search, $options: 'i' } }
+        ]
+      }
+      if (isActive !== null && isActive !== undefined) {
+        customersQuery.status = isActive === 'true' ? 'active' : 'inactive'
+      }
+      
+      const customers = await db.collection('customers')
+        .find(customersQuery)
+        .sort({ registrationDate: -1 })
+        .toArray()
+      
+      // تبدیل مشتریان به فرمت Person
+      customersFromCollection = customers.map(customer => {
+        // تقسیم name به firstName و lastName
+        const nameParts = (customer.name || '').split(' ')
+        const firstName = customer.firstName || nameParts[0] || ''
+        const lastName = customer.lastName || nameParts.slice(1).join(' ') || ''
+        
+        return {
+          _id: customer._id,
+          id: customer._id?.toString(),
+          firstName: firstName,
+          lastName: lastName,
+          phoneNumber: customer.phone || '',
+          email: customer.email || '',
+          address: customer.address || '',
+          type: customer.customerType === 'golden' || customer.customerType === 'طلایی' ? 'golden_customer' : 'customer',
+          isActive: customer.status === 'active',
+          notes: customer.notes || '',
+          createdAt: customer.registrationDate || customer.createdAt || new Date(),
+          updatedAt: customer.updatedAt || new Date(),
+          // اطلاعات اضافی از customers
+          customerNumber: customer.customerNumber || '',
+          totalOrders: customer.totalOrders || 0,
+          totalSpent: customer.totalSpent || 0,
+          source: 'customers' // برای تشخیص اینکه از کدام collection آمده
+        }
+      })
+    }
+    
+    // دریافت مشتریان طلایی از collection customers (اگر type='golden_customer' یا 'all')
+    let goldenCustomersFromCollection: any[] = []
+    if (!type || type === 'all' || type === 'golden_customer') {
+      const goldenQuery: any = {
+        customerType: { $in: ['golden', 'طلایی', 'vip'] }
+      }
+      if (search) {
+        goldenQuery.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { firstName: { $regex: search, $options: 'i' } },
+          { lastName: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } }
+        ]
+      }
+      if (isActive !== null && isActive !== undefined) {
+        goldenQuery.status = isActive === 'true' ? 'active' : 'inactive'
+      }
+      
+      const goldenCustomers = await db.collection('customers')
+        .find(goldenQuery)
+        .sort({ registrationDate: -1 })
+        .toArray()
+      
+      goldenCustomersFromCollection = goldenCustomers.map(customer => {
+        const nameParts = (customer.name || '').split(' ')
+        const firstName = customer.firstName || nameParts[0] || ''
+        const lastName = customer.lastName || nameParts.slice(1).join(' ') || ''
+        
+        return {
+          _id: customer._id,
+          id: customer._id?.toString(),
+          firstName: firstName,
+          lastName: lastName,
+          phoneNumber: customer.phone || '',
+          email: customer.email || '',
+          address: customer.address || '',
+          type: 'golden_customer',
+          isActive: customer.status === 'active',
+          notes: customer.notes || '',
+          createdAt: customer.registrationDate || customer.createdAt || new Date(),
+          updatedAt: customer.updatedAt || new Date(),
+          customerNumber: customer.customerNumber || '',
+          totalOrders: customer.totalOrders || 0,
+          totalSpent: customer.totalSpent || 0,
+          source: 'customers'
+        }
+      })
+    }
+    
+    // ترکیب همه داده‌ها و حذف تکراری‌ها (بر اساس phone یا _id)
+    const allPeople = [...peopleFromCollection]
+    const seenIds = new Set<string>()
+    const seenPhones = new Set<string>()
+    
+    // اضافه کردن people از collection people
+    peopleFromCollection.forEach(person => {
+      if (person._id) {
+        seenIds.add(person._id.toString())
+      }
+      if (person.phoneNumber) {
+        seenPhones.add(person.phoneNumber)
+      }
+    })
+    
+    // اضافه کردن مشتریان (فقط اگر تکراری نباشند)
+    customersFromCollection.forEach(customer => {
+      const customerId = customer._id?.toString()
+      const customerPhone = customer.phoneNumber
+      
+      // اگر در people نبود و تلفن تکراری نبود، اضافه کن
+      if (customerId && !seenIds.has(customerId) && 
+          (!customerPhone || !seenPhones.has(customerPhone))) {
+        allPeople.push(customer)
+        seenIds.add(customerId)
+        if (customerPhone) {
+          seenPhones.add(customerPhone)
+        }
+      }
+    })
+    
+    // اضافه کردن مشتریان طلایی (فقط اگر تکراری نباشند)
+    goldenCustomersFromCollection.forEach(customer => {
+      const customerId = customer._id?.toString()
+      const customerPhone = customer.phoneNumber
+      
+      if (customerId && !seenIds.has(customerId) && 
+          (!customerPhone || !seenPhones.has(customerPhone))) {
+        allPeople.push(customer)
+        seenIds.add(customerId)
+        if (customerPhone) {
+          seenPhones.add(customerPhone)
+        }
+      }
+    })
+    
+    // فیلتر بر اساس type (اگر مشخص شده)
+    let filteredPeople = allPeople
+    if (type && type !== 'all') {
+      filteredPeople = allPeople.filter(person => person.type === type)
+    }
+    
+    // مرتب‌سازی بر اساس createdAt
+    filteredPeople.sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0).getTime()
+      const dateB = new Date(b.createdAt || 0).getTime()
+      return dateB - dateA
+    })
+    
+    // Pagination
+    const total = filteredPeople.length
+    const paginatedPeople = filteredPeople.slice(skip, skip + limit)
     
     return NextResponse.json({
       success: true,
-      data: people,
+      data: paginatedPeople,
       pagination: {
         page,
         limit,
@@ -86,7 +247,11 @@ export async function POST(request: NextRequest) {
       address, 
       type, 
       isActive, 
-      notes 
+      notes,
+      salary,
+      position,
+      businessName,
+      supplierType
     } = body
 
     // Validate required fields
@@ -97,10 +262,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate employee fields
+    if (type === 'employee' && !position) {
+      return NextResponse.json(
+        { success: false, message: 'سمت کارمند اجباری است' },
+        { status: 400 }
+      )
+    }
+
+    // Validate supplier fields
+    if (type === 'supplier') {
+      if (!businessName || !businessName.trim()) {
+        return NextResponse.json(
+          { success: false, message: 'نام فروشگاه/شرکت/کارخانه الزامی است' },
+          { status: 400 }
+        )
+      }
+      if (!supplierType || !supplierType.trim()) {
+        return NextResponse.json(
+          { success: false, message: 'نوع تأمین‌کننده الزامی است' },
+          { status: 400 }
+        )
+      }
+    }
+
     await client.connect()
     const db = client.db('restoren')
     
-    const personData = {
+    const personData: any = {
       firstName: String(firstName),
       lastName: String(lastName),
       phoneNumber: phoneNumber ? String(phoneNumber) : null,
@@ -111,6 +300,18 @@ export async function POST(request: NextRequest) {
       notes: notes ? String(notes) : null,
       createdAt: new Date(),
       updatedAt: new Date()
+    }
+
+    // اضافه کردن فیلدهای مخصوص کارکنان
+    if (type === 'employee') {
+      personData.position = position ? String(position) : null
+      personData.salary = salary !== undefined && salary !== null ? Number(salary) : 0
+    }
+
+    // اضافه کردن فیلدهای مخصوص تأمین‌کنندگان
+    if (type === 'supplier') {
+      personData.businessName = businessName ? String(businessName) : null
+      personData.supplierType = supplierType ? String(supplierType) : null
     }
 
     console.log('Creating person with data:', personData)
@@ -188,6 +389,18 @@ export async function PUT(request: NextRequest) {
     }
     if (updateFields.isActive !== undefined) {
       updateFields.isActive = Boolean(updateFields.isActive)
+    }
+    if (updateFields.position !== undefined) {
+      updateFields.position = updateFields.position ? String(updateFields.position) : null
+    }
+    if (updateFields.salary !== undefined) {
+      updateFields.salary = updateFields.salary !== null ? Number(updateFields.salary) : 0
+    }
+    if (updateFields.businessName !== undefined) {
+      updateFields.businessName = updateFields.businessName ? String(updateFields.businessName) : null
+    }
+    if (updateFields.supplierType !== undefined) {
+      updateFields.supplierType = updateFields.supplierType ? String(updateFields.supplierType) : null
     }
 
     console.log('Updating person with data:', updateFields)

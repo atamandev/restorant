@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { 
   Clock, 
   User, 
@@ -49,7 +49,7 @@ interface Order {
   total: number
   orderTime: string
   estimatedTime: string
-  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed'
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'completed'
   notes: string
   paymentMethod: 'cash' | 'card' | 'credit'
   priority: 'normal' | 'high' | 'urgent'
@@ -69,36 +69,33 @@ export default function OrdersManagementClient() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
+  const loadingRef = useRef(false)
+  const mountedRef = useRef(false)
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
+    // جلوگیری از load های همزمان
+    if (loadingRef.current) return
+    
     try {
+      loadingRef.current = true
       setLoading(true)
       const response = await fetch('/api/orders')
       const result = await response.json()
       if (result.success) {
         // پاکسازی آیتم‌های تکراری از هر سفارش
-        const cleanedOrders = result.data.map((order: Order, orderIdx: number) => {
+        const cleanedOrders = result.data.map((order: Order) => {
           if (order.items && Array.isArray(order.items)) {
-            const originalLength = order.items.length
             // حذف آیتم‌های تکراری بر اساس id یا menuItemId
-            // فقط اولین آیتم با هر id نگه داشته می‌شود
             const uniqueItems = order.items.filter((item: any, index: number, self: any[]) => {
               const itemId = item.id || item.menuItemId
               if (!itemId) {
-                // اگر id نداشت، همه آیتم‌های بدون id را نگه دار
                 return true
               }
-              // پیدا کردن اولین آیتم با این id
               const firstIndex = self.findIndex((i: any) => 
                 (i.id || i.menuItemId) === itemId
               )
               return index === firstIndex
             })
-            
-            // بررسی و لاگ کردن در صورت حذف آیتم‌های تکراری
-            if (uniqueItems.length < originalLength) {
-              console.log(`✅ سفارش ${orderIdx} (${order.orderNumber}): ${originalLength} آیتم → ${uniqueItems.length} آیتم (${originalLength - uniqueItems.length} آیتم تکراری حذف شد)`)
-            }
             
             return {
               ...order,
@@ -108,32 +105,36 @@ export default function OrdersManagementClient() {
           return order
         })
         
-        // لاگ کردن تعداد آیتم‌های هر سفارش برای بررسی
-        console.log('📊 تعداد آیتم‌های هر سفارش:', cleanedOrders.map(o => ({ 
-          orderNumber: o.orderNumber, 
-          itemsCount: o.items?.length || 0 
-        })))
-        
         setOrders(cleanedOrders)
       }
     } catch (error) {
       console.error('Error loading orders:', error)
     } finally {
       setLoading(false)
+      loadingRef.current = false
     }
-  }
+  }, [])
 
   useEffect(() => {
     setMounted(true)
+    mountedRef.current = true
+    
+    // فقط یک بار load کن
     loadOrders()
     
-    // Auto-refresh هر 5 ثانیه برای به‌روزرسانی خودکار
+    // Auto-refresh هر 60 ثانیه (بدون dependency ها برای جلوگیری از re-render)
     const interval = setInterval(() => {
-      loadOrders()
-    }, 5000)
+      if (mountedRef.current && document.visibilityState === 'visible' && !loadingRef.current) {
+        loadOrders()
+      }
+    }, 60000)
     
-    return () => clearInterval(interval)
-  }, [])
+    return () => {
+      clearInterval(interval)
+      mountedRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // فقط یک بار اجرا شود - loadOrders با useCallback memoize شده
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -221,6 +222,7 @@ export default function OrdersManagementClient() {
       case 'confirmed': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
       case 'preparing': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
       case 'ready': return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+      case 'delivered': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
       case 'completed': return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
       default: return 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
     }
@@ -232,6 +234,7 @@ export default function OrdersManagementClient() {
       case 'confirmed': return 'تایید شده'
       case 'preparing': return 'در حال آماده‌سازی'
       case 'ready': return 'آماده'
+      case 'delivered': return 'تحویل داده شده'
       case 'completed': return 'تکمیل شده'
       default: return 'نامشخص'
     }
@@ -524,6 +527,7 @@ export default function OrdersManagementClient() {
                 <option value="confirmed">تایید شده</option>
                 <option value="preparing">در حال آماده‌سازی</option>
                 <option value="ready">آماده</option>
+                <option value="delivered">تحویل داده شده</option>
                 <option value="completed">تکمیل شده</option>
               </select>
               <select
@@ -723,11 +727,21 @@ export default function OrdersManagementClient() {
                       )}
                       {order.status === 'ready' && (
                         <button
+                          onClick={() => updateOrderStatus(order._id!, 'delivered')}
+                          disabled={loading}
+                          className="w-full flex items-center justify-center space-x-2 space-x-reverse px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        >
+                          <Package className="w-4 h-4" />
+                          <span>تحویل سفارش</span>
+                        </button>
+                      )}
+                      {order.status === 'delivered' && (
+                        <button
                           onClick={() => updateOrderStatus(order._id!, 'completed')}
                           disabled={loading}
                           className="w-full flex items-center justify-center space-x-2 space-x-reverse px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                         >
-                          <Star className="w-4 h-4" />
+                          <CheckCircle className="w-4 h-4" />
                           <span>تکمیل سفارش</span>
                         </button>
                       )}

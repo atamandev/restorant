@@ -176,18 +176,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!branchId) {
-      return NextResponse.json(
-        { success: false, message: 'شناسه شعبه اجباری است' },
-        { status: 400 }
-      )
+    // اگر branchId ارائه نشده، از اولین شعبه فعال استفاده کن
+    let finalBranchId = branchId
+    if (!finalBranchId) {
+      const defaultBranch = await db.collection('branches').findOne({ isActive: true })
+      if (!defaultBranch) {
+        return NextResponse.json(
+          { success: false, message: 'هیچ شعبه فعالی یافت نشد. لطفاً ابتدا یک شعبه ایجاد کنید.' },
+          { status: 400 }
+        )
+      }
+      finalBranchId = defaultBranch._id.toString()
+      console.log('[QUICK_SALES] Using default branch:', finalBranchId)
     }
 
     // بررسی وجود شعبه
-    const branch = await db.collection('branches').findOne({ 
-      _id: new ObjectId(branchId),
-      isActive: true
-    })
+    let branch
+    try {
+      branch = await db.collection('branches').findOne({ 
+        _id: new ObjectId(finalBranchId),
+        isActive: true
+      })
+    } catch (e) {
+      return NextResponse.json(
+        { success: false, message: 'شناسه شعبه نامعتبر است' },
+        { status: 400 }
+      )
+    }
+    
     if (!branch) {
       return NextResponse.json(
         { success: false, message: 'شعبه یافت نشد یا غیرفعال است' },
@@ -199,7 +215,7 @@ export async function POST(request: NextRequest) {
     if (cashRegisterId) {
       const cashRegister = await db.collection('cash_registers').findOne({ 
         _id: new ObjectId(cashRegisterId),
-        branchId: new ObjectId(branchId),
+        branchId: new ObjectId(finalBranchId),
         isActive: true
       })
       if (!cashRegister) {
@@ -352,7 +368,7 @@ export async function POST(request: NextRequest) {
           status: 'paid',
           paymentMethod: paymentMethod || 'cash',
           notes: notes || '',
-          branchId: new ObjectId(branchId),
+          branchId: new ObjectId(finalBranchId),
           cashRegisterId: cashRegisterId ? new ObjectId(cashRegisterId) : null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
@@ -599,7 +615,7 @@ export async function POST(request: NextRequest) {
         // 6. ذخیره فروش سریع
         const quickSaleData = {
           invoiceId: invoiceId.toString(),
-          branchId: branchId,
+          branchId: finalBranchId,
           cashRegisterId: cashRegisterId || null,
           cashierSessionId: cashierSessionId || null,
           customerId: customerId || null,

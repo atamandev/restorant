@@ -86,10 +86,12 @@ export default function InitialInventoryPage() {
   useEffect(() => {
     fetchInventoryItems()
     
-    // Auto-refresh هر 10 ثانیه برای به‌روزرسانی خودکار موجودی
+    // Auto-refresh هر 60 ثانیه برای به‌روزرسانی خودکار موجودی (بهینه شده)
     const interval = setInterval(() => {
-      fetchInventoryItems()
-    }, 10000)
+      if (document.visibilityState === 'visible') {
+        fetchInventoryItems()
+      }
+    }, 60000)
     
     return () => clearInterval(interval)
   }, [])

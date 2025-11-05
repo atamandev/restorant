@@ -100,6 +100,8 @@ export default function Dashboard() {
   const [recentCheques, setRecentCheques] = useState<any[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
   const [chartPeriod, setChartPeriod] = useState<'today' | 'month' | '6months' | 'year'>('month')
+  const [activeCustomersCount, setActiveCustomersCount] = useState(0)
+  const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0)
 
   // Fetch dashboard data - optimized with parallel requests
   const fetchDashboardData = useCallback(async (period?: 'today' | 'month' | '6months' | 'year') => {
@@ -134,7 +136,8 @@ export default function Dashboard() {
         topItemsRes,
         invoicesRes,
         chequesRes,
-        alertsRes
+        alertsRes,
+        customersRes
       ] = await Promise.allSettled([
         fetch('/api/dashboard'),
         fetch('/api/dashboard/summary'),
@@ -144,7 +147,8 @@ export default function Dashboard() {
         fetch('/api/reports/top-menu-items?limit=5'),
         fetch('/api/invoices?limit=5&type=sales&sortBy=createdAt&sortOrder=desc'),
         fetch('/api/cheques?limit=5&sortBy=createdAt&sortOrder=desc'),
-        fetch('/api/stock-alerts?status=active&limit=5')
+        fetch('/api/stock-alerts?status=active&limit=5'),
+        fetch('/api/customers?status=active&limit=1000') // دریافت مشتریان فعال
       ])
 
       // Process dashboard data
@@ -319,6 +323,40 @@ export default function Dashboard() {
           setNotifications([])
         }
       }
+
+      // Process customers data - همگام با /customers/list
+      if (customersRes.status === 'fulfilled') {
+        try {
+          const result = await customersRes.value.json()
+          if (result.success && result.data) {
+            // تعداد مشتریان فعال (همان داده‌ای که در /customers/list نمایش داده می‌شود)
+            const activeCount = result.data.length || 0
+            setActiveCustomersCount(activeCount)
+
+            // محاسبه مشتریان جدید این ماه (مشتریانی که این ماه ثبت شده‌اند)
+            const now = new Date()
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+            const newCustomersThisMonth = result.data.filter((customer: any) => {
+              if (!customer.registrationDate) return false
+              const regDate = new Date(customer.registrationDate)
+              return regDate >= startOfMonth
+            }).length
+            setNewCustomersThisMonth(newCustomersThisMonth)
+          } else {
+            setActiveCustomersCount(0)
+            setNewCustomersThisMonth(0)
+          }
+        } catch (error) {
+          console.error('Error parsing customers:', error)
+          setActiveCustomersCount(0)
+          setNewCustomersThisMonth(0)
+        }
+      } else {
+        // اگر API call fail شود
+        console.error('Failed to fetch customers:', customersRes.reason)
+        setActiveCustomersCount(0)
+        setNewCustomersThisMonth(0)
+      }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
     } finally {
@@ -351,15 +389,15 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Auto-refresh every 10 seconds for real-time updates
+  // Auto-refresh every 60 seconds for real-time updates (بهینه شده)
   useEffect(() => {
     if (!user) return
     
     const refreshInterval = setInterval(() => {
-      if (!refreshing) {
+      if (!refreshing && document.visibilityState === 'visible') {
         fetchDashboardData()
       }
-    }, 10000) // 10 seconds for real-time dashboard
+    }, 60000) // 60 seconds - کاهش بار سرور
 
     return () => {
       clearInterval(refreshInterval)
@@ -393,9 +431,9 @@ export default function Dashboard() {
       },
       {
         title: 'مشتریان فعال',
-        value: dashboardData.todaySales?.customers.toLocaleString('fa-IR') || '0',
+        value: activeCustomersCount.toLocaleString('fa-IR'),
         currency: 'نفر',
-        change: dashboardData.loyalCustomersStats ? `+${dashboardData.loyalCustomersStats.newThisMonth}` : '+0',
+        change: newCustomersThisMonth > 0 ? `+${newCustomersThisMonth} این ماه` : '0',
         changeType: 'positive',
         icon: Users,
         color: 'from-purple-500 to-violet-600',
@@ -513,9 +551,9 @@ export default function Dashboard() {
       </div>
 
       {/* Charts Section - همیشه نمایش داده می‌شود */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
         {/* Sales Chart */}
-        <div className="lg:col-span-2 premium-card p-6 border-2 border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600 transition-all duration-300 shadow-lg">
+        <div className="lg:col-span-3 premium-card p-6 border-2 border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600 transition-all duration-300 shadow-lg">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3 space-x-reverse">
               <div className="w-12 h-12 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center shadow-lg">
@@ -589,16 +627,16 @@ export default function Dashboard() {
             </div>
           </div>
           {/* Chart Container */}
-          <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-xl p-4 pb-10 border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 pb-8 border border-gray-200 dark:border-gray-700 shadow-sm">
             {refreshing && salesChartData.length === 0 ? (
-              <div className="h-80 flex items-center justify-center">
+              <div className="h-[450px] flex items-center justify-center">
                 <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-                  <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری نمودار...</p>
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                  <p className="text-gray-400">در حال بارگذاری نمودار...</p>
                 </div>
               </div>
             ) : (
-              <div className="h-80 pb-8">
+              <div className="h-[450px] w-full">
                 <LineChart 
                   data={salesChartData.length > 0 ? salesChartData.map(item => ({
                     month: item.label || item.month || '',
@@ -627,21 +665,21 @@ export default function Dashboard() {
           {/* Summary Stats */}
           {salesChartData.length > 0 && (
             <div className="mt-4 grid grid-cols-3 gap-4">
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
-                <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">کل فروش</p>
-                <p className="text-lg font-bold text-blue-700 dark:text-blue-300">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">کل فروش</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
                   {salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0).toLocaleString('fa-IR')} تومان
                 </p>
               </div>
-              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 border border-green-200 dark:border-green-800">
-                <p className="text-xs text-green-600 dark:text-green-400 mb-1">کل سود</p>
-                <p className="text-lg font-bold text-green-700 dark:text-green-300">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">کل سود</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
                   {salesChartData.reduce((sum, item) => sum + (item.profit || 0), 0).toLocaleString('fa-IR')} تومان
                 </p>
               </div>
-              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border border-purple-200 dark:border-purple-800">
-                <p className="text-xs text-purple-600 dark:text-purple-400 mb-1">میانگین روزانه</p>
-                <p className="text-lg font-bold text-purple-700 dark:text-purple-300">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">میانگین روزانه</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
                   {(salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0) / Math.max(salesChartData.length, 1)).toLocaleString('fa-IR')} تومان
                 </p>
               </div>

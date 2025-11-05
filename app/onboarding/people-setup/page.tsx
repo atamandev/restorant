@@ -21,7 +21,9 @@ import {
   Star,
   CheckCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  Info,
+  DollarSign
 } from 'lucide-react'
 
 interface Person {
@@ -37,6 +39,27 @@ interface Person {
   notes?: string
   createdAt?: Date | string
   updatedAt?: Date | string
+  source?: 'customers' | 'people' // برای تشخیص اینکه از کدام collection آمده
+  customerNumber?: string
+  totalOrders?: number
+  totalSpent?: number
+  // فیلدهای مخصوص کارکنان
+  salary?: number
+  position?: string // سمت/نوع کار (گارسون، آشپز، صندوقدار، مدیر و ...)
+  // فیلدهای مخصوص تأمین‌کنندگان
+  businessName?: string // نام فروشگاه/شرکت/کارخانه
+  supplierType?: string // نوع تأمین‌کننده (چه چیزی تأمین می‌کند)
+}
+
+interface Customer {
+  _id: string
+  customerNumber: string
+  name?: string
+  firstName?: string
+  lastName?: string
+  phone: string
+  email?: string
+  customerType: 'regular' | 'vip' | 'golden'
 }
 
 const personTypes = [
@@ -89,8 +112,16 @@ export default function PeopleSetupPage() {
     address: '',
     type: 'customer',
     isActive: true,
-    notes: ''
+    notes: '',
+    salary: 0,
+    position: '',
+    businessName: '',
+    supplierType: ''
   })
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
+  const [goldenDiscountPercent, setGoldenDiscountPercent] = useState<number>(2)
+  const [loadingCustomers, setLoadingCustomers] = useState(false)
 
   // دریافت لیست اشخاص
   const fetchPeople = async () => {
@@ -116,6 +147,61 @@ export default function PeopleSetupPage() {
     fetchPeople()
   }, [])
 
+  // دریافت لیست مشتریان برای انتخاب مشتریان طلایی
+  const fetchCustomers = async () => {
+    try {
+      setLoadingCustomers(true)
+      const response = await fetch('/api/customers')
+      const data = await response.json()
+      
+      if (data.success) {
+        setCustomers(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching customers:', error)
+    } finally {
+      setLoadingCustomers(false)
+    }
+  }
+
+  // دریافت درصد تخفیف از تنظیمات
+  const fetchGoldenDiscount = async () => {
+    try {
+      const response = await fetch('/api/restaurant-settings')
+      const data = await response.json()
+      
+      if (data.success && data.data?.financial?.goldenCustomerDiscount) {
+        setGoldenDiscountPercent(data.data.financial.goldenCustomerDiscount)
+      }
+    } catch (error) {
+      console.error('Error fetching golden discount:', error)
+    }
+  }
+
+  // وقتی نوع شخص به مشتریان طلایی تغییر کرد
+  useEffect(() => {
+    if (formData.type === 'golden_customer') {
+      fetchCustomers()
+      fetchGoldenDiscount()
+    }
+  }, [formData.type])
+
+  // وقتی مشتری انتخاب شد، اطلاعات آن را در formData قرار بده
+  useEffect(() => {
+    if (selectedCustomerId && formData.type === 'golden_customer') {
+      const selectedCustomer = customers.find(c => c._id === selectedCustomerId)
+      if (selectedCustomer) {
+        setFormData(prev => ({
+          ...prev,
+          firstName: selectedCustomer.firstName || '',
+          lastName: selectedCustomer.lastName || '',
+          phoneNumber: selectedCustomer.phone || '',
+          email: selectedCustomer.email || '',
+        }))
+      }
+    }
+  }, [selectedCustomerId, customers, formData.type])
+
   const handleInputChange = (field: keyof Person, value: any) => {
     setFormData(prev => ({
       ...prev,
@@ -124,9 +210,89 @@ export default function PeopleSetupPage() {
   }
 
   const handleSave = async () => {
+    // اگر مشتریان طلایی انتخاب شده، باید مشتری انتخاب شده باشد
+    if (formData.type === 'golden_customer') {
+      if (!selectedCustomerId) {
+        setError('لطفاً یک مشتری را برای تبدیل به طلایی انتخاب کنید')
+        return
+      }
+      try {
+        setSaving(true)
+        setError('')
+
+        // تبدیل مشتری به طلایی
+        const updateCustomerResponse = await fetch(`/api/customers/${selectedCustomerId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customerType: 'golden'
+          }),
+        })
+
+        const customerUpdateData = await updateCustomerResponse.json()
+
+        if (!customerUpdateData.success) {
+          setError(customerUpdateData.message || 'خطا در تبدیل مشتری به طلایی')
+          return
+        }
+
+        // به‌روزرسانی درصد تخفیف در تنظیمات (اگر تغییر کرده)
+        const currentSettingsResponse = await fetch('/api/restaurant-settings')
+        const currentSettingsData = await currentSettingsResponse.json()
+        
+        if (currentSettingsData.success && 
+            currentSettingsData.data?.financial?.goldenCustomerDiscount !== goldenDiscountPercent) {
+          await fetch('/api/restaurant-settings', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              category: 'restaurant',
+              financial: {
+                ...currentSettingsData.data.financial,
+                goldenCustomerDiscount: goldenDiscountPercent
+              }
+            }),
+          })
+        }
+
+        alert(`مشتری با موفقیت به مشتریان طلایی تبدیل شد و تخفیف ${goldenDiscountPercent}% برای آن تنظیم شد.`)
+        await fetchPeople() // دریافت مجدد لیست
+        resetForm()
+      } catch (error) {
+        console.error('Error saving golden customer:', error)
+        setError('خطا در اتصال به سرور')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    // برای سایر انواع اشخاص، همان منطق قبلی
     if (!formData.firstName.trim() || !formData.lastName.trim()) {
       setError('نام و نام خانوادگی الزامی است')
       return
+    }
+
+    // اعتبارسنجی برای کارکنان
+    if (formData.type === 'employee' && !formData.position?.trim()) {
+      setError('سمت کارمند الزامی است')
+      return
+    }
+
+    // اعتبارسنجی برای تأمین‌کنندگان
+    if (formData.type === 'supplier') {
+      if (!formData.businessName?.trim()) {
+        setError('نام فروشگاه/شرکت/کارخانه الزامی است')
+        return
+      }
+      if (!formData.supplierType?.trim()) {
+        setError('نوع تأمین‌کننده الزامی است')
+        return
+      }
     }
 
     try {
@@ -172,6 +338,12 @@ export default function PeopleSetupPage() {
   }
 
   const handleEdit = (person: Person) => {
+    // اگر از collection customers است، هشدار بده
+    if (person.source === 'customers') {
+      alert('این مشتری از بخش مشتریان آمده است. برای ویرایش، لطفاً از بخش "مشتریان" استفاده کنید.')
+      return
+    }
+    
     // فقط فیلدهای مورد نیاز را در formData قرار می‌دهیم
     setFormData({
       firstName: person.firstName,
@@ -181,13 +353,25 @@ export default function PeopleSetupPage() {
       address: person.address || '',
       type: person.type,
       isActive: person.isActive,
-      notes: person.notes || ''
+      notes: person.notes || '',
+      salary: person.salary || 0,
+      position: person.position || '',
+      businessName: person.businessName || '',
+      supplierType: person.supplierType || ''
     })
     setEditingPerson(person)
     setIsAddingNew(true)
   }
 
   const handleDelete = async (id: string) => {
+    const person = people.find(p => (p._id || p.id) === id)
+    
+    // اگر از collection customers است، اجازه حذف نده
+    if (person?.source === 'customers') {
+      alert('این مشتری از بخش مشتریان آمده است و نمی‌توان آن را از اینجا حذف کرد. برای حذف، لطفاً از بخش "مشتریان" استفاده کنید.')
+      return
+    }
+    
     if (!confirm('آیا مطمئن هستید که می‌خواهید این شخص را حذف کنید؟')) return
 
     try {
@@ -229,8 +413,14 @@ export default function PeopleSetupPage() {
       address: '',
       type: 'customer',
       isActive: true,
-      notes: ''
+      notes: '',
+      salary: 0,
+      position: '',
+      businessName: '',
+      supplierType: ''
     })
+    setSelectedCustomerId('')
+    setGoldenDiscountPercent(2)
     setIsAddingNew(false)
     setEditingPerson(null)
     setError('')
@@ -443,6 +633,69 @@ export default function PeopleSetupPage() {
                   />
                 </div>
               </div>
+
+              {/* انتخاب مشتری برای مشتریان طلایی */}
+              {formData.type === 'golden_customer' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <span className="flex items-center space-x-2 space-x-reverse">
+                        <Crown className="w-4 h-4 text-yellow-600" />
+                        <span>انتخاب مشتری برای تبدیل به طلایی *</span>
+                      </span>
+                    </label>
+                    {loadingCustomers ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                        <span className="mr-2 text-sm text-gray-500">در حال بارگذاری...</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedCustomerId}
+                        onChange={(e) => setSelectedCustomerId(e.target.value)}
+                        className="premium-input w-full"
+                        required
+                      >
+                        <option value="">-- انتخاب مشتری --</option>
+                        {customers
+                          .filter(c => c.customerType !== 'golden') // فقط مشتریان غیرطلایی نمایش داده شوند
+                          .map(customer => (
+                            <option key={customer._id} value={customer._id}>
+                              {customer.customerNumber} - {customer.firstName} {customer.lastName} ({customer.phone})
+                            </option>
+                          ))}
+                      </select>
+                    )}
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      مشتری انتخاب شده به عنوان مشتری طلایی ثبت خواهد شد
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <span className="flex items-center space-x-2 space-x-reverse">
+                        <span>درصد تخفیف مشتریان طلایی</span>
+                        <Info className="w-4 h-4 text-gray-400" />
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={goldenDiscountPercent}
+                        onChange={(e) => setGoldenDiscountPercent(Number(e.target.value))}
+                        className="premium-input pr-8 w-full"
+                      />
+                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 dark:text-gray-400">%</span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      این درصد تخفیف برای همه مشتریان طلایی اعمال می‌شود
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Right Column */}
@@ -477,6 +730,125 @@ export default function PeopleSetupPage() {
                   className="premium-input w-full resize-none"
                 />
               </div>
+
+              {/* فیلدهای مخصوص کارکنان */}
+              {formData.type === 'employee' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <span className="flex items-center space-x-2 space-x-reverse">
+                        <UserCheck className="w-4 h-4" />
+                        <span>سمت/نوع کار *</span>
+                      </span>
+                    </label>
+                    <select
+                      value={formData.position || ''}
+                      onChange={(e) => handleInputChange('position', e.target.value)}
+                      className="premium-input w-full"
+                      required={formData.type === 'employee'}
+                    >
+                      <option value="">-- انتخاب سمت --</option>
+                      <option value="گارسون">گارسون</option>
+                      <option value="آشپز">آشپز</option>
+                      <option value="کمک آشپز">کمک آشپز</option>
+                      <option value="صندوقدار">صندوقدار</option>
+                      <option value="مدیر">مدیر</option>
+                      <option value="مدیر خدمات">مدیر خدمات</option>
+                      <option value="پیشخدمت">پیشخدمت</option>
+                      <option value="آشپز قنادی">آشپز قنادی</option>
+                      <option value="نگهبان">نگهبان</option>
+                      <option value="نظافتچی">نظافتچی</option>
+                      <option value="تحویلدار">تحویلدار</option>
+                      <option value="انباردار">انباردار</option>
+                      <option value="سایر">سایر</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      سمت یا نوع کاری که کارمند در رستوران انجام می‌دهد
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <span className="flex items-center space-x-2 space-x-reverse">
+                        <DollarSign className="w-4 h-4" />
+                        <span>میزان حقوق (تومان)</span>
+                      </span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1000"
+                      value={formData.salary || 0}
+                      onChange={(e) => handleInputChange('salary', Number(e.target.value))}
+                      placeholder="مثال: 5000000"
+                      className="premium-input w-full"
+                    />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      حقوق ماهانه کارمند را وارد کنید
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* فیلدهای مخصوص تأمین‌کنندگان */}
+              {formData.type === 'supplier' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <span className="flex items-center space-x-2 space-x-reverse">
+                        <Building2 className="w-4 h-4" />
+                        <span>نام فروشگاه/شرکت/کارخانه *</span>
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.businessName || ''}
+                      onChange={(e) => handleInputChange('businessName', e.target.value)}
+                      placeholder="مثال: شرکت مواد غذایی پارس، فروشگاه سبزیجات مرکزی، کارخانه لبنیات صالح"
+                      className="premium-input w-full"
+                      required={formData.type === 'supplier'}
+                    />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      نام رسمی یا تجاری فروشگاه، شرکت یا کارخانه تأمین‌کننده
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <span className="flex items-center space-x-2 space-x-reverse">
+                        <Building2 className="w-4 h-4" />
+                        <span>نوع تأمین‌کننده *</span>
+                      </span>
+                    </label>
+                    <select
+                      value={formData.supplierType || ''}
+                      onChange={(e) => handleInputChange('supplierType', e.target.value)}
+                      className="premium-input w-full"
+                      required={formData.type === 'supplier'}
+                    >
+                      <option value="">-- انتخاب نوع تأمین‌کننده --</option>
+                      <option value="مواد اولیه">مواد اولیه</option>
+                      <option value="سبزیجات">سبزیجات</option>
+                      <option value="گوشت و مرغ">گوشت و مرغ</option>
+                      <option value="لبنیات">لبنیات</option>
+                      <option value="نان و خمیر">نان و خمیر</option>
+                      <option value="نوشیدنی">نوشیدنی</option>
+                      <option value="ادویه و چاشنی">ادویه و چاشنی</option>
+                      <option value="روغن و چربی">روغن و چربی</option>
+                      <option value="میوه و خشکبار">میوه و خشکبار</option>
+                      <option value="غلات و حبوبات">غلات و حبوبات</option>
+                      <option value="تجهیزات آشپزخانه">تجهیزات آشپزخانه</option>
+                      <option value="ظروف و سرویس">ظروف و سرویس</option>
+                      <option value="مواد شوینده">مواد شوینده</option>
+                      <option value="بسته‌بندی">بسته‌بندی</option>
+                      <option value="سایر">سایر</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      نوع محصول یا خدماتی که این تأمین‌کننده ارائه می‌دهد
+                    </p>
+                  </div>
+                </>
+              )}
 
               {/* Status */}
               <div className="flex items-center space-x-4 space-x-reverse">
@@ -612,6 +984,11 @@ export default function PeopleSetupPage() {
                   </div>
 
                   <div className="space-y-2 mb-4">
+                    {person.customerNumber && (
+                      <div className="flex items-center space-x-2 space-x-reverse text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        <span>شماره مشتری: {person.customerNumber}</span>
+                      </div>
+                    )}
                     {person.phoneNumber && (
                       <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-300">
                         <Phone className="w-4 h-4" />
@@ -630,6 +1007,36 @@ export default function PeopleSetupPage() {
                         <span className="line-clamp-1">{person.address}</span>
                       </div>
                     )}
+                    {person.source === 'customers' && (person.totalOrders !== undefined || person.totalSpent !== undefined) && (
+                      <div className="flex items-center space-x-2 space-x-reverse text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                        {person.totalOrders !== undefined && (
+                          <span>سفارشات: {person.totalOrders}</span>
+                        )}
+                        {person.totalSpent !== undefined && (
+                          <span>• خرید کل: {person.totalSpent.toLocaleString('fa-IR')} تومان</span>
+                        )}
+                      </div>
+                    )}
+                    {person.type === 'employee' && (person.position || person.salary) && (
+                      <div className="flex items-center space-x-2 space-x-reverse text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                        {person.position && (
+                          <span>سمت: {person.position}</span>
+                        )}
+                        {person.salary !== undefined && person.salary > 0 && (
+                          <span>• حقوق: {person.salary.toLocaleString('fa-IR')} تومان</span>
+                        )}
+                      </div>
+                    )}
+                    {person.type === 'supplier' && (person.businessName || person.supplierType) && (
+                      <div className="flex items-center space-x-2 space-x-reverse text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                        {person.businessName && (
+                          <span>شرکت: {person.businessName}</span>
+                        )}
+                        {person.supplierType && (
+                          <span>• نوع: {person.supplierType}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {person.notes && (
@@ -639,20 +1046,28 @@ export default function PeopleSetupPage() {
                   )}
 
                   <div className="flex space-x-2 space-x-reverse">
-                    <button
-                      onClick={() => handleEdit(person)}
-                      disabled={saving}
-                      className="flex-1 px-3 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm disabled:opacity-50"
-                    >
-                      ویرایش
-                    </button>
-                    <button
-                      onClick={() => handleDelete(person._id || person.id || '')}
-                      disabled={saving}
-                      className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50"
-                    >
-                      حذف
-                    </button>
+                    {person.source === 'customers' ? (
+                      <div className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg text-sm text-center">
+                        از بخش مشتریان
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleEdit(person)}
+                          disabled={saving}
+                          className="flex-1 px-3 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm disabled:opacity-50"
+                        >
+                          ویرایش
+                        </button>
+                        <button
+                          onClick={() => handleDelete(person._id || person.id || '')}
+                          disabled={saving}
+                          className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm disabled:opacity-50"
+                        >
+                          حذف
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )

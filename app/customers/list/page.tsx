@@ -14,6 +14,7 @@ import {
   MapPin, 
   Calendar, 
   Star,
+  Crown,
   ShoppingBag,
   DollarSign,
   TrendingUp,
@@ -104,10 +105,12 @@ export default function CustomersListPage() {
   useEffect(() => {
     loadCustomers()
     
-    // Auto-refresh هر 10 ثانیه برای به‌روزرسانی خودکار آمار مشتریان
+    // Auto-refresh هر 60 ثانیه برای به‌روزرسانی خودکار آمار مشتریان (بهینه شده)
     const interval = setInterval(() => {
-      loadCustomers()
-    }, 10000)
+      if (document.visibilityState === 'visible') {
+        loadCustomers()
+      }
+    }, 60000)
     
     return () => clearInterval(interval)
   }, [])
@@ -314,6 +317,52 @@ export default function CustomersListPage() {
       // On error, reload to restore state
       await loadCustomers()
       alert('خطا در حذف مشتری')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleToggleGoldenCustomer = async (customer: Customer) => {
+    const isCurrentlyGolden = customer.customerType === 'golden'
+    const newType = isCurrentlyGolden ? 'regular' : 'golden'
+    const actionText = isCurrentlyGolden ? 'حذف از مشتریان طلایی' : 'تبدیل به مشتری طلایی'
+    
+    if (!confirm(`آیا مطمئن هستید که می‌خواهید ${actionText}؟`)) return
+    
+    try {
+      setLoading(true)
+      
+      // Optimistic update
+      setCustomers(prev => prev.map(c => 
+        c._id === customer._id ? { ...c, customerType: newType } : c
+      ))
+      
+      const response = await fetch(`/api/customers/${customer._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({
+          customerType: newType
+        })
+      })
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        // If update failed, reload to restore state
+        await loadCustomers()
+        alert('خطا در تغییر نوع مشتری: ' + result.message)
+      } else {
+        // Success - reload to sync
+        await loadCustomers()
+        alert(isCurrentlyGolden ? 'مشتری از لیست مشتریان طلایی حذف شد' : 'مشتری به مشتریان طلایی اضافه شد')
+      }
+    } catch (error) {
+      console.error('Error updating customer type:', error)
+      // On error, reload to restore state
+      await loadCustomers()
+      alert('خطا در تغییر نوع مشتری')
     } finally {
       setLoading(false)
     }
@@ -588,14 +637,27 @@ export default function CustomersListPage() {
                           <button
                             onClick={() => setSelectedCustomer(customer)}
                             className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300"
+                            title="مشاهده جزئیات"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => openEditForm(customer)}
                             className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                            title="ویرایش"
                           >
                             <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleGoldenCustomer(customer)}
+                            className={`${
+                              customer.customerType === 'golden' 
+                                ? 'text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300' 
+                                : 'text-gray-400 hover:text-yellow-600 dark:text-gray-500 dark:hover:text-yellow-400'
+                            } transition-colors`}
+                            title={customer.customerType === 'golden' ? 'حذف از مشتریان طلایی' : 'تبدیل به مشتری طلایی'}
+                          >
+                            <Crown className={`w-4 h-4 ${customer.customerType === 'golden' ? 'fill-current' : ''}`} />
                           </button>
                           <button 
                             onClick={() => handleDeleteCustomer(customer._id!)}

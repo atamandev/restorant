@@ -132,10 +132,25 @@ export async function GET(request: NextRequest) {
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1
 
     const customers = await customersCollection
-      .find(filter)
+      .find(filter, {
+        projection: {
+          _id: 1,
+          name: 1,
+          firstName: 1,
+          lastName: 1,
+          phone: 1,
+          email: 1,
+          customerNumber: 1,
+          customerType: 1,
+          status: 1,
+          registrationDate: 1,
+          totalSpent: 1,
+          totalOrders: 1
+        }
+      })
       .sort(sort)
       .skip(skip)
-      .limit(limit)
+      .limit(Math.min(limit, 500)) // محدود کردن به حداکثر 500
       .toArray()
 
     // محاسبه آمار واقعی از سفارشات برای هر مشتری

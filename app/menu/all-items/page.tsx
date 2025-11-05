@@ -122,7 +122,7 @@ export default function AllMenuItemsPage() {
   const filteredMenuItems = menuItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+                         (item.tags && Array.isArray(item.tags) && item.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())))
     const matchesCategory = filterCategory === 'all' || item.category === filterCategory
     const matchesAvailability = filterAvailability === 'all' || 
                                (filterAvailability === 'available' && item.isAvailable) ||
@@ -587,18 +587,20 @@ export default function AllMenuItemsPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {item.tags.slice(0, 3).map(tag => (
-                    <span key={tag} className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs">
-                      {tag}
-                    </span>
-                  ))}
-                  {item.tags.length > 3 && (
-                    <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs">
-                      +{item.tags.length - 3}
-                    </span>
-                  )}
-                </div>
+                {item.tags && Array.isArray(item.tags) && item.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {item.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs">
+                        {tag}
+                      </span>
+                    ))}
+                    {item.tags.length > 3 && (
+                      <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs">
+                        +{item.tags.length - 3}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2 space-x-reverse">
@@ -617,7 +619,7 @@ export default function AllMenuItemsPage() {
                           ingredients: item.ingredients,
                           allergens: item.allergens,
                           nutritionalInfo: item.nutritionalInfo,
-                          tags: item.tags
+                          tags: item.tags || []
                         })
                         setShowForm(true)
                       }}
@@ -735,7 +737,7 @@ export default function AllMenuItemsPage() {
                                 ingredients: item.ingredients,
                                 allergens: item.allergens,
                                 nutritionalInfo: item.nutritionalInfo,
-                                tags: item.tags
+                                tags: item.tags || []
                               })
                               setShowForm(true)
                             }}

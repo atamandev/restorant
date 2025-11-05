@@ -58,13 +58,20 @@ export async function GET(request: NextRequest) {
     const priority = searchParams.get('priority')
     const orderNumber = searchParams.get('orderNumber')
     const customerName = searchParams.get('customerName')
+    const dateFilter = searchParams.get('date') // 'today' یا 'all'
 
     let query: any = {}
 
+    // فیلتر تاریخ: به صورت پیش‌فرض فقط سفارشات امروز
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
+    // فیلتر وضعیت
     if (status) {
       if (status === 'all') {
-        // اگر all باشد، همه سفارشات را نمایش بده (مثل completed هم)
-        query = {}
+        // اگر all باشد، همه وضعیت‌ها را نمایش بده
       } else {
         query.status = status
       }
@@ -86,7 +93,57 @@ export async function GET(request: NextRequest) {
       query.customerName = { $regex: customerName, $options: 'i' }
     }
 
-    const orders = await collection.find(query).sort({ createdAt: -1 }).toArray()
+    // فیلتر تاریخ: به صورت پیش‌فرض فقط سفارشات امروز
+    // این باید بعد از سایر فیلترها اعمال شود
+    if (dateFilter !== 'all') {
+      // ساخت شرط تاریخ
+      const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD
+      
+      const dateCondition = {
+        $or: [
+          {
+            createdAt: {
+              $gte: today,
+              $lt: tomorrow
+            }
+          },
+          {
+            // برای orderTime که ممکن است Date باشد
+            orderTime: {
+              $gte: today,
+              $lt: tomorrow
+            }
+          },
+          {
+            // اگر orderTime به صورت string در فرمت ISO ذخیره شده
+            orderTime: {
+              $regex: `^${todayStr}`,
+              $options: 'i'
+            }
+          }
+        ]
+      }
+
+      // اگر query قبلاً فیلترهای دیگری دارد، آنها را با AND ترکیب کن
+      const hasFilters = Object.keys(query).length > 0
+      if (hasFilters) {
+        query = {
+          $and: [
+            query,
+            dateCondition
+          ]
+        }
+      } else {
+        // اگر query خالی است، فقط شرط تاریخ را اضافه کن
+        query = dateCondition
+      }
+    }
+
+    // بهینه‌سازی: فقط سفارشات امروز را بگیر و محدود به 100 آیتم
+    const orders = await collection.find(query)
+      .sort({ createdAt: -1 })
+      .limit(100) // محدود کردن تعداد نتایج
+      .toArray()
     
     // تبدیل _id به string برای frontend
     const formattedOrders = orders.map(order => ({
@@ -197,99 +254,79 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // اطمینان از initialize شدن client قبل از استفاده
-    if (!client) {
-      await connectToDatabase()
-    }
-    
-    if (!client) {
-      throw new Error('MongoDB client is not initialized')
-    }
-    
-    // شروع تراکنش برای به‌روزرسانی همزمان سفارش اصلی در POS
-    const session = client.startSession()
-    
-    try {
-      await session.withTransaction(async () => {
-        // به‌روزرسانی سفارش آشپزخانه
-        await collection.updateOne(
-          { _id: orderId },
-          { 
-            $set: {
-              ...updateData,
-              status: finalStatus,
-              updatedAt: new Date()
-            }
-          },
-          { session }
-        )
-
-        // به‌روزرسانی سفارش اصلی در POS بر اساس orderType
-        if (kitchenOrder.orderId) {
-          let orderCollection
-          if (kitchenOrder.orderType === 'dine-in') {
-            orderCollection = db.collection('dine_in_orders')
-          } else if (kitchenOrder.orderType === 'takeaway') {
-            orderCollection = db.collection('takeaway_orders')
-          } else if (kitchenOrder.orderType === 'delivery') {
-            orderCollection = db.collection('delivery_orders')
-          }
-
-          if (orderCollection) {
-            const orderIdObj = typeof kitchenOrder.orderId === 'string' 
-              ? new ObjectId(kitchenOrder.orderId) 
-              : kitchenOrder.orderId
-
-            // دریافت سفارش اصلی
-            const originalOrder = await orderCollection.findOne({ _id: orderIdObj }, { session })
-            
-            if (originalOrder) {
-              // تغییر وضعیت بر اساس وضعیت آشپزخانه
-              let posStatus = originalOrder.status
-
-              // در حال آماده‌سازی → POS هم preparing می‌شود
-              if (oldStatus !== 'preparing' && finalStatus === 'preparing') {
-                posStatus = 'preparing'
-              }
-              // آماده → POS هم ready می‌شود (غذا آماده است!)
-              else if (oldStatus !== 'ready' && finalStatus === 'ready') {
-                posStatus = 'ready'
-                // به POS اطلاع می‌دهیم که غذا آماده است
-              }
-              // تحویل داده شد → POS هم delivered می‌شود
-              else if (oldStatus !== 'delivered' && finalStatus === 'delivered') {
-                posStatus = 'delivered'
-              }
-
-              // به‌روزرسانی سفارش اصلی در POS
-              await orderCollection.updateOne(
-                { _id: orderIdObj },
-                { 
-                  $set: { 
-                    status: posStatus,
-                    updatedAt: new Date()
-                  } 
-                },
-                { session }
-              )
-
-              // به‌روزرسانی در orders عمومی
-              await db.collection('orders').updateOne(
-                { orderNumber: kitchenOrder.orderNumber },
-                { 
-                  $set: { 
-                    status: posStatus,
-                    updatedAt: new Date()
-                  } 
-                },
-                { session }
-              )
-            }
-          }
+    // به‌روزرسانی سفارش آشپزخانه (بدون transaction برای سازگاری با MongoDB standalone)
+    // به‌روزرسانی سفارش آشپزخانه
+    await collection.updateOne(
+      { _id: orderId },
+      { 
+        $set: {
+          ...updateData,
+          status: finalStatus,
+          updatedAt: new Date()
         }
-      })
-    } finally {
-      await session.endSession()
+      }
+    )
+
+    // به‌روزرسانی سفارش اصلی در POS بر اساس orderType
+    if (kitchenOrder.orderId) {
+      let orderCollection
+      if (kitchenOrder.orderType === 'dine-in') {
+        orderCollection = db.collection('dine_in_orders')
+      } else if (kitchenOrder.orderType === 'takeaway') {
+        orderCollection = db.collection('takeaway_orders')
+      } else if (kitchenOrder.orderType === 'delivery') {
+        orderCollection = db.collection('delivery_orders')
+      }
+
+      if (orderCollection) {
+        const orderIdObj = typeof kitchenOrder.orderId === 'string' 
+          ? new ObjectId(kitchenOrder.orderId) 
+          : kitchenOrder.orderId
+
+        // دریافت سفارش اصلی
+        const originalOrder = await orderCollection.findOne({ _id: orderIdObj })
+        
+        if (originalOrder) {
+          // تغییر وضعیت بر اساس وضعیت آشپزخانه
+          let posStatus = originalOrder.status
+
+          // در حال آماده‌سازی → POS هم preparing می‌شود
+          if (oldStatus !== 'preparing' && finalStatus === 'preparing') {
+            posStatus = 'preparing'
+          }
+          // آماده → POS هم ready می‌شود (غذا آماده است و باید به orders/management برود)
+          else if (oldStatus !== 'ready' && finalStatus === 'ready') {
+            posStatus = 'ready'
+            // Order is ready - updating main order
+          }
+          // تحویل داده شد → POS هم delivered می‌شود
+          else if (oldStatus !== 'delivered' && finalStatus === 'delivered') {
+            posStatus = 'delivered'
+          }
+
+          // به‌روزرسانی سفارش اصلی در POS
+          await orderCollection.updateOne(
+            { _id: orderIdObj },
+            { 
+              $set: { 
+                status: posStatus,
+                updatedAt: new Date()
+              } 
+            }
+          )
+
+          // همچنین به‌روزرسانی در collection عمومی orders
+          await db.collection('orders').updateOne(
+            { orderNumber: kitchenOrder.orderNumber },
+            { 
+              $set: { 
+                status: posStatus,
+                updatedAt: new Date()
+              } 
+            }
+          )
+        }
+      }
     }
 
     const updatedKitchenOrder = await collection.findOne({ _id: orderId })

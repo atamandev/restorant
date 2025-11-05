@@ -416,10 +416,26 @@ export async function POST(request: NextRequest) {
 
     // محاسبه مجدد مقادیر بر اساس قیمت‌های واقعی
     const calculatedSubtotal = processedItems.reduce((sum, item) => sum + item.total, 0)
+    
+    // محاسبه تخفیف مشتریان طلایی
+    const { calculateGoldenCustomerDiscount } = await import('../customers/helpers')
+    const goldenDiscount = await calculateGoldenCustomerDiscount(
+      db,
+      calculatedSubtotal,
+      finalCustomerId,
+      customerPhone
+    )
+    
+    // محاسبه تخفیف کل (تخفیف دستی + تخفیف مشتریان طلایی)
+    const manualDiscountAmount = discountAmount || (discount ? (calculatedSubtotal * discount / 100) : 0)
+    const totalDiscountAmount = manualDiscountAmount + goldenDiscount.discountAmount
+    const totalDiscountPercent = goldenDiscount.discountPercent > 0 
+      ? (discount || 0) + goldenDiscount.discountPercent 
+      : (discount || 0)
+    
     const calculatedServiceCharge = serviceCharge || (calculatedSubtotal * serviceChargeRate / 100)
-    const calculatedDiscountAmount = discountAmount || (discount ? (calculatedSubtotal * discount / 100) : 0)
-    const calculatedTax = tax || ((calculatedSubtotal + calculatedServiceCharge - calculatedDiscountAmount) * taxRate / 100)
-    const calculatedTotal = calculatedSubtotal + calculatedServiceCharge - calculatedDiscountAmount + calculatedTax
+    const calculatedTax = tax || ((calculatedSubtotal + calculatedServiceCharge - totalDiscountAmount) * taxRate / 100)
+    const calculatedTotal = calculatedSubtotal + calculatedServiceCharge - totalDiscountAmount + calculatedTax
 
     // تولید شماره سفارش
     const finalOrderNumber = orderNumber || await generateOrderNumber('dine-in')
@@ -449,8 +465,12 @@ export async function POST(request: NextRequest) {
           subtotal: calculatedSubtotal,
           tax: calculatedTax,
           serviceCharge: calculatedServiceCharge,
-          discount: discount || 0,
-          discountAmount: calculatedDiscountAmount,
+          discount: totalDiscountPercent,
+          discountAmount: totalDiscountAmount,
+          goldenCustomerDiscount: goldenDiscount.discountAmount > 0 ? {
+            percent: goldenDiscount.discountPercent,
+            amount: goldenDiscount.discountAmount
+          } : null,
           total: calculatedTotal,
           estimatedReadyTime: estimatedReady instanceof Date ? estimatedReady.toISOString() : estimatedReady,
           status: status || 'pending',
@@ -513,7 +533,7 @@ export async function POST(request: NextRequest) {
           subtotal: calculatedSubtotal,
           tax: calculatedTax,
           serviceCharge: calculatedServiceCharge,
-          discount: calculatedDiscountAmount,
+          discount: totalDiscountAmount,
           total: calculatedTotal,
           orderTime: new Date(),
           estimatedTime: estimatedReady instanceof Date ? estimatedReady : new Date(estimatedReady),

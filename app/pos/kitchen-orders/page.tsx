@@ -21,7 +21,10 @@ import {
   Edit, 
   Eye, 
   Plus, 
-  Minus
+  Minus,
+  Trash2,
+  FileText,
+  Volume2
 } from 'lucide-react'
 
 // Dynamic import for FiltersSelect with no SSR to completely avoid hydration issues
@@ -92,13 +95,14 @@ export default function KitchenOrdersPage() {
       if (selectedPriority !== 'all') {
         params.append('priority', selectedPriority)
       }
+      // به صورت پیش‌فرض فقط سفارشات امروز را نمایش بده
+      params.append('date', 'today')
       
       const url = `/api/kitchen-orders${params.toString() ? `?${params.toString()}` : ''}`
       const response = await fetch(url)
       const result = await response.json()
       
       if (result.success) {
-        console.log('Loaded kitchen orders:', result.data?.length || 0)
         // پاکسازی آیتم‌های تکراری از هر سفارش
         const cleanedOrders = (result.data || []).map((order: KitchenOrder, orderIdx: number) => {
           if (order.items && Array.isArray(order.items)) {
@@ -116,11 +120,6 @@ export default function KitchenOrdersPage() {
               return index === firstIndex
             })
             
-            // لاگ کردن در صورت حذف آیتم‌های تکراری
-            if (uniqueItems.length < originalLength) {
-              console.log(`✅ سفارش ${orderIdx} (${order.orderNumber}): ${originalLength} آیتم → ${uniqueItems.length} آیتم (${originalLength - uniqueItems.length} آیتم تکراری حذف شد)`)
-            }
-            
             return {
               ...order,
               items: uniqueItems
@@ -128,12 +127,6 @@ export default function KitchenOrdersPage() {
           }
           return order
         })
-        
-        // لاگ کردن تعداد آیتم‌های هر سفارش برای بررسی
-        console.log('📊 تعداد آیتم‌های هر سفارش:', cleanedOrders.map(o => ({ 
-          orderNumber: o.orderNumber, 
-          itemsCount: o.items?.length || 0 
-        })))
         
         setOrders(cleanedOrders)
       } else {
@@ -150,10 +143,12 @@ export default function KitchenOrdersPage() {
 
   useEffect(() => {
     loadOrders()
-    // Auto-refresh every 10 seconds
+    // Auto-refresh every 45 seconds (بهینه شده)
     const interval = setInterval(() => {
-      loadOrders()
-    }, 10000)
+      if (document.visibilityState === 'visible') {
+        loadOrders()
+      }
+    }, 45000) // 45 ثانیه - کاهش بار سرور
     
     return () => clearInterval(interval)
   }, [selectedStatus, selectedPriority])
@@ -351,77 +346,139 @@ export default function KitchenOrdersPage() {
                 </Suspense>
               )}
             </div>
-            <div className="flex items-center space-x-2 space-x-reverse">
-              <button
-                onClick={async () => {
-                  // ابتدا از API تعداد سفارشات completed را بگیر
-                  try {
-                    const checkResponse = await fetch('/api/kitchen-orders?status=completed')
-                    const checkResult = await checkResponse.json()
-                    const completedCount = checkResult.success ? (checkResult.data?.length || 0) : 0
-                    
-                    if (completedCount === 0) {
-                      alert('هیچ سفارش تکمیل شده‌ای برای حذف وجود ندارد')
-                      return
-                    }
-                    
-                    if (confirm(`آیا از حذف ${completedCount} سفارش تکمیل شده اطمینان دارید؟`)) {
-                      const response = await fetch('/api/kitchen-orders/cleanup-completed', {
-                        method: 'DELETE'
-                      })
-                      const result = await response.json()
-                      if (result.success) {
-                        alert(result.message)
-                        await loadOrders()
-                      } else {
-                        alert('خطا: ' + result.message)
-                      }
-                    }
-                  } catch (error) {
-                    console.error('Error deleting completed orders:', error)
-                    alert('خطا در حذف سفارشات تکمیل شده')
-                  }
-                }}
-                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
-              >
-                <XCircle className="w-4 h-4" />
-                <span>حذف سفارشات تکمیل شده</span>
-              </button>
-              <button
-                onClick={async () => {
-                  if (confirm('آیا از حذف سفارشات تستی اطمینان دارید؟')) {
+            <div className="flex items-center space-x-3 space-x-reverse flex-wrap gap-3">
+              {/* گروه عملیات اصلی */}
+              <div className="flex items-center space-x-2 space-x-reverse bg-gray-50 dark:bg-gray-800/50 rounded-lg p-1">
+                <button 
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2.5 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-all shadow-sm hover:shadow-md border border-gray-200 dark:border-gray-600"
+                  title="چاپ دستور کار آشپزخانه"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span className="font-medium">چاپ KOT</span>
+                </button>
+                <button 
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2.5 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-all shadow-sm hover:shadow-md border border-gray-200 dark:border-gray-600"
+                  title="اعلان آماده شدن سفارشات"
+                >
+                  <Volume2 className="w-4 h-4" />
+                  <span className="font-medium">اعلان آماده</span>
+                </button>
+              </div>
+
+              {/* جداکننده */}
+              <div className="h-8 w-px bg-gray-300 dark:bg-gray-600"></div>
+
+              {/* گروه مدیریت */}
+              <div className="flex items-center space-x-2 space-x-reverse">
+                <button
+                  onClick={async () => {
+                    // ابتدا از API تعداد سفارشات completed را بگیر
                     try {
-                      const response = await fetch('/api/kitchen-orders/cleanup-test', {
-                        method: 'DELETE'
-                      })
-                      const result = await response.json()
-                      if (result.success) {
-                        alert(result.message)
-                        await loadOrders()
-                      } else {
-                        alert('خطا: ' + result.message)
+                      const checkResponse = await fetch('/api/kitchen-orders?status=completed')
+                      const checkResult = await checkResponse.json()
+                      const completedCount = checkResult.success ? (checkResult.data?.length || 0) : 0
+                      
+                      if (completedCount === 0) {
+                        alert('هیچ سفارش تکمیل شده‌ای برای حذف وجود ندارد')
+                        return
+                      }
+                      
+                      if (confirm(`آیا از حذف ${completedCount} سفارش تکمیل شده اطمینان دارید؟`)) {
+                        const response = await fetch('/api/kitchen-orders/cleanup-completed', {
+                          method: 'DELETE'
+                        })
+                        const result = await response.json()
+                        if (result.success) {
+                          alert(result.message)
+                          await loadOrders()
+                        } else {
+                          alert('خطا: ' + result.message)
+                        }
                       }
                     } catch (error) {
-                      console.error('Error deleting test orders:', error)
-                      alert('خطا در حذف سفارشات تستی')
+                      console.error('Error deleting completed orders:', error)
+                      alert('خطا در حذف سفارشات تکمیل شده')
                     }
-                  }
-                }}
-                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <XCircle className="w-4 h-4" />
-                <span>حذف سفارشات تستی</span>
-              </button>
-              <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-                <Printer className="w-4 h-4" />
-                <span>چاپ KOT</span>
-              </button>
-              <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                <Bell className="w-4 h-4" />
-                <span>اعلان آماده</span>
-              </button>
+                  }}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all shadow-md hover:shadow-lg transform hover:scale-105"
+                  title="حذف سفارشات تکمیل شده"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="font-medium">حذف تکمیل شده</span>
+                </button>
+                <button
+                  onClick={async () => {
+                    if (confirm('آیا از حذف سفارشات تستی اطمینان دارید؟')) {
+                      try {
+                        const response = await fetch('/api/kitchen-orders/cleanup-test', {
+                          method: 'DELETE'
+                        })
+                        const result = await response.json()
+                        if (result.success) {
+                          alert(result.message)
+                          await loadOrders()
+                        } else {
+                          alert('خطا: ' + result.message)
+                        }
+                      } catch (error) {
+                        console.error('Error deleting test orders:', error)
+                        alert('خطا در حذف سفارشات تستی')
+                      }
+                    }
+                  }}
+                  className="flex items-center space-x-2 space-x-reverse px-4 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all shadow-md hover:shadow-lg transform hover:scale-105"
+                  title="حذف سفارشات تستی"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="font-medium">حذف تستی</span>
+                </button>
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Tabs برای تفکیک سفارشات بر اساس وضعیت */}
+        <div className="mb-6 flex space-x-2 space-x-reverse border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setSelectedStatus('all')}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+              selectedStatus === 'all'
+                ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            همه سفارشات ({getTotalOrders()})
+          </button>
+          <button
+            onClick={() => setSelectedStatus('pending')}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+              selectedStatus === 'pending'
+                ? 'border-yellow-500 text-yellow-600 dark:text-yellow-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            در انتظار ({getPendingOrders()})
+          </button>
+          <button
+            onClick={() => setSelectedStatus('preparing')}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+              selectedStatus === 'preparing'
+                ? 'border-orange-500 text-orange-600 dark:text-orange-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            در حال آماده‌سازی ({getPreparingOrders()})
+          </button>
+          <button
+            onClick={() => setSelectedStatus('ready')}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+              selectedStatus === 'ready'
+                ? 'border-green-500 text-green-600 dark:text-green-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
+          >
+            آماده ({getReadyOrders()})
+          </button>
         </div>
 
         {/* Orders List */}
@@ -436,7 +493,14 @@ export default function KitchenOrdersPage() {
           ) : filteredOrders.length === 0 ? (
             <div className="col-span-2 text-center py-12">
               <ChefHat className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600 dark:text-gray-400">هیچ سفارشی یافت نشد</p>
+              <p className="text-gray-600 dark:text-gray-400">
+                {selectedStatus === 'ready' ? 'هیچ سفارش آماده‌ای یافت نشد' : 'هیچ سفارشی یافت نشد'}
+              </p>
+              {selectedStatus === 'ready' && (
+                <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+                  سفارشات آماده در بخش <a href="/orders/management" className="text-primary-600 hover:underline">مدیریت سفارشات</a> قابل تحویل هستند
+                </p>
+              )}
             </div>
           ) : (
             filteredOrders.map((order, index) => {
@@ -589,10 +653,19 @@ export default function KitchenOrdersPage() {
 
                 {/* Action Buttons */}
                 <div className="flex items-center justify-end space-x-2 space-x-reverse">
-                  {order.status !== 'completed' && (
+                  {order.status === 'ready' && (
+                    <a
+                      href="/orders/management"
+                      className="flex items-center space-x-1 space-x-reverse px-3 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors"
+                    >
+                      <Package className="w-4 h-4" />
+                      <span>تحویل در مدیریت سفارشات</span>
+                    </a>
+                  )}
+                  {order.status !== 'ready' && order.status !== 'completed' && (
                     <button
                       onClick={async () => {
-                        if (confirm('آیا از تکمیل این سفارش اطمینان دارید؟')) {
+                        if (confirm('آیا از تکمیل این سفارش اطمینان دارید؟ سفارش به بخش مدیریت سفارشات منتقل می‌شود.')) {
                           try {
                             const response = await fetch('/api/kitchen-orders', {
                               method: 'PUT',
@@ -601,12 +674,13 @@ export default function KitchenOrdersPage() {
                               },
                               body: JSON.stringify({
                                 id: order._id,
-                                status: 'completed'
+                                status: 'ready'
                               })
                             })
                             const result = await response.json()
                             if (result.success) {
                               await loadOrders()
+                              alert('سفارش آماده شد و به بخش مدیریت سفارشات منتقل شد')
                             } else {
                               alert('خطا: ' + result.message)
                             }
@@ -619,7 +693,7 @@ export default function KitchenOrdersPage() {
                       className="flex items-center space-x-1 space-x-reverse px-3 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors"
                     >
                       <CheckCircle className="w-4 h-4" />
-                      <span>تکمیل سفارش</span>
+                      <span>آماده است - ارسال به مدیریت</span>
                     </button>
                   )}
                   <button

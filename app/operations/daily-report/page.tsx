@@ -131,33 +131,176 @@ const sampleDailyStats: DailyStats = {
 // Sample orders will be loaded from API
 
 export default function DailyReportPage() {
+  const [mounted, setMounted] = useState(false)
+  const [dailyStats, setDailyStats] = useState({
+    totalSales: 0,
+    totalOrders: 0,
+    totalCustomers: 0,
+    salesChange: 0,
+    ordersChange: 0,
+    customersChange: 0,
+    cashSales: 0,
+    cardSales: 0,
+    creditSales: 0,
+    refunds: 0,
+    discounts: 0,
+    taxes: 0,
+    serviceCharges: 0,
+    netSales: 0,
+    netProfit: 0,
+    profitRate: 0,
+    topSellingItems: [] as Array<{ name: string; quantity: number; revenue: number }>,
+    hourlySales: [] as Array<{ hour: string; sales: number; orders: number }>
+  })
   const [stats, setStats] = useState<DailyStats>(sampleDailyStats)
   const [orders, setOrders] = useState<OrderSummary[]>([])
+  const [todayCustomers, setTodayCustomers] = useState<Array<{
+    customerId: string | null
+    customerPhone: string | null
+    customerName: string
+    customerNumber: string
+    phone: string
+    email: string
+    address: string
+    orderCount: number
+    totalSpent: number
+    totalOrders: number
+    customerType: string
+    firstOrderTime: Date
+    lastOrderTime: Date
+  }>>([])
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterPayment, setFilterPayment] = useState('all')
   const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('summary')
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
-  // Load orders from API
-  const loadOrders = async () => {
-    setLoading(true)
+  // Load daily stats from orders (real-time)
+  const loadDailyStats = async () => {
     try {
-      const response = await fetch(`/api/daily-orders?date=${selectedDate}&limit=100`)
+      setRefreshing(true)
+      const response = await fetch(`/api/daily-report/stats?date=${selectedDate}`)
       const result = await response.json()
-      if (result.success) {
-        setOrders(result.data)
-      } else {
-        console.error('Error loading orders:', result.message)
+      if (result.success && result.data) {
+        setDailyStats({
+          totalSales: result.data.totalSales || 0,
+          totalOrders: result.data.totalOrders || 0,
+          totalCustomers: result.data.totalCustomers || 0,
+          salesChange: result.data.salesChange || 0,
+          ordersChange: result.data.ordersChange || 0,
+          customersChange: result.data.customersChange || 0,
+          cashSales: result.data.cashSales || 0,
+          cardSales: result.data.cardSales || 0,
+          creditSales: result.data.creditSales || 0,
+          refunds: result.data.refunds || 0,
+          discounts: result.data.discounts || 0,
+          taxes: result.data.taxes || 0,
+          serviceCharges: result.data.serviceCharges || 0,
+          netSales: result.data.netSales || 0,
+          netProfit: result.data.netProfit || 0,
+          profitRate: result.data.profitRate || 0,
+          topSellingItems: result.data.topSellingItems || [],
+          hourlySales: result.data.hourlySales || []
+        })
       }
     } catch (error) {
-      console.error('Error loading orders:', error)
+      console.error('Error loading daily stats:', error)
     } finally {
-      setLoading(false)
+      setRefreshing(false)
     }
   }
 
-  // Load daily report from API
+  // Load orders from orders collection (real-time) - فقط سفارشات امروز
+  const loadOrders = async () => {
+    try {
+      // ساخت تاریخ دقیق برای امروز (بر اساس selectedDate)
+      const selectedDateObj = new Date(selectedDate + 'T00:00:00')
+      const startOfDay = new Date(selectedDateObj)
+      startOfDay.setHours(0, 0, 0, 0)
+      const endOfDay = new Date(selectedDateObj)
+      endOfDay.setHours(23, 59, 59, 999)
+
+      console.log('[DAILY_REPORT] Loading orders for date:', selectedDate, {
+        start: startOfDay.toISOString(),
+        end: endOfDay.toISOString(),
+        startLocal: startOfDay.toLocaleString('fa-IR'),
+        endLocal: endOfDay.toLocaleString('fa-IR')
+      })
+
+      const response = await fetch(`/api/orders?startDate=${startOfDay.toISOString()}&endDate=${endOfDay.toISOString()}&limit=1000`)
+      const result = await response.json()
+      if (result.success && result.data) {
+        console.log('[DAILY_REPORT] Received orders from API:', result.data.length)
+        
+        // تبدیل به فرمت مورد نیاز و فیلتر دقیق فقط امروز
+        const formattedOrders = result.data
+          .map((order: any) => {
+            // استخراج تاریخ سفارش
+            let orderDate: Date | null = null
+            if (order.orderTime) {
+              orderDate = typeof order.orderTime === 'string' ? new Date(order.orderTime) : new Date(order.orderTime)
+            } else if (order.createdAt) {
+              orderDate = typeof order.createdAt === 'string' ? new Date(order.createdAt) : new Date(order.createdAt)
+            }
+            
+            if (!orderDate || isNaN(orderDate.getTime())) {
+              console.log('[DAILY_REPORT] Invalid date for order:', order.orderNumber)
+              return null
+            }
+            
+            // مقایسه فقط روز (بدون ساعت)
+            const orderDateStr = orderDate.toISOString().split('T')[0]
+            const selectedDateStr = selectedDate
+            
+            console.log('[DAILY_REPORT] Order date check:', {
+              orderNumber: order.orderNumber,
+              orderDate: orderDate.toISOString(),
+              orderDateStr,
+              selectedDateStr,
+              matches: orderDateStr === selectedDateStr
+            })
+            
+            // اگر تاریخ سفارش با تاریخ انتخاب شده مطابقت نداشت، فیلتر کن
+            if (orderDateStr !== selectedDateStr) {
+              return null
+            }
+            
+            // همچنین بررسی کن که در محدوده زمانی باشد
+            if (orderDate < startOfDay || orderDate > endOfDay) {
+              return null
+            }
+            
+            return {
+              _id: order._id?.toString() || '',
+              orderNumber: order.orderNumber || '',
+              customerName: order.customerName || 'مشتری ناشناس',
+              items: order.items || [],
+              total: order.total || 0,
+              paymentMethod: order.paymentMethod || 'cash',
+              status: order.status || 'pending',
+              createdAt: order.orderTime || order.createdAt || new Date().toISOString(),
+              tableNumber: order.tableNumber
+            }
+          })
+          .filter((order: any) => order !== null) // حذف سفارشات null
+        
+        console.log('[DAILY_REPORT] Filtered orders for selected date:', formattedOrders.length)
+        
+        // مرتب‌سازی بر اساس تاریخ (جدیدترین اول)
+        formattedOrders.sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt).getTime()
+          const dateB = new Date(b.createdAt).getTime()
+          return dateB - dateA
+        })
+        setOrders(formattedOrders)
+      }
+    } catch (error) {
+      console.error('Error loading orders:', error)
+    }
+  }
+
+  // Load daily report from API (for other stats)
   const loadDailyReport = async () => {
     try {
       const response = await fetch(`/api/daily-reports?dateFrom=${selectedDate}&dateTo=${selectedDate}&limit=1`)
@@ -166,21 +309,33 @@ export default function DailyReportPage() {
         const report = result.data[0]
         setStats({
           date: selectedDate,
-          totalSales: report.totalSales,
-          totalOrders: report.totalOrders,
-          totalCustomers: report.totalCustomers,
-          averageOrderValue: report.averageOrderValue,
-          cashSales: report.cashSales,
-          cardSales: report.cardSales,
-          creditSales: report.creditSales,
-          refunds: report.refunds,
-          discounts: report.discounts,
-          taxes: report.taxes,
-          serviceCharges: report.serviceCharges,
-          netProfit: report.netProfit,
-          topSellingItems: report.topSellingItems,
-          hourlySales: report.hourlySales,
-          paymentMethods: report.paymentMethods
+          totalSales: report.totalSales || dailyStats.totalSales,
+          totalOrders: report.totalOrders || dailyStats.totalOrders,
+          totalCustomers: report.totalCustomers || dailyStats.totalCustomers,
+          averageOrderValue: report.averageOrderValue || 0,
+          cashSales: report.cashSales || 0,
+          cardSales: report.cardSales || 0,
+          creditSales: report.creditSales || 0,
+          refunds: report.refunds || 0,
+          discounts: report.discounts || 0,
+          taxes: report.taxes || 0,
+          serviceCharges: report.serviceCharges || 0,
+          netProfit: report.netProfit || 0,
+          topSellingItems: report.topSellingItems || [],
+          hourlySales: report.hourlySales || [],
+          paymentMethods: report.paymentMethods || []
+        })
+      } else {
+        // اگر گزارش موجود نباشد، از آمار روزانه استفاده کن
+        const avgOrderValue = dailyStats.totalOrders > 0 
+          ? dailyStats.totalSales / dailyStats.totalOrders 
+          : 0
+        setStats({
+          ...stats,
+          totalSales: dailyStats.totalSales,
+          totalOrders: dailyStats.totalOrders,
+          totalCustomers: dailyStats.totalCustomers,
+          averageOrderValue: avgOrderValue
         })
       }
     } catch (error) {
@@ -188,15 +343,91 @@ export default function DailyReportPage() {
     }
   }
 
+  // Load today's customers (real-time)
+  const loadTodayCustomers = async () => {
+    try {
+      const response = await fetch(`/api/daily-report/customers?date=${selectedDate}`)
+      const result = await response.json()
+      if (result.success && result.data) {
+        setTodayCustomers(result.data)
+      }
+    } catch (error) {
+      console.error('Error loading today customers:', error)
+    }
+  }
+
+  // Load all data
+  const loadAllData = async () => {
+    await Promise.all([
+      loadDailyStats(),
+      loadOrders(),
+      loadDailyReport(),
+      loadTodayCustomers()
+    ])
+  }
+
+  // Set mounted to true after component mounts on client
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   // Load data on component mount and when date changes
   useEffect(() => {
-    loadOrders()
-    loadDailyReport()
-  }, [selectedDate])
+    if (mounted) {
+      loadAllData()
+    }
+  }, [selectedDate, mounted])
 
+  // Real-time update every 60 seconds (بهینه شده - کاهش بار سرور)
+  useEffect(() => {
+    if (!mounted) return
+    
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadAllData()
+      }
+    }, 60000) // 60 ثانیه - بهبود عملکرد
+
+    return () => clearInterval(interval)
+  }, [selectedDate, mounted])
+
+  // فیلتر سفارشات - فقط سفارشات امروز (بر اساس selectedDate)
   const filteredOrders = orders.filter(order => {
+    // بررسی تاریخ سفارش - فقط سفارشات امروز (مقایسه فقط روز)
+    const orderDate = new Date(order.createdAt)
+    if (isNaN(orderDate.getTime())) {
+      return false
+    }
+    
+    // تبدیل به string برای مقایسه فقط روز
+    const orderDateStr = orderDate.toISOString().split('T')[0]
+    const selectedDateStr = selectedDate
+    
+    // اگر تاریخ سفارش با تاریخ انتخاب شده مطابقت نداشت، فیلتر کن
+    if (orderDateStr !== selectedDateStr) {
+      return false
+    }
+    
+    // فیلتر وضعیت
     const matchesStatus = filterStatus === 'all' || order.status === filterStatus
-    const matchesPayment = filterPayment === 'all' || order.paymentMethod === filterPayment
+    
+    // فیلتر روش پرداخت (هم انگلیسی و هم فارسی)
+    let matchesPayment = false
+    if (filterPayment === 'all') {
+      matchesPayment = true
+    } else {
+      const paymentLower = (order.paymentMethod || '').toLowerCase()
+      if (filterPayment === 'cash' || filterPayment === 'نقدی') {
+        matchesPayment = paymentLower === 'cash' || paymentLower === 'نقدی'
+      } else if (filterPayment === 'card' || filterPayment === 'کارتخوان') {
+        matchesPayment = paymentLower === 'card' || paymentLower === 'کارتخوان'
+      } else if (filterPayment === 'credit' || filterPayment === 'اعتباری') {
+        matchesPayment = paymentLower === 'credit' || paymentLower === 'اعتباری'
+      } else {
+        matchesPayment = order.paymentMethod === filterPayment
+      }
+    }
+    
     return matchesStatus && matchesPayment
   })
 
@@ -232,8 +463,7 @@ export default function DailyReportPage() {
   }
 
   const handleRefresh = () => {
-    loadOrders()
-    loadDailyReport()
+    loadAllData()
   }
 
   // تایید یا رد سفارش
@@ -308,165 +538,239 @@ export default function DailyReportPage() {
           </div>
         </div>
 
-        {/* Main Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="premium-card p-6">
+        {/* Main Stats - Real-time */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="premium-card p-6 relative">
+            {refreshing && (
+              <div className="absolute top-2 right-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-300">کل فروش</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {stats.totalSales.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.totalSales.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </p>
+                {mounted && (
                 <div className="flex items-center space-x-1 space-x-reverse mt-1">
+                    {dailyStats.salesChange >= 0 ? (
+                      <>
                   <TrendingUp className="w-4 h-4 text-green-500" />
-                  <span className="text-sm text-green-600 dark:text-green-400">+12.5%</span>
+                        <span className="text-sm text-green-600 dark:text-green-400">
+                          +{dailyStats.salesChange.toFixed(1)}%
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <TrendingDown className="w-4 h-4 text-red-500" />
+                        <span className="text-sm text-red-600 dark:text-red-400">
+                          {dailyStats.salesChange.toFixed(1)}%
+                        </span>
+                      </>
+                    )}
                 </div>
+                )}
               </div>
               <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
                 <DollarSign className="w-6 h-6 text-green-600 dark:text-green-400" />
               </div>
             </div>
           </div>
-          <div className="premium-card p-6">
+          <div className="premium-card p-6 relative">
+            {refreshing && (
+              <div className="absolute top-2 right-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-300">تعداد سفارشات</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalOrders}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {mounted ? String(dailyStats.totalOrders) : '۰'}
+                </p>
+                {mounted && (
                 <div className="flex items-center space-x-1 space-x-reverse mt-1">
+                    {dailyStats.ordersChange >= 0 ? (
+                      <>
                   <TrendingUp className="w-4 h-4 text-green-500" />
-                  <span className="text-sm text-green-600 dark:text-green-400">+8.3%</span>
+                        <span className="text-sm text-green-600 dark:text-green-400">
+                          +{dailyStats.ordersChange.toFixed(1)}%
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <TrendingDown className="w-4 h-4 text-red-500" />
+                        <span className="text-sm text-red-600 dark:text-red-400">
+                          {dailyStats.ordersChange.toFixed(1)}%
+                        </span>
+                      </>
+                    )}
                 </div>
+                )}
               </div>
               <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
                 <ShoppingBag className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
             </div>
           </div>
-          <div className="premium-card p-6">
+          <div className="premium-card p-6 relative">
+            {refreshing && (
+              <div className="absolute top-2 right-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-300">تعداد مشتریان</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalCustomers}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {mounted ? String(dailyStats.totalCustomers) : '۰'}
+                </p>
+                {mounted && (
                 <div className="flex items-center space-x-1 space-x-reverse mt-1">
+                    {dailyStats.customersChange >= 0 ? (
+                      <>
                   <TrendingUp className="w-4 h-4 text-green-500" />
-                  <span className="text-sm text-green-600 dark:text-green-400">+15.2%</span>
+                        <span className="text-sm text-green-600 dark:text-green-400">
+                          +{dailyStats.customersChange.toFixed(1)}%
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <TrendingDown className="w-4 h-4 text-red-500" />
+                        <span className="text-sm text-red-600 dark:text-red-400">
+                          {dailyStats.customersChange.toFixed(1)}%
+                        </span>
+                      </>
+                    )}
                 </div>
+                )}
               </div>
               <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
                 <Users className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
             </div>
           </div>
-          <div className="premium-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">میانگین سفارش</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {stats.averageOrderValue.toLocaleString('fa-IR')} تومان
-                </p>
-                <div className="flex items-center space-x-1 space-x-reverse mt-1">
-                  <TrendingDown className="w-4 h-4 text-red-500" />
-                  <span className="text-sm text-red-600 dark:text-red-400">-2.1%</span>
-                </div>
-              </div>
-              <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg flex items-center justify-center">
-                <Calculator className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Financial Breakdown */}
+        {/* Financial Breakdown - Real-time */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="premium-card p-6">
+          <div className="premium-card p-6 relative">
+            {refreshing && (
+              <div className="absolute top-2 right-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+              </div>
+            )}
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">تجزیه فروش</h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">فروش نقدی</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {stats.cashSales.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.cashSales.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">فروش کارتخوان</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {stats.cardSales.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.cardSales.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">فروش اعتباری</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {stats.creditSales.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.creditSales.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-600/30 pt-2">
                 <span className="font-medium text-gray-900 dark:text-white">کل فروش</span>
                 <span className="font-bold text-gray-900 dark:text-white">
-                  {stats.totalSales.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.totalSales.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
             </div>
           </div>
-          <div className="premium-card p-6">
+          <div className="premium-card p-6 relative">
+            {refreshing && (
+              <div className="absolute top-2 right-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+              </div>
+            )}
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">کسرها</h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">مرجوعی‌ها</span>
                 <span className="font-semibold text-red-600 dark:text-red-400">
-                  -{stats.refunds.toLocaleString('fa-IR')} تومان
+                  {mounted ? `-${dailyStats.refunds.toLocaleString('fa-IR')} تومان` : '-۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">تخفیف‌ها</span>
                 <span className="font-semibold text-red-600 dark:text-red-400">
-                  -{stats.discounts.toLocaleString('fa-IR')} تومان
+                  {mounted ? `-${dailyStats.discounts.toLocaleString('fa-IR')} تومان` : '-۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">مالیات</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {stats.taxes.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.taxes.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">حق سرویس</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {stats.serviceCharges.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.serviceCharges.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
             </div>
           </div>
-          <div className="premium-card p-6">
+          <div className="premium-card p-6 relative">
+            {refreshing && (
+              <div className="absolute top-2 right-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+              </div>
+            )}
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">خلاصه مالی</h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">فروش خالص</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {(stats.totalSales - stats.refunds - stats.discounts).toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.netSales.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">سود خالص</span>
                 <span className="font-bold text-green-600 dark:text-green-400">
-                  {stats.netProfit.toLocaleString('fa-IR')} تومان
+                  {mounted ? `${dailyStats.netProfit.toLocaleString('fa-IR')} تومان` : '۰ تومان'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 dark:text-gray-400">نرخ سود</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {((stats.netProfit / stats.totalSales) * 100).toFixed(1)}%
+                  {mounted && !isNaN(dailyStats.profitRate) && isFinite(dailyStats.profitRate) 
+                    ? dailyStats.profitRate.toFixed(1) 
+                    : '۰'}%
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Top Selling Items */}
-        <div className="premium-card p-6 mb-8">
+        {/* Top Selling Items - Real-time */}
+        <div className="premium-card p-6 mb-8 relative">
+          {refreshing && (
+            <div className="absolute top-2 right-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+            </div>
+          )}
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">پرفروش‌ترین آیتم‌ها</h3>
+          {!mounted ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              در حال بارگذاری...
+            </div>
+          ) : dailyStats.topSellingItems.length > 0 ? (
           <div className="space-y-4">
-            {stats.topSellingItems.map((item, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+              {dailyStats.topSellingItems.map((item, index) => (
+                <div key={`item-${index}-${item.name}`} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
                 <div className="flex items-center space-x-3 space-x-reverse">
                   <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center">
                     <span className="text-sm font-bold text-primary-600 dark:text-primary-400">#{index + 1}</span>
@@ -481,41 +785,168 @@ export default function DailyReportPage() {
                     {item.revenue.toLocaleString('fa-IR')} تومان
                   </p>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {((item.revenue / stats.totalSales) * 100).toFixed(1)}% از کل فروش
+                      {dailyStats.totalSales > 0 
+                        ? ((item.revenue / dailyStats.totalSales) * 100).toFixed(1) 
+                        : '۰'}% از کل فروش
                   </p>
                 </div>
               </div>
             ))}
           </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              هیچ آیتمی یافت نشد
+            </div>
+          )}
         </div>
 
-        {/* Hourly Sales Chart */}
-        <div className="premium-card p-6 mb-8">
+        {/* Hourly Sales Chart - Real-time */}
+        <div className="premium-card p-6 mb-8 relative">
+          {refreshing && (
+            <div className="absolute top-2 right-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+            </div>
+          )}
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">فروش ساعتی</h3>
+          {!mounted ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              در حال بارگذاری...
+            </div>
+          ) : dailyStats.hourlySales.length > 0 ? (
           <div className="grid grid-cols-7 gap-2">
-            {stats.hourlySales.map((hour, index) => (
-              <div key={index} className="text-center">
+              {dailyStats.hourlySales.map((hour, index) => {
+                const maxSales = Math.max(...dailyStats.hourlySales.map(h => h.sales), 1)
+                const heightPercentage = maxSales > 0 ? (hour.sales / maxSales) * 100 : 0
+                return (
+                  <div key={`hour-${index}-${hour.hour}`} className="text-center">
                 <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">{hour.hour}</div>
                 <div 
-                  className="bg-primary-100 dark:bg-primary-900/30 rounded-t-lg mx-auto"
+                      className="bg-primary-100 dark:bg-primary-900/30 rounded-t-lg mx-auto transition-all duration-300"
                   style={{ 
-                    height: `${(hour.sales / Math.max(...stats.hourlySales.map(h => h.sales))) * 100}px`,
+                        height: `${Math.max(heightPercentage, 5)}px`,
                     minHeight: '20px',
                     width: '20px'
                   }}
                 ></div>
                 <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                  {(hour.sales / 1000000).toFixed(1)}M
+                      {hour.sales > 0 ? (hour.sales >= 1000000 
+                        ? `${(hour.sales / 1000000).toFixed(1)}M`
+                        : hour.sales >= 1000
+                        ? `${(hour.sales / 1000).toFixed(1)}K`
+                        : hour.sales.toLocaleString('fa-IR')
+                      ) : '۰'}
                 </div>
               </div>
-            ))}
-          </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              هیچ داده‌ای یافت نشد
+            </div>
+          )}
         </div>
 
-        {/* Orders List */}
-        <div className="premium-card p-6">
+        {/* Today's Customers - Real-time */}
+        <div className="premium-card p-6 mb-8 relative">
+          {refreshing && (
+            <div className="absolute top-2 right-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+            </div>
+          )}
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            مشتریان امروز{mounted && <span> ({todayCustomers.length})</span>}
+          </h3>
+          {!mounted ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              در حال بارگذاری...
+            </div>
+          ) : todayCustomers.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-600/30">
+                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">نام مشتری</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">شماره تماس</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">تعداد سفارشات</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">مجموع خرید</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">نوع مشتری</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">اولین سفارش</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">آخرین سفارش</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {todayCustomers.map((customer, index) => (
+                    <tr key={`customer-${index}-${customer.customerId || customer.customerPhone || customer.customerName}`} className="border-b border-gray-100 dark:border-gray-700/30 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                      <td className="py-4 px-4">
+                        <span className="font-medium text-gray-900 dark:text-white">{customer.customerName}</span>
+                        {customer.customerNumber && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400 block">{customer.customerNumber}</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="text-gray-900 dark:text-white">{customer.phone || 'ندارد'}</span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="text-gray-900 dark:text-white">{customer.orderCount}</span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="font-bold text-gray-900 dark:text-white">
+                          {customer.totalSpent.toLocaleString('fa-IR')} تومان
+                        </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          customer.customerType === 'gold' || customer.customerType === 'طلایی' 
+                            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                            : customer.customerType === 'silver' || customer.customerType === 'نقره‌ای'
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                            : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                        }`}>
+                          {customer.customerType === 'gold' || customer.customerType === 'طلایی' ? 'طلایی' :
+                           customer.customerType === 'silver' || customer.customerType === 'نقره‌ای' ? 'نقره‌ای' :
+                           'عادی'}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="text-gray-900 dark:text-white text-sm">
+                          {new Date(customer.firstOrderTime).toLocaleTimeString('fa-IR', { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="text-gray-900 dark:text-white text-sm">
+                          {new Date(customer.lastOrderTime).toLocaleTimeString('fa-IR', { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+          </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              هیچ مشتریی یافت نشد
+            </div>
+          )}
+        </div>
+
+        {/* Orders List - Real-time */}
+        <div className="premium-card p-6 relative">
+          {refreshing && (
+            <div className="absolute top-2 right-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+            </div>
+          )}
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">لیست سفارشات</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              لیست سفارشات{mounted && <span> ({filteredOrders.length})</span>}
+            </h3>
             <div className="flex items-center space-x-4 space-x-reverse">
               <select
                 value={filterStatus}
@@ -523,8 +954,13 @@ export default function DailyReportPage() {
                 className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
                 <option value="all">همه وضعیت‌ها</option>
-                <option value="completed">تکمیل شده</option>
                 <option value="pending">در انتظار</option>
+                <option value="confirmed">تایید شده</option>
+                <option value="preparing">در حال آماده‌سازی</option>
+                <option value="ready">آماده</option>
+                <option value="completed">تکمیل شده</option>
+                <option value="paid">پرداخت شده</option>
+                <option value="delivered">تحویل داده شده</option>
                 <option value="cancelled">لغو شده</option>
               </select>
               <select
@@ -533,6 +969,9 @@ export default function DailyReportPage() {
                 className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
                 <option value="all">همه روش‌ها</option>
+                <option value="cash">نقدی</option>
+                <option value="card">کارتخوان</option>
+                <option value="credit">اعتباری</option>
                 <option value="نقدی">نقدی</option>
                 <option value="کارتخوان">کارتخوان</option>
                 <option value="اعتباری">اعتباری</option>
@@ -554,7 +993,7 @@ export default function DailyReportPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
+                {!mounted ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center">
                       <div className="flex items-center justify-center space-x-2 space-x-reverse">
@@ -571,7 +1010,7 @@ export default function DailyReportPage() {
                   </tr>
                 ) : (
                   filteredOrders.map(order => (
-                    <tr key={order._id} className="border-b border-gray-100 dark:border-gray-700/30">
+                    <tr key={order._id} className="border-b border-gray-100 dark:border-gray-700/30 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                       <td className="py-4 px-4">
                         <span className="font-medium text-gray-900 dark:text-white">{order.orderNumber}</span>
                       </td>
@@ -579,7 +1018,8 @@ export default function DailyReportPage() {
                         <span className="text-gray-900 dark:text-white">
                           {new Date(order.createdAt).toLocaleTimeString('fa-IR', { 
                             hour: '2-digit', 
-                            minute: '2-digit' 
+                            minute: '2-digit',
+                            second: '2-digit'
                           })}
                         </span>
                       </td>
@@ -596,12 +1036,20 @@ export default function DailyReportPage() {
                       </td>
                       <td className="py-4 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPaymentMethodColor(order.paymentMethod)}`}>
-                          {order.paymentMethod}
+                          {order.paymentMethod === 'cash' ? 'نقدی' : order.paymentMethod === 'card' ? 'کارتخوان' : order.paymentMethod === 'credit' ? 'اعتباری' : order.paymentMethod}
                         </span>
                       </td>
                       <td className="py-4 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                          {order.status}
+                          {order.status === 'pending' ? 'در انتظار' : 
+                           order.status === 'confirmed' ? 'تایید شده' :
+                           order.status === 'preparing' ? 'در حال آماده‌سازی' :
+                           order.status === 'ready' ? 'آماده' :
+                           order.status === 'completed' ? 'تکمیل شده' :
+                           order.status === 'paid' ? 'پرداخت شده' :
+                           order.status === 'delivered' ? 'تحویل داده شده' :
+                           order.status === 'cancelled' ? 'لغو شده' :
+                           order.status}
                         </span>
                       </td>
                       <td className="py-4 px-4">
