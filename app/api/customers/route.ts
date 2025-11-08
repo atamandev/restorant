@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const customerType = searchParams.get('customerType')
     const sortBy = searchParams.get('sortBy') || 'registrationDate'
     const sortOrder = searchParams.get('sortOrder') || 'desc'
-    const limit = parseInt(searchParams.get('limit') || '100')
+    const limit = parseInt(searchParams.get('limit') || '50')
     const skip = parseInt(searchParams.get('skip') || '0')
     const search = searchParams.get('search') || '' // جستجو در نام، شماره تماس، ایمیل
     const phone = searchParams.get('phone') // جستجو بر اساس شماره تماس (برای POS)
@@ -131,6 +131,9 @@ export async function GET(request: NextRequest) {
     const sort: any = {}
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1
 
+    // محدود کردن به حداکثر 200 برای عملکرد بهتر
+    const maxLimit = Math.min(limit, 200)
+    
     const customers = await customersCollection
       .find(filter, {
         projection: {
@@ -150,7 +153,7 @@ export async function GET(request: NextRequest) {
       })
       .sort(sort)
       .skip(skip)
-      .limit(Math.min(limit, 500)) // محدود کردن به حداکثر 500
+      .limit(maxLimit)
       .toArray()
 
     // محاسبه آمار واقعی از سفارشات برای هر مشتری
@@ -161,18 +164,25 @@ export async function GET(request: NextRequest) {
       try {
         const customerIds = customers.map(c => c._id.toString())
         const customerObjectIds = customerIds.map(id => new ObjectId(id))
+        const customerPhones = customers.map(c => c.phone).filter(Boolean)
         
-        // محاسبه تعداد سفارشات و خرید کل از orders
-        // customerId در orders به صورت ObjectId ذخیره می‌شود
-        const orderStats = await ordersCollection.aggregate([
+        // محاسبه تعداد سفارشات و خرید کل از همه collection ها
+        // 1. از collection orders
+        const orderStatsFromOrders = await ordersCollection.aggregate([
           {
             $match: {
-              customerId: { $in: customerObjectIds }
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ]
             }
           },
           {
             $group: {
-              _id: { $toString: '$customerId' }, // تبدیل ObjectId به string
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
               totalOrders: { $sum: 1 },
               totalSpent: { $sum: { $ifNull: ['$total', 0] } },
               lastOrderDate: { $max: '$orderTime' }
@@ -180,39 +190,270 @@ export async function GET(request: NextRequest) {
           }
         ]).toArray()
 
-        // محاسبه خرید ماهانه (ماه جاری)
+        // 2. از collection dine_in_orders
+        const dineInOrdersCollection = db.collection('dine_in_orders')
+        const orderStatsFromDineIn = await dineInOrdersCollection.aggregate([
+          {
+            $match: {
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ]
+            }
+          },
+          {
+            $group: {
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
+              totalOrders: { $sum: 1 },
+              totalSpent: { $sum: { $ifNull: ['$total', 0] } },
+              lastOrderDate: { $max: { $ifNull: ['$estimatedReadyTime', '$createdAt'] } }
+            }
+          }
+        ]).toArray()
+
+        // 3. از collection takeaway_orders
+        const takeawayOrdersCollection = db.collection('takeaway_orders')
+        const orderStatsFromTakeaway = await takeawayOrdersCollection.aggregate([
+          {
+            $match: {
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ]
+            }
+          },
+          {
+            $group: {
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
+              totalOrders: { $sum: 1 },
+              totalSpent: { $sum: { $ifNull: ['$total', 0] } },
+              lastOrderDate: { $max: { $ifNull: ['$estimatedReadyTime', '$createdAt'] } }
+            }
+          }
+        ]).toArray()
+
+        // 4. از collection delivery_orders
+        const deliveryOrdersCollection = db.collection('delivery_orders')
+        const orderStatsFromDelivery = await deliveryOrdersCollection.aggregate([
+          {
+            $match: {
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ]
+            }
+          },
+          {
+            $group: {
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
+              totalOrders: { $sum: 1 },
+              totalSpent: { $sum: { $ifNull: ['$total', 0] } },
+              lastOrderDate: { $max: { $ifNull: ['$estimatedDeliveryTime', '$createdAt'] } }
+            }
+          }
+        ]).toArray()
+
+        // ترکیب آمار از همه collection ها
+        const allOrderStats = [
+          ...orderStatsFromOrders,
+          ...orderStatsFromDineIn,
+          ...orderStatsFromTakeaway,
+          ...orderStatsFromDelivery
+        ]
+
+        // گروه‌بندی و جمع‌آوری آمار بر اساس customerId یا customerPhone
+        for (const stat of allOrderStats) {
+          const customerId = stat._id.customerId
+          const customerPhone = stat._id.customerPhone
+          
+          // تبدیل customerId به string اگر ObjectId باشد
+          const customerIdStr = customerId 
+            ? (customerId instanceof ObjectId ? customerId.toString() : String(customerId))
+            : null
+          
+          // پیدا کردن customerId بر اساس customerId یا customerPhone
+          let finalCustomerId = customerIdStr
+          if (!finalCustomerId && customerPhone) {
+            const customer = customers.find(c => c.phone === customerPhone)
+            if (customer) {
+              finalCustomerId = customer._id.toString()
+            }
+          }
+          
+          if (finalCustomerId) {
+            const existing = orderStatsMap.get(finalCustomerId) || {
+              totalOrders: 0,
+              totalSpent: 0,
+              lastOrderDate: null
+            }
+            
+            orderStatsMap.set(finalCustomerId, {
+              totalOrders: existing.totalOrders + stat.totalOrders,
+              totalSpent: existing.totalSpent + stat.totalSpent,
+              lastOrderDate: existing.lastOrderDate && stat.lastOrderDate
+                ? new Date(existing.lastOrderDate) > new Date(stat.lastOrderDate)
+                  ? existing.lastOrderDate
+                  : stat.lastOrderDate
+                : existing.lastOrderDate || stat.lastOrderDate
+            })
+          }
+        }
+
+        // محاسبه خرید ماهانه (ماه جاری) از همه collection ها
         const now = new Date()
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
 
-        const monthlyStats = await ordersCollection.aggregate([
+        const monthlyStatsFromOrders = await ordersCollection.aggregate([
           {
             $match: {
-              customerId: { $in: customerObjectIds },
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ],
               orderTime: {
-                $gte: startOfMonth.toISOString(),
-                $lte: endOfMonth.toISOString()
+                $gte: startOfMonth,
+                $lte: endOfMonth
               },
               status: { $in: ['completed', 'paid', 'delivered'] }
             }
           },
           {
             $group: {
-              _id: { $toString: '$customerId' }, // تبدیل ObjectId به string
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
               monthlySpent: { $sum: { $ifNull: ['$total', 0] } },
               monthlyOrders: { $sum: 1 }
             }
           }
         ]).toArray()
 
-        // ایجاد map برای دسترسی سریع
-        orderStats.forEach(stat => {
-          orderStatsMap.set(stat._id, stat) // _id حالا string است
-        })
+        const monthlyStatsFromDineIn = await dineInOrdersCollection.aggregate([
+          {
+            $match: {
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ],
+              createdAt: {
+                $gte: startOfMonth,
+                $lte: endOfMonth
+              },
+              status: { $in: ['completed', 'paid'] }
+            }
+          },
+          {
+            $group: {
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
+              monthlySpent: { $sum: { $ifNull: ['$total', 0] } },
+              monthlyOrders: { $sum: 1 }
+            }
+          }
+        ]).toArray()
 
-        monthlyStats.forEach(stat => {
-          monthlyStatsMap.set(stat._id, stat) // _id حالا string است
-        })
+        const monthlyStatsFromTakeaway = await takeawayOrdersCollection.aggregate([
+          {
+            $match: {
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ],
+              createdAt: {
+                $gte: startOfMonth,
+                $lte: endOfMonth
+              },
+              status: { $in: ['completed', 'paid'] }
+            }
+          },
+          {
+            $group: {
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
+              monthlySpent: { $sum: { $ifNull: ['$total', 0] } },
+              monthlyOrders: { $sum: 1 }
+            }
+          }
+        ]).toArray()
+
+        const monthlyStatsFromDelivery = await deliveryOrdersCollection.aggregate([
+          {
+            $match: {
+              $or: [
+                { customerId: { $in: customerObjectIds } },
+                { customerPhone: { $in: customerPhones } }
+              ],
+              createdAt: {
+                $gte: startOfMonth,
+                $lte: endOfMonth
+              },
+              status: { $in: ['completed', 'paid', 'delivered'] }
+            }
+          },
+          {
+            $group: {
+              _id: {
+                customerId: '$customerId',
+                customerPhone: '$customerPhone'
+              },
+              monthlySpent: { $sum: { $ifNull: ['$total', 0] } },
+              monthlyOrders: { $sum: 1 }
+            }
+          }
+        ]).toArray()
+
+        // ترکیب آمار ماهانه از همه collection ها
+        const allMonthlyStats = [
+          ...monthlyStatsFromOrders,
+          ...monthlyStatsFromDineIn,
+          ...monthlyStatsFromTakeaway,
+          ...monthlyStatsFromDelivery
+        ]
+
+        for (const stat of allMonthlyStats) {
+          const customerId = stat._id.customerId
+          const customerPhone = stat._id.customerPhone
+          
+          // تبدیل customerId به string اگر ObjectId باشد
+          const customerIdStr = customerId 
+            ? (customerId instanceof ObjectId ? customerId.toString() : String(customerId))
+            : null
+          
+          let finalCustomerId = customerIdStr
+          if (!finalCustomerId && customerPhone) {
+            const customer = customers.find(c => c.phone === customerPhone)
+            if (customer) {
+              finalCustomerId = customer._id.toString()
+            }
+          }
+          
+          if (finalCustomerId) {
+            const existing = monthlyStatsMap.get(finalCustomerId) || {
+              monthlySpent: 0,
+              monthlyOrders: 0
+            }
+            
+            monthlyStatsMap.set(finalCustomerId, {
+              monthlySpent: existing.monthlySpent + stat.monthlySpent,
+              monthlyOrders: existing.monthlyOrders + stat.monthlyOrders
+            })
+          }
+        }
       } catch (error) {
         console.error('[CUSTOMERS] Error calculating order stats:', error)
         // ادامه بده با مقادیر پیش‌فرض

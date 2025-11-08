@@ -105,12 +105,12 @@ export default function CustomersListPage() {
   useEffect(() => {
     loadCustomers()
     
-    // Auto-refresh هر 60 ثانیه برای به‌روزرسانی خودکار آمار مشتریان (بهینه شده)
+    // Auto-refresh هر 3 دقیقه برای به‌روزرسانی خودکار آمار مشتریان (بهینه شده)
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         loadCustomers()
       }
-    }, 60000)
+    }, 180000) // 3 دقیقه
     
     return () => clearInterval(interval)
   }, [])

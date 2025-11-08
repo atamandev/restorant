@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '100')
+    const limit = parseInt(searchParams.get('limit') || '50')
     const search = searchParams.get('search') || ''
     const category = searchParams.get('category')
     const isLowStock = searchParams.get('isLowStock')
@@ -50,11 +50,32 @@ export async function GET(request: NextRequest) {
       query.isLowStock = isLowStock === 'true'
     }
     
+    // محدود کردن به حداکثر 200 برای عملکرد بهتر
+    const maxLimit = Math.min(limit, 200)
+    
     const inventoryItems = await inventoryCollection
-      .find(query)
+      .find(query, {
+        projection: {
+          _id: 1,
+          name: 1,
+          code: 1,
+          category: 1,
+          unit: 1,
+          currentStock: 1,
+          minStock: 1,
+          maxStock: 1,
+          unitPrice: 1,
+          totalValue: 1,
+          isLowStock: 1,
+          supplier: 1,
+          warehouse: 1,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit)
+      .limit(maxLimit)
       .toArray()
     
     // اگر includeAlerts=true باشد، هشدارهای مرتبط را هم بیاور

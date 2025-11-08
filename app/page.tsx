@@ -148,7 +148,7 @@ export default function Dashboard() {
         fetch('/api/invoices?limit=5&type=sales&sortBy=createdAt&sortOrder=desc'),
         fetch('/api/cheques?limit=5&sortBy=createdAt&sortOrder=desc'),
         fetch('/api/stock-alerts?status=active&limit=5'),
-        fetch('/api/customers?status=active&limit=1000') // دریافت مشتریان فعال
+        fetch('/api/customers?status=active&limit=50') // دریافت مشتریان فعال (محدود شده برای عملکرد بهتر)
       ])
 
       // Process dashboard data
@@ -389,7 +389,7 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Auto-refresh every 60 seconds for real-time updates (بهینه شده)
+  // Auto-refresh every 5 minutes for real-time updates (بهینه شده)
   useEffect(() => {
     if (!user) return
     
@@ -397,7 +397,7 @@ export default function Dashboard() {
       if (!refreshing && document.visibilityState === 'visible') {
         fetchDashboardData()
       }
-    }, 60000) // 60 seconds - کاهش بار سرور
+    }, 300000) // 5 minutes - کاهش بار سرور
 
     return () => {
       clearInterval(refreshInterval)

@@ -139,10 +139,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // بهینه‌سازی: فقط سفارشات امروز را بگیر و محدود به 100 آیتم
-    const orders = await collection.find(query)
+    // بهینه‌سازی: فقط سفارشات امروز را بگیر و محدود به 50 آیتم با projection
+    const orders = await collection.find(query, {
+      projection: {
+        orderNumber: 1,
+        orderType: 1,
+        tableNumber: 1,
+        customerName: 1,
+        customerPhone: 1,
+        deliveryAddress: 1,
+        items: { $slice: 20 }, // محدود کردن آیتم‌ها
+        orderTime: 1,
+        estimatedReadyTime: 1,
+        status: 1,
+        priority: 1,
+        notes: 1,
+        specialInstructions: 1,
+        createdAt: 1,
+        updatedAt: 1
+      }
+    })
       .sort({ createdAt: -1 })
-      .limit(100) // محدود کردن تعداد نتایج
+      .limit(50) // محدود کردن تعداد نتایج
       .toArray()
     
     // تبدیل _id به string برای frontend

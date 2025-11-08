@@ -378,7 +378,7 @@ export default function DailyReportPage() {
     }
   }, [selectedDate, mounted])
 
-  // Real-time update every 60 seconds (بهینه شده - کاهش بار سرور)
+  // Real-time update every 3 minutes (بهینه شده - کاهش بار سرور)
   useEffect(() => {
     if (!mounted) return
     
@@ -386,7 +386,7 @@ export default function DailyReportPage() {
       if (document.visibilityState === 'visible') {
         loadAllData()
       }
-    }, 60000) // 60 ثانیه - بهبود عملکرد
+    }, 180000) // 3 دقیقه - بهبود عملکرد
 
     return () => clearInterval(interval)
   }, [selectedDate, mounted])

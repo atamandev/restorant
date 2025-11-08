@@ -122,12 +122,12 @@ export default function OrdersManagementClient() {
     // فقط یک بار load کن
     loadOrders()
     
-    // Auto-refresh هر 60 ثانیه (بدون dependency ها برای جلوگیری از re-render)
+    // Auto-refresh هر 3 دقیقه (بدون dependency ها برای جلوگیری از re-render)
     const interval = setInterval(() => {
       if (mountedRef.current && document.visibilityState === 'visible' && !loadingRef.current) {
         loadOrders()
       }
-    }, 60000)
+    }, 180000)
     
     return () => {
       clearInterval(interval)

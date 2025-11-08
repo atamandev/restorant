@@ -143,12 +143,12 @@ export default function KitchenOrdersPage() {
 
   useEffect(() => {
     loadOrders()
-    // Auto-refresh every 45 seconds (بهینه شده)
+    // Auto-refresh every 2 minutes (بهینه شده)
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         loadOrders()
       }
-    }, 45000) // 45 ثانیه - کاهش بار سرور
+    }, 120000) // 2 دقیقه - کاهش بار سرور
     
     return () => clearInterval(interval)
   }, [selectedStatus, selectedPriority])
