@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { 
   Building, 
-  Calculator, 
   Menu as MenuIcon, 
   UserCheck, 
   Warehouse,
@@ -38,20 +37,6 @@ const onboardingSteps: OnboardingStep[] = [
       'تعریف صندوق‌های مختلف',
       'تنظیم ساعت کاری',
       'انتخاب واحد پول'
-    ]
-  },
-  {
-    id: 'tax-settings',
-    title: 'مالیات/کارمزد',
-    description: 'تنظیم نرخ‌های مالیات و کارمزد',
-    icon: Calculator,
-    completed: false,
-    required: true,
-    details: [
-      'نرخ مالیات بر ارزش افزوده',
-      'کارمزد درگاه پرداخت',
-      'مالیات بر درآمد',
-      'سایر عوارض و مالیات‌ها'
     ]
   },
   {

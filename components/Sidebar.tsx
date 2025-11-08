@@ -106,7 +106,6 @@ const menuItems: MenuItem[] = [
     href: '/onboarding',
     subItems: [
       { id: 'setup-branch', name: 'تعریف شعبه/صندوق', icon: Building, href: '/onboarding/setup-branch' },
-      { id: 'tax-settings', name: 'مالیات/کارمزد', icon: Calculator, href: '/onboarding/tax-settings' },
       { id: 'menu-setup', name: 'کالا/منو', icon: MenuIcon, href: '/onboarding/menu-setup' },
       { id: 'people-setup', name: 'اشخاص', icon: UserCheck, href: '/onboarding/people-setup' },
       { id: 'initial-inventory', name: 'موجودی اولیه', icon: Warehouse, href: '/onboarding/initial-inventory' }

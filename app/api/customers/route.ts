@@ -164,17 +164,14 @@ export async function GET(request: NextRequest) {
       try {
         const customerIds = customers.map(c => c._id.toString())
         const customerObjectIds = customerIds.map(id => new ObjectId(id))
-        const customerPhones = customers.map(c => c.phone).filter(Boolean)
         
         // محاسبه تعداد سفارشات و خرید کل از همه collection ها
+        // فقط سفارشاتی که customerId دارند را در نظر می‌گیریم
         // 1. از collection orders
         const orderStatsFromOrders = await ordersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ]
+              customerId: { $in: customerObjectIds }
             }
           },
           {
@@ -195,10 +192,7 @@ export async function GET(request: NextRequest) {
         const orderStatsFromDineIn = await dineInOrdersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ]
+              customerId: { $in: customerObjectIds }
             }
           },
           {
@@ -219,10 +213,7 @@ export async function GET(request: NextRequest) {
         const orderStatsFromTakeaway = await takeawayOrdersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ]
+              customerId: { $in: customerObjectIds }
             }
           },
           {
@@ -243,10 +234,7 @@ export async function GET(request: NextRequest) {
         const orderStatsFromDelivery = await deliveryOrdersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ]
+              customerId: { $in: customerObjectIds }
             }
           },
           {
@@ -270,33 +258,33 @@ export async function GET(request: NextRequest) {
           ...orderStatsFromDelivery
         ]
 
-        // گروه‌بندی و جمع‌آوری آمار بر اساس customerId یا customerPhone
+        // گروه‌بندی و جمع‌آوری آمار بر اساس customerId
+        // فقط سفارشاتی که customerId دارند را به مشتری‌ها اختصاص می‌دهیم
+        // این کار از اختصاص سفارشات به مشتری اشتباه جلوگیری می‌کند
         for (const stat of allOrderStats) {
           const customerId = stat._id.customerId
-          const customerPhone = stat._id.customerPhone
           
-          // تبدیل customerId به string اگر ObjectId باشد
-          const customerIdStr = customerId 
-            ? (customerId instanceof ObjectId ? customerId.toString() : String(customerId))
-            : null
-          
-          // پیدا کردن customerId بر اساس customerId یا customerPhone
-          let finalCustomerId = customerIdStr
-          if (!finalCustomerId && customerPhone) {
-            const customer = customers.find(c => c.phone === customerPhone)
-            if (customer) {
-              finalCustomerId = customer._id.toString()
-            }
+          // فقط اگر customerId وجود داشته باشد، سفارش را به مشتری اختصاص می‌دهیم
+          if (!customerId) {
+            continue // سفارشات بدون customerId را نادیده می‌گیریم
           }
           
-          if (finalCustomerId) {
-            const existing = orderStatsMap.get(finalCustomerId) || {
+          // تبدیل customerId به string اگر ObjectId باشد
+          const customerIdStr = customerId instanceof ObjectId 
+            ? customerId.toString() 
+            : String(customerId)
+          
+          // بررسی اینکه آیا این customerId در لیست مشتری‌های فعلی وجود دارد
+          const customerExists = customers.some(c => c._id.toString() === customerIdStr)
+          
+          if (customerExists) {
+            const existing = orderStatsMap.get(customerIdStr) || {
               totalOrders: 0,
               totalSpent: 0,
               lastOrderDate: null
             }
             
-            orderStatsMap.set(finalCustomerId, {
+            orderStatsMap.set(customerIdStr, {
               totalOrders: existing.totalOrders + stat.totalOrders,
               totalSpent: existing.totalSpent + stat.totalSpent,
               lastOrderDate: existing.lastOrderDate && stat.lastOrderDate
@@ -316,10 +304,7 @@ export async function GET(request: NextRequest) {
         const monthlyStatsFromOrders = await ordersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ],
+              customerId: { $in: customerObjectIds },
               orderTime: {
                 $gte: startOfMonth,
                 $lte: endOfMonth
@@ -342,10 +327,7 @@ export async function GET(request: NextRequest) {
         const monthlyStatsFromDineIn = await dineInOrdersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ],
+              customerId: { $in: customerObjectIds },
               createdAt: {
                 $gte: startOfMonth,
                 $lte: endOfMonth
@@ -368,10 +350,7 @@ export async function GET(request: NextRequest) {
         const monthlyStatsFromTakeaway = await takeawayOrdersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ],
+              customerId: { $in: customerObjectIds },
               createdAt: {
                 $gte: startOfMonth,
                 $lte: endOfMonth
@@ -394,10 +373,7 @@ export async function GET(request: NextRequest) {
         const monthlyStatsFromDelivery = await deliveryOrdersCollection.aggregate([
           {
             $match: {
-              $or: [
-                { customerId: { $in: customerObjectIds } },
-                { customerPhone: { $in: customerPhones } }
-              ],
+              customerId: { $in: customerObjectIds },
               createdAt: {
                 $gte: startOfMonth,
                 $lte: endOfMonth
@@ -427,28 +403,27 @@ export async function GET(request: NextRequest) {
 
         for (const stat of allMonthlyStats) {
           const customerId = stat._id.customerId
-          const customerPhone = stat._id.customerPhone
           
-          // تبدیل customerId به string اگر ObjectId باشد
-          const customerIdStr = customerId 
-            ? (customerId instanceof ObjectId ? customerId.toString() : String(customerId))
-            : null
-          
-          let finalCustomerId = customerIdStr
-          if (!finalCustomerId && customerPhone) {
-            const customer = customers.find(c => c.phone === customerPhone)
-            if (customer) {
-              finalCustomerId = customer._id.toString()
-            }
+          // فقط اگر customerId وجود داشته باشد، سفارش را به مشتری اختصاص می‌دهیم
+          if (!customerId) {
+            continue // سفارشات بدون customerId را نادیده می‌گیریم
           }
           
-          if (finalCustomerId) {
-            const existing = monthlyStatsMap.get(finalCustomerId) || {
+          // تبدیل customerId به string اگر ObjectId باشد
+          const customerIdStr = customerId instanceof ObjectId 
+            ? customerId.toString() 
+            : String(customerId)
+          
+          // بررسی اینکه آیا این customerId در لیست مشتری‌های فعلی وجود دارد
+          const customerExists = customers.some(c => c._id.toString() === customerIdStr)
+          
+          if (customerExists) {
+            const existing = monthlyStatsMap.get(customerIdStr) || {
               monthlySpent: 0,
               monthlyOrders: 0
             }
             
-            monthlyStatsMap.set(finalCustomerId, {
+            monthlyStatsMap.set(customerIdStr, {
               monthlySpent: existing.monthlySpent + stat.monthlySpent,
               monthlyOrders: existing.monthlyOrders + stat.monthlyOrders
             })
