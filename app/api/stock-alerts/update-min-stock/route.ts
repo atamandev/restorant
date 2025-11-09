@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
     const updates: any[] = []
 
     if (strategy === 'auto') {
-      // محاسبه خودکار بر اساس میانگین مصرف
-      const items = await inventoryCollection.find({}).toArray()
+      // محاسبه خودکار بر اساس میانگین مصرف (بر اساس داده‌های واقعی)
+      const items = await inventoryCollection.find({}).limit(10000).toArray()
       
       for (const item of items) {
         const currentStock = item.currentStock || 0
@@ -69,9 +69,9 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (strategy === 'percentage') {
-      // افزایش یا کاهش درصدی
+      // افزایش یا کاهش درصدی (بر اساس داده‌های واقعی)
       const factor = adjustmentFactor || 1.2
-      const items = await inventoryCollection.find({}).toArray()
+      const items = await inventoryCollection.find({}).limit(10000).toArray()
       
       for (const item of items) {
         const oldMinStock = item.minStock || 0

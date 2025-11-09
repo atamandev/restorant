@@ -124,8 +124,30 @@ const getPriorityBadge = (priority: string) => {
   }
 }
 
+interface Warehouse {
+  _id: string
+  name: string
+  code?: string
+}
+
+interface InventoryItem {
+  id: string
+  _id?: string
+  name: string
+  code?: string
+  category: string
+  unit: string
+  currentStock: number
+  unitPrice: number
+  warehouse?: string
+}
+
 export default function TransfersPage() {
   const [transfers, setTransfers] = useState<TransferData[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
+  const [showItemSelector, setShowItemSelector] = useState(false)
+  const [selectedWarehouseForItems, setSelectedWarehouseForItems] = useState('')
   const [stats, setStats] = useState<TransferStats>({
     totalTransfers: 0,
     pendingTransfers: 0,
@@ -159,6 +181,54 @@ export default function TransfersPage() {
     reason: '',
     items: [] as TransferItem[]
   })
+
+  // بارگذاری انبارها
+  const fetchWarehouses = async () => {
+    try {
+      const response = await fetch('/api/warehouses?status=active&limit=100')
+      const data = await response.json()
+      
+      if (data.success && data.data) {
+        const warehousesList = Array.isArray(data.data) ? data.data : []
+        setWarehouses(warehousesList)
+      }
+    } catch (error) {
+      console.error('Error fetching warehouses:', error)
+    }
+  }
+
+  // بارگذاری کالاها از انبار انتخاب شده
+  const fetchInventoryItems = async (warehouseName: string) => {
+    try {
+      if (!warehouseName) {
+        setInventoryItems([])
+        return
+      }
+      
+      // دریافت کالاها از API
+      const response = await fetch(`/api/warehouse/items?limit=1000`)
+      const data = await response.json()
+      
+      if (data.success && data.data) {
+        // فیلتر کردن کالاهای این انبار
+        const items = Array.isArray(data.data) ? data.data : []
+        const filteredItems = items.filter((item: InventoryItem) => {
+          const itemWarehouse = item.warehouse || ''
+          return itemWarehouse === warehouseName || 
+                 itemWarehouse.toLowerCase() === warehouseName.toLowerCase() ||
+                 (warehouseName === 'تایماز' && (
+                   itemWarehouse === 'تایماز' || 
+                   itemWarehouse.toLowerCase().includes('taymaz') ||
+                   itemWarehouse.includes('تایماز')
+                 ))
+        })
+        setInventoryItems(filteredItems)
+      }
+    } catch (error) {
+      console.error('Error fetching inventory items:', error)
+      setInventoryItems([])
+    }
+  }
 
   // بارگذاری داده‌ها
   const fetchTransfers = async () => {
@@ -222,7 +292,7 @@ export default function TransfersPage() {
       
       if (data.success) {
         alert('انتقال با موفقیت به‌روزرسانی شد')
-        setShowTransferModal(false)
+        setShowCreateModal(false)
         setEditingTransfer(null)
         resetForm()
         fetchTransfers()
@@ -308,6 +378,47 @@ export default function TransfersPage() {
   }
 
   // بازنشانی فرم
+  // اضافه کردن کالا به لیست انتقال
+  const handleAddItem = (item: InventoryItem) => {
+    const existingItemIndex = formData.items.findIndex(i => i.itemId === (item._id || item.id))
+    
+    if (existingItemIndex >= 0) {
+      // اگر کالا قبلاً اضافه شده، فقط تعداد را افزایش بده
+      const updatedItems = [...formData.items]
+      updatedItems[existingItemIndex].quantity += 1
+      updatedItems[existingItemIndex].totalValue = updatedItems[existingItemIndex].quantity * updatedItems[existingItemIndex].unitPrice
+      setFormData({ ...formData, items: updatedItems })
+    } else {
+      // اضافه کردن کالای جدید
+      const newItem: TransferItem = {
+        itemId: item._id || item.id,
+        itemName: item.name,
+        itemCode: item.code || '',
+        category: item.category,
+        quantity: 1,
+        unit: item.unit,
+        unitPrice: item.unitPrice || 0,
+        totalValue: item.unitPrice || 0
+      }
+      setFormData({ ...formData, items: [...formData.items, newItem] })
+    }
+    setShowItemSelector(false)
+  }
+
+  // حذف کالا از لیست انتقال
+  const handleRemoveItem = (index: number) => {
+    const updatedItems = formData.items.filter((_, i) => i !== index)
+    setFormData({ ...formData, items: updatedItems })
+  }
+
+  // به‌روزرسانی تعداد کالا
+  const handleUpdateItemQuantity = (index: number, quantity: number) => {
+    const updatedItems = [...formData.items]
+    updatedItems[index].quantity = Math.max(1, quantity)
+    updatedItems[index].totalValue = updatedItems[index].quantity * updatedItems[index].unitPrice
+    setFormData({ ...formData, items: updatedItems })
+  }
+
   const resetForm = () => {
     setFormData({
       type: 'internal',
@@ -322,6 +433,8 @@ export default function TransfersPage() {
       reason: '',
       items: []
     })
+    setInventoryItems([])
+    setSelectedWarehouseForItems('')
   }
 
   // شروع ویرایش
@@ -340,7 +453,9 @@ export default function TransfersPage() {
       reason: transfer.reason,
       items: transfer.items
     })
-    setShowTransferModal(true)
+    setSelectedWarehouseForItems(transfer.fromWarehouse)
+    fetchInventoryItems(transfer.fromWarehouse)
+    setShowCreateModal(true)
   }
 
   // مشاهده جزئیات انتقال
@@ -349,22 +464,35 @@ export default function TransfersPage() {
     setShowTransferModal(true)
   }
 
-  // فیلتر انتقالات
-  const filteredTransfers = transfers.filter(transfer =>
-    (searchTerm === '' || 
-      transfer.transferNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transfer.fromWarehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transfer.toWarehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transfer.requestedBy.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transfer.notes.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterStatus === 'all' || transfer.status === filterStatus) &&
-    (filterType === 'all' || transfer.type === filterType) &&
-    (filterWarehouse === 'all' || 
-      transfer.fromWarehouse === filterWarehouse || 
-      transfer.toWarehouse === filterWarehouse)
-  )
+  // فیلتر انتقالات - فقط آنهایی که انبارهایشان در لیست انبارهای واقعی وجود دارد
+  const filteredTransfers = transfers.filter(transfer => {
+    // بررسی اینکه انبار مبدا و مقصد در لیست انبارهای واقعی وجود دارد
+    const fromWarehouseExists = warehouses.some(w => w.name === transfer.fromWarehouse)
+    const toWarehouseExists = warehouses.some(w => w.name === transfer.toWarehouse)
+    
+    // فقط انتقالاتی که هر دو انبار (مبدا و مقصد) در لیست انبارهای واقعی وجود دارد
+    if (!fromWarehouseExists || !toWarehouseExists) {
+      return false
+    }
+    
+    // فیلترهای دیگر
+    return (
+      (searchTerm === '' || 
+        transfer.transferNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        transfer.fromWarehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        transfer.toWarehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        transfer.requestedBy.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        transfer.notes.toLowerCase().includes(searchTerm.toLowerCase())) &&
+      (filterStatus === 'all' || transfer.status === filterStatus) &&
+      (filterType === 'all' || transfer.type === filterType) &&
+      (filterWarehouse === 'all' || 
+        transfer.fromWarehouse === filterWarehouse || 
+        transfer.toWarehouse === filterWarehouse)
+    )
+  })
 
   useEffect(() => {
+    fetchWarehouses()
     fetchTransfers()
   }, [])
 
@@ -489,12 +617,11 @@ export default function TransfersPage() {
             onChange={(e) => setFilterWarehouse(e.target.value)}
           >
             <option value="all">همه انبارها</option>
-            <option value="انبار اصلی">انبار اصلی</option>
-            <option value="انبار سرد">انبار سرد</option>
-            <option value="انبار خشک">انبار خشک</option>
-            <option value="انبار مواد اولیه">انبار مواد اولیه</option>
-            <option value="انبار محصولات نهایی">انبار محصولات نهایی</option>
-            <option value="انبار اضطراری">انبار اضطراری</option>
+            {warehouses.map(warehouse => (
+              <option key={warehouse._id} value={warehouse.name}>
+                {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+              </option>
+            ))}
           </select>
           <button 
             onClick={fetchTransfers}
@@ -735,6 +862,288 @@ export default function TransfersPage() {
                 <p className="text-gray-700 dark:text-gray-300">{selectedTransfer.reason}</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Create/Edit Transfer Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {editingTransfer ? 'ویرایش انتقال' : 'انتقال جدید'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false)
+                  setEditingTransfer(null)
+                  resetForm()
+                }}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* نوع انتقال */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  نوع انتقال *
+                </label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
+                  className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="internal">داخلی</option>
+                  <option value="external">خارجی</option>
+                  <option value="return">بازگشت</option>
+                  <option value="adjustment">تعدیل</option>
+                </select>
+              </div>
+
+              {/* انبار مبدا و مقصد */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    انبار مبدا *
+                  </label>
+                  <select
+                    value={formData.fromWarehouse}
+                    onChange={(e) => {
+                      const warehouse = e.target.value
+                      setFormData({ ...formData, fromWarehouse: warehouse })
+                      setSelectedWarehouseForItems(warehouse)
+                      fetchInventoryItems(warehouse)
+                    }}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    required
+                  >
+                    <option value="">انتخاب انبار مبدا</option>
+                    {warehouses.map(warehouse => (
+                      <option key={warehouse._id} value={warehouse.name}>
+                        {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    انبار مقصد *
+                  </label>
+                  <select
+                    value={formData.toWarehouse}
+                    onChange={(e) => setFormData({ ...formData, toWarehouse: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    required
+                  >
+                    <option value="">انتخاب انبار مقصد</option>
+                    {warehouses.map(warehouse => (
+                      <option key={warehouse._id} value={warehouse.name}>
+                        {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* درخواست‌کننده */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  درخواست‌کننده *
+                </label>
+                <input
+                  type="text"
+                  value={formData.requestedBy}
+                  onChange={(e) => setFormData({ ...formData, requestedBy: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              {/* کالاها */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    کالاها *
+                  </label>
+                  {formData.fromWarehouse && (
+                    <button
+                      type="button"
+                      onClick={() => setShowItemSelector(true)}
+                      className="premium-button flex items-center space-x-2 space-x-reverse"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>افزودن کالا</span>
+                    </button>
+                  )}
+                </div>
+                
+                {formData.items.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    {formData.fromWarehouse ? 'هیچ کالایی اضافه نشده است' : 'ابتدا انبار مبدا را انتخاب کنید'}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-700">
+                          <th className="px-4 py-2">نام کالا</th>
+                          <th className="px-4 py-2">تعداد</th>
+                          <th className="px-4 py-2">واحد</th>
+                          <th className="px-4 py-2">قیمت واحد</th>
+                          <th className="px-4 py-2">قیمت کل</th>
+                          <th className="px-4 py-2">عملیات</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {formData.items.map((item, index) => (
+                          <tr key={index} className="border-b border-gray-200 dark:border-gray-700">
+                            <td className="px-4 py-2">{item.itemName}</td>
+                            <td className="px-4 py-2">
+                              <input
+                                type="number"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => handleUpdateItemQuantity(index, parseInt(e.target.value) || 1)}
+                                className="w-20 px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              />
+                            </td>
+                            <td className="px-4 py-2">{item.unit}</td>
+                            <td className="px-4 py-2">{item.unitPrice.toLocaleString('fa-IR')}</td>
+                            <td className="px-4 py-2">{item.totalValue.toLocaleString('fa-IR')}</td>
+                            <td className="px-4 py-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(index)}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* یادداشت و دلیل */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    یادداشت
+                  </label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    دلیل انتقال
+                  </label>
+                  <textarea
+                    value={formData.reason}
+                    onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              {/* دکمه‌ها */}
+              <div className="flex items-center justify-end space-x-3 space-x-reverse">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateModal(false)
+                    setEditingTransfer(null)
+                    resetForm()
+                  }}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={editingTransfer ? handleUpdateTransfer : handleCreateTransfer}
+                  className="premium-button flex items-center space-x-2 space-x-reverse"
+                  disabled={!formData.fromWarehouse || !formData.toWarehouse || !formData.requestedBy || formData.items.length === 0}
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{editingTransfer ? 'ذخیره تغییرات' : 'ایجاد انتقال'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Item Selector Modal */}
+      {showItemSelector && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-3xl max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                انتخاب کالا از انبار {selectedWarehouseForItems}
+              </h2>
+              <button
+                onClick={() => setShowItemSelector(false)}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {inventoryItems.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  کالایی در این انبار موجود نیست
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-700">
+                        <th className="px-4 py-2">نام کالا</th>
+                        <th className="px-4 py-2">دسته‌بندی</th>
+                        <th className="px-4 py-2">موجودی</th>
+                        <th className="px-4 py-2">واحد</th>
+                        <th className="px-4 py-2">قیمت واحد</th>
+                        <th className="px-4 py-2">عملیات</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventoryItems.map((item) => (
+                        <tr key={item._id || item.id} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                          <td className="px-4 py-2">{item.name}</td>
+                          <td className="px-4 py-2">{item.category}</td>
+                          <td className="px-4 py-2">{item.currentStock}</td>
+                          <td className="px-4 py-2">{item.unit}</td>
+                          <td className="px-4 py-2">{item.unitPrice.toLocaleString('fa-IR')}</td>
+                          <td className="px-4 py-2">
+                            <button
+                              type="button"
+                              onClick={() => handleAddItem(item)}
+                              className="text-primary-600 hover:text-primary-800"
+                              disabled={item.currentStock === 0}
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

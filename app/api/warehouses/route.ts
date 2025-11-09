@@ -20,7 +20,10 @@ async function connectToDatabase() {
 // GET - دریافت تمام انبارها با فیلتر و مرتب‌سازی
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)
@@ -56,32 +59,61 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .toArray()
 
-    // آمار کلی
-    const stats = await collection.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalWarehouses: { $sum: 1 },
-          activeWarehouses: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
-          inactiveWarehouses: { $sum: { $cond: [{ $eq: ['$status', 'inactive'] }, 1, 0] } },
-          maintenanceWarehouses: { $sum: { $cond: [{ $eq: ['$status', 'maintenance'] }, 1, 0] } },
-          totalCapacity: { $sum: '$capacity' },
-          totalUsedCapacity: { $sum: '$usedCapacity' }
+    // محاسبه usedCapacity بر اساس موجودی واقعی کالاها برای هر انبار
+    const inventoryCollection = db.collection('inventory_items')
+    const warehousesWithRealCapacity = await Promise.all(
+      warehouses.map(async (warehouse) => {
+        const warehouseName = warehouse.name
+        
+        // جستجوی کالاهای این انبار
+        let inventoryItems = await inventoryCollection.find({ warehouse: warehouseName }).toArray()
+        
+        // اگر محصولی پیدا نشد، با case-insensitive جستجو کن
+        if (inventoryItems.length === 0) {
+          const caseInsensitiveQuery = { 
+            warehouse: { $regex: new RegExp(`^${warehouseName}$`, 'i') } 
+          }
+          inventoryItems = await inventoryCollection.find(caseInsensitiveQuery).toArray()
         }
-      }
-    ]).toArray()
+        
+        // اگر هنوز محصولی پیدا نشد و انبار "تایماز" است، با نام‌های مختلف جستجو کن
+        if (inventoryItems.length === 0 && (warehouseName === 'تایماز' || warehouseName.toLowerCase().includes('taymaz'))) {
+          const alternativeNames = ['تایماز', 'Taymaz', 'taymaz', 'تایماز (WH-001)', 'تایماز(WH-001)']
+          for (const altName of alternativeNames) {
+            const altItems = await inventoryCollection.find({ warehouse: altName }).toArray()
+            if (altItems.length > 0) {
+              inventoryItems = altItems
+              break
+            }
+          }
+        }
+        
+        // محاسبه usedCapacity بر اساس موجودی واقعی
+        const realUsedCapacity = inventoryItems.reduce((sum, item) => sum + (item.currentStock || 0), 0)
+        
+        return {
+          ...warehouse,
+          usedCapacity: realUsedCapacity,
+          availableCapacity: (warehouse.capacity || 0) - realUsedCapacity
+        }
+      })
+    )
+
+    // محاسبه آمار کلی بر اساس usedCapacity واقعی
+    const totalUsedCapacity = warehousesWithRealCapacity.reduce((sum, w) => sum + (w.usedCapacity || 0), 0)
+    const stats = {
+      totalWarehouses: warehouses.length,
+      activeWarehouses: warehouses.filter(w => w.status === 'active').length,
+      inactiveWarehouses: warehouses.filter(w => w.status === 'inactive').length,
+      maintenanceWarehouses: warehouses.filter(w => w.status === 'maintenance').length,
+      totalCapacity: warehouses.reduce((sum, w) => sum + (w.capacity || 0), 0),
+      totalUsedCapacity: totalUsedCapacity
+    }
 
     return NextResponse.json({
       success: true,
-      data: warehouses,
-      stats: stats[0] || {
-        totalWarehouses: 0,
-        activeWarehouses: 0,
-        inactiveWarehouses: 0,
-        maintenanceWarehouses: 0,
-        totalCapacity: 0,
-        totalUsedCapacity: 0
-      },
+      data: warehousesWithRealCapacity,
+      stats: stats,
       pagination: {
         limit,
         skip,
@@ -100,7 +132,10 @@ export async function GET(request: NextRequest) {
 // POST - ایجاد انبار جدید
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const body = await request.json()
@@ -149,7 +184,10 @@ export async function POST(request: NextRequest) {
 // PUT - به‌روزرسانی انبار
 export async function PUT(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const body = await request.json()
@@ -208,7 +246,10 @@ export async function PUT(request: NextRequest) {
 // DELETE - حذف انبار
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)

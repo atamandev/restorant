@@ -172,14 +172,29 @@ export default function WarehousesPage() {
   // بارگذاری آیتم‌های موجودی انبار
   const fetchWarehouseInventory = async (warehouseId: string) => {
     try {
+      console.log('=== Fetching inventory for warehouse ===')
+      console.log('Warehouse ID:', warehouseId)
       const response = await fetch(`/api/warehouses/${warehouseId}`)
       const data = await response.json()
       
+      console.log('Warehouse inventory response:', data)
+      console.log('Response success:', data.success)
+      
       if (data.success) {
-        setInventoryItems(data.data.inventoryItems || [])
+        const items = data.data.inventoryItems || []
+        console.log('Inventory items found:', items.length)
+        console.log('Sample items:', items.slice(0, 3).map(item => ({
+          name: item.name,
+          warehouse: item.warehouse
+        })))
+        setInventoryItems(items)
+      } else {
+        console.error('Failed to fetch inventory:', data.message)
+        setInventoryItems([])
       }
     } catch (error) {
       console.error('Error fetching warehouse inventory:', error)
+      setInventoryItems([])
     }
   }
 
@@ -345,6 +360,19 @@ export default function WarehousesPage() {
   useEffect(() => {
     fetchWarehouses()
   }, [])
+
+  // Auto-refresh برای به‌روزرسانی real-time موجودی انبار انتخاب شده
+  useEffect(() => {
+    if (selectedWarehouse && showInventoryModal) {
+      // Refresh هر 5 ثانیه
+      const interval = setInterval(() => {
+        fetchWarehouseInventory(selectedWarehouse._id)
+      }, 5000) // 5 ثانیه
+
+      // Cleanup interval وقتی component unmount می‌شود یا انبار تغییر می‌کند
+      return () => clearInterval(interval)
+    }
+  }, [selectedWarehouse, showInventoryModal]) // وقتی انبار انتخاب شده یا modal باز می‌شود
 
   if (loading) {
     return (

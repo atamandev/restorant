@@ -23,7 +23,10 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const warehouse = await collection.findOne({ _id: new ObjectId(params.id) })
@@ -37,7 +40,83 @@ export async function GET(
 
     // دریافت آیتم‌های موجودی در این انبار
     const inventoryCollection = db.collection('inventory_items')
-    const inventoryItems = await inventoryCollection.find({ warehouse: params.id }).toArray()
+    
+    // لاگ برای دیباگ
+    const warehouseName = warehouse.name
+    console.log('=== Fetching inventory for warehouse ===')
+    console.log('Warehouse name:', warehouseName)
+    console.log('Warehouse ID:', warehouse._id.toString())
+    
+    // ابتدا بررسی کن که چه کالاهایی در دیتابیس هستند
+    const allItems = await inventoryCollection.find({}).toArray()
+    console.log('Total items in database:', allItems.length)
+    
+    // نمایش warehouse همه کالاها
+    const warehouseCounts: { [key: string]: number } = {}
+    allItems.forEach(item => {
+      const wh = item.warehouse || 'بدون انبار'
+      warehouseCounts[wh] = (warehouseCounts[wh] || 0) + 1
+    })
+    console.log('Items by warehouse:', warehouseCounts)
+    
+    // جستجو دقیق بر اساس نام انبار
+    let inventoryItems = await inventoryCollection.find({ warehouse: warehouseName }).toArray()
+    console.log('Found inventory items with exact match:', inventoryItems.length)
+    
+    // اگر محصولی پیدا نشد، با case-insensitive جستجو کن
+    if (inventoryItems.length === 0) {
+      const caseInsensitiveQuery = { 
+        warehouse: { $regex: new RegExp(`^${warehouseName}$`, 'i') } 
+      }
+      inventoryItems = await inventoryCollection.find(caseInsensitiveQuery).toArray()
+      console.log('Found inventory items with case-insensitive:', inventoryItems.length)
+    }
+    
+    // اگر هنوز محصولی پیدا نشد، سعی کن با جستجوی جزئی (partial match) پیدا کن
+    if (inventoryItems.length === 0) {
+      const partialQuery = { 
+        warehouse: { $regex: new RegExp(warehouseName, 'i') } 
+      }
+      inventoryItems = await inventoryCollection.find(partialQuery).toArray()
+      console.log('Found inventory items with partial match:', inventoryItems.length)
+    }
+    
+    // اگر هنوز محصولی پیدا نشد، سعی کن با نام‌های مختلف (مثل "تایماز" و "Taymaz") جستجو کن
+    if (inventoryItems.length === 0) {
+      // اگر انبار "تایماز" است، با نام‌های مختلف جستجو کن
+      if (warehouseName === 'تایماز' || warehouseName.toLowerCase().includes('taymaz') || warehouseName.includes('تایماز')) {
+        const alternativeNames = ['تایماز', 'Taymaz', 'taymaz', 'تایماز (WH-001)', 'تایماز(WH-001)']
+        for (const altName of alternativeNames) {
+          const altItems = await inventoryCollection.find({ warehouse: altName }).toArray()
+          if (altItems.length > 0) {
+            console.log(`Found ${altItems.length} items with alternative name: ${altName}`)
+            inventoryItems = altItems
+            break
+          }
+        }
+      }
+      
+      // اگر هنوز محصولی پیدا نشد، سعی کن با جستجوی معکوس (یعنی اگر نام انبار در warehouse کالاها وجود دارد)
+      if (inventoryItems.length === 0) {
+        // جستجو برای کالاهایی که warehouse آنها شامل نام انبار است
+        const reverseQuery = { 
+          warehouse: { $regex: new RegExp(warehouseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } 
+        }
+        inventoryItems = await inventoryCollection.find(reverseQuery).toArray()
+        console.log('Found inventory items with reverse match:', inventoryItems.length)
+      }
+    }
+    
+    console.log('Final inventory items count:', inventoryItems.length)
+    if (inventoryItems.length > 0) {
+      console.log('Sample items:', inventoryItems.slice(0, 5).map(item => ({
+        name: item.name,
+        warehouse: item.warehouse || 'بدون انبار'
+      })))
+    } else {
+      console.log('No items found for warehouse:', warehouseName)
+      console.log('Available warehouse names in items:', Object.keys(warehouseCounts))
+    }
     
     // محاسبه آمار انبار
     const stats = {
@@ -71,7 +150,10 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const body = await request.json()
@@ -125,12 +207,21 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     // بررسی وجود آیتم‌های موجودی در این انبار
     const inventoryCollection = db.collection('inventory_items')
-    const itemsInWarehouse = await inventoryCollection.countDocuments({ warehouse: params.id })
+    const currentWarehouse = await collection.findOne({ _id: new ObjectId(params.id) })
+    const itemsInWarehouse = await inventoryCollection.countDocuments({ 
+      $or: [
+        { warehouse: currentWarehouse?.name },
+        { warehouse: params.id }
+      ]
+    })
     
     if (itemsInWarehouse > 0) {
       return NextResponse.json(

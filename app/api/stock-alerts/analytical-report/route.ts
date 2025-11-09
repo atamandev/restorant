@@ -178,15 +178,45 @@ export async function GET(request: NextRequest) {
       }
     ]).toArray()
 
-    // آمار موجودی کلی
+    // آمار موجودی کلی (بر اساس داده‌های واقعی)
     const inventoryStats = await inventoryCollection.aggregate([
       {
         $group: {
           _id: null,
           totalItems: { $sum: 1 },
-          lowStockItems: { $sum: { $cond: [{ $lte: ['$currentStock', '$minStock'] }, 1, 0] } },
-          outOfStockItems: { $sum: { $cond: [{ $eq: ['$currentStock', 0] }, 1, 0] } },
-          totalValue: { $sum: '$totalValue' }
+          lowStockItems: { 
+            $sum: { 
+              $cond: [
+                { 
+                  $or: [
+                    { $lte: ['$currentStock', { $ifNull: ['$minStock', 0] }] },
+                    { $expr: { $lte: ['$currentStock', '$minStock'] } }
+                  ]
+                }, 
+                1, 
+                0
+              ] 
+            } 
+          },
+          outOfStockItems: { 
+            $sum: { 
+              $cond: [
+                { 
+                  $or: [
+                    { $eq: ['$currentStock', 0] },
+                    { $eq: [{ $ifNull: ['$currentStock', 0] }, 0] }
+                  ]
+                }, 
+                1, 
+                0
+              ] 
+            } 
+          },
+          totalValue: { 
+            $sum: { 
+              $ifNull: ['$totalValue', { $multiply: [{ $ifNull: ['$currentStock', 0] }, { $ifNull: ['$unitPrice', 0] }] }]
+            } 
+          }
         }
       }
     ]).toArray()

@@ -52,38 +52,53 @@ export async function POST(request: NextRequest) {
     if (alerts.length === 0) {
       const inventoryCollection = db.collection('inventory_items')
       
-      // دریافت آیتم‌های کم‌موجود از موجودی
+      // دریافت آیتم‌های کم‌موجود از موجودی (بر اساس داده‌های واقعی)
       const lowStockItems = await inventoryCollection.find({
-        $expr: {
-          $lte: ['$currentStock', '$minStock']
-        }
-      }).toArray()
+        $or: [
+          { $expr: { $lte: ['$currentStock', '$minStock'] } },
+          { currentStock: 0 }
+        ]
+      }).limit(1000).toArray()
+      
+      // فیلتر کردن آیتم‌هایی که موجودی آنها کمتر یا مساوی حداقل است
+      const filteredItems = lowStockItems.filter((item: any) => {
+        const currentStock = item.currentStock || 0
+        const minStock = item.minStock || 0
+        return currentStock === 0 || currentStock <= minStock
+      })
 
-      if (lowStockItems.length === 0) {
+      if (filteredItems.length === 0) {
         return NextResponse.json(
           { success: false, message: 'هیچ آیتم کم‌موجودی برای ایجاد سفارش یافت نشد' },
           { status: 400 }
         )
       }
 
-      // تبدیل آیتم‌های موجودی به فرمت هشدار
-      alerts = lowStockItems.map((item: any) => ({
-        _id: item._id,
-        itemId: item._id.toString(),
-        itemName: item.name,
-        itemCode: item.code || `ITEM-${item._id.toString().substring(0, 8)}`,
-        category: item.category,
-        warehouse: item.warehouse || 'انبار اصلی',
-        type: item.currentStock === 0 ? 'out_of_stock' : 'low_stock',
-        severity: item.currentStock === 0 ? 'critical' : 'medium',
-        currentStock: item.currentStock || 0,
-        minStock: item.minStock || 0,
-        maxStock: item.maxStock || 0,
-        unit: item.unit || 'عدد',
-        message: item.currentStock === 0 
-          ? `${item.name} تمام شده است`
-          : `موجودی ${item.name} کم است`
-      }))
+      // تبدیل آیتم‌های موجودی به فرمت هشدار (بر اساس داده‌های واقعی)
+      alerts = filteredItems.map((item: any) => {
+        const currentStock = item.currentStock || 0
+        const minStock = item.minStock || 0
+        const isOutOfStock = currentStock === 0
+        const isLowStock = currentStock > 0 && currentStock <= minStock
+        
+        return {
+          _id: item._id,
+          itemId: item._id?.toString() || item.id,
+          itemName: item.name || 'نامشخص',
+          itemCode: item.code || item.itemCode || `ITEM-${(item._id?.toString() || item.id || '').substring(0, 8)}`,
+          category: item.category || 'عمومی',
+          warehouse: item.warehouse || 'انبار اصلی',
+          type: isOutOfStock ? 'out_of_stock' : 'low_stock',
+          severity: isOutOfStock ? 'critical' : (currentStock <= minStock * 0.5 ? 'high' : 'medium'),
+          currentStock: currentStock,
+          minStock: minStock,
+          maxStock: item.maxStock || 0,
+          unit: item.unit || 'عدد',
+          message: isOutOfStock 
+            ? `${item.name || 'کالا'} تمام شده است`
+            : `موجودی ${item.name || 'کالا'} کم است (${currentStock} از ${minStock})`
+        }
+      })
     }
 
     // ساخت آیتم‌های سفارش خرید

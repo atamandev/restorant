@@ -131,8 +131,15 @@ const getPriorityBadge = (priority: string) => {
   }
 }
 
+interface Warehouse {
+  _id: string
+  name: string
+  code?: string
+}
+
 export default function StockAlertsPage() {
   const [alerts, setAlerts] = useState<StockAlertData[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [stats, setStats] = useState<StockAlertStats>({
     totalAlerts: 0,
     activeAlerts: 0,
@@ -184,16 +191,53 @@ export default function StockAlertsPage() {
     notes: ''
   })
 
+  // بارگذاری انبارها
+  const fetchWarehouses = async () => {
+    try {
+      const response = await fetch('/api/warehouses?status=active&limit=100')
+      const data = await response.json()
+      
+      if (data.success && data.data) {
+        const warehousesList = Array.isArray(data.data) ? data.data : []
+        setWarehouses(warehousesList)
+      }
+    } catch (error) {
+      console.error('Error fetching warehouses:', error)
+    }
+  }
+
   // بارگذاری داده‌ها
   const fetchAlerts = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/stock-alerts')
+      const response = await fetch('/api/stock-alerts?limit=1000')
       const data = await response.json()
       
+      console.log('Stock alerts API response:', data)
+      console.log('Alerts count:', data.data?.length || 0)
+      console.log('Sample alerts:', data.data?.slice(0, 5).map((a: any) => ({
+        itemName: a.itemName,
+        warehouse: a.warehouse,
+        type: a.type,
+        status: a.status
+      })))
+      
       if (data.success) {
-        setAlerts(data.data)
-        setStats(data.stats)
+        setAlerts(data.data || [])
+        setStats(data.stats || {
+          totalAlerts: 0,
+          activeAlerts: 0,
+          resolvedAlerts: 0,
+          dismissedAlerts: 0,
+          criticalAlerts: 0,
+          highAlerts: 0,
+          mediumAlerts: 0,
+          lowAlerts: 0,
+          lowStockAlerts: 0,
+          outOfStockAlerts: 0,
+          expiryAlerts: 0,
+          overstockAlerts: 0
+        })
       }
     } catch (error) {
       console.error('Error fetching stock alerts:', error)
@@ -387,19 +431,67 @@ export default function StockAlertsPage() {
     setShowAlertModal(true)
   }
 
-  // فیلتر هشدارها
-  const filteredAlerts = alerts.filter(alert =>
-    (searchTerm === '' || 
-      alert.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      alert.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      alert.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      alert.warehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      alert.message.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (filterType === 'all' || alert.type === filterType) &&
-    (filterSeverity === 'all' || alert.severity === filterSeverity) &&
-    (filterStatus === 'all' || alert.status === filterStatus) &&
-    (filterWarehouse === 'all' || alert.warehouse === filterWarehouse)
-  )
+  // فیلتر هشدارها - نمایش همه هشدارهایی که انبارشان در لیست انبارهای واقعی وجود دارد یا "تایماز" است
+  const filteredAlerts = alerts.filter(alert => {
+    const alertWarehouse = alert.warehouse || ''
+    
+    // بررسی اینکه آیا انبار "تایماز" است (با هر نامی)
+    const isTaymaz = alertWarehouse && (
+      alertWarehouse === 'تایماز' || 
+      alertWarehouse.toLowerCase().includes('taymaz') ||
+      alertWarehouse.includes('تایماز')
+    )
+    
+    // بررسی اینکه انبار در لیست انبارهای واقعی وجود دارد
+    const warehouseExists = warehouses.length > 0 && warehouses.some(w => {
+      const warehouseName = w.name || ''
+      // مقایسه دقیق و case-insensitive
+      return warehouseName === alertWarehouse || 
+             warehouseName.toLowerCase() === alertWarehouse.toLowerCase() ||
+             warehouseName.includes(alertWarehouse) ||
+             alertWarehouse.includes(warehouseName)
+    })
+    
+    // اگر انبارها هنوز لود نشده‌اند، همه هشدارهای "تایماز" را نمایش بده
+    if (warehouses.length === 0) {
+      // اگر "تایماز" است، نمایش بده
+      if (isTaymaz) {
+        // فیلترهای دیگر
+        return (
+          (searchTerm === '' || 
+            alert.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            alert.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            alert.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            alertWarehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            alert.message.toLowerCase().includes(searchTerm.toLowerCase())) &&
+          (filterType === 'all' || alert.type === filterType) &&
+          (filterSeverity === 'all' || alert.severity === filterSeverity) &&
+          (filterStatus === 'all' || alert.status === filterStatus) &&
+          (filterWarehouse === 'all' || alertWarehouse === filterWarehouse)
+        )
+      }
+      return false
+    }
+    
+    // اگر انبار در لیست انبارهای واقعی وجود دارد یا "تایماز" است، نمایش بده
+    if (!warehouseExists && !isTaymaz) {
+      return false
+    }
+    
+    // فیلترهای دیگر
+    return (
+      (searchTerm === '' || 
+        alert.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        alert.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        alert.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        alertWarehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        alert.message.toLowerCase().includes(searchTerm.toLowerCase())) &&
+      (filterType === 'all' || alert.type === filterType) &&
+      (filterSeverity === 'all' || alert.severity === filterSeverity) &&
+      (filterStatus === 'all' || alert.status === filterStatus) &&
+      (filterWarehouse === 'all' || alertWarehouse === filterWarehouse)
+    )
+  })
 
   // ایجاد سفارش خرید فوری
   const handleQuickPurchaseOrder = async () => {
@@ -505,6 +597,7 @@ export default function StockAlertsPage() {
   }
 
   useEffect(() => {
+    fetchWarehouses()
     fetchAlerts()
   }, [])
 
@@ -656,12 +749,11 @@ export default function StockAlertsPage() {
             onChange={(e) => setFilterWarehouse(e.target.value)}
           >
             <option value="all">همه انبارها</option>
-            <option value="انبار اصلی">انبار اصلی</option>
-            <option value="انبار سرد">انبار سرد</option>
-            <option value="انبار خشک">انبار خشک</option>
-            <option value="انبار مواد اولیه">انبار مواد اولیه</option>
-            <option value="انبار محصولات نهایی">انبار محصولات نهایی</option>
-            <option value="انبار اضطراری">انبار اضطراری</option>
+            {warehouses.map(warehouse => (
+              <option key={warehouse._id} value={warehouse.name}>
+                {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+              </option>
+            ))}
           </select>
         </div>
 
