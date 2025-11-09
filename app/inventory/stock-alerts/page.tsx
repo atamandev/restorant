@@ -38,7 +38,8 @@ import {
   Target,
   Save,
   X,
-  CheckCircle2
+  CheckCircle2,
+  Info
 } from 'lucide-react'
 
 interface StockAlertData {
@@ -49,22 +50,34 @@ interface StockAlertData {
   category: string
   warehouse: string
   type: 'low_stock' | 'out_of_stock' | 'expiry' | 'overstock'
+  alertTypeCode?: 'LOW_STOCK' | 'NEAR_REORDER' | 'OVERSTOCK' | 'EXPIRY_SOON' | 'OUT_OF_STOCK'
   severity: 'low' | 'medium' | 'high' | 'critical'
   currentStock: number
   minStock: number
+  reorderPoint?: number
   maxStock: number
   expiryDate?: string
   daysToExpiry?: number
   message: string
   status: 'active' | 'resolved' | 'dismissed'
+  alertStatus?: 'critical' | 'needs_action' | 'resolved' // وضعیت تجمیعی
   priority: 'low' | 'normal' | 'high' | 'urgent'
   assignedTo?: string
   resolvedBy?: string
   resolvedAt?: string
   resolution?: string
   notes: string
+  actions?: AlertAction[]
   createdAt: string
   updatedAt: string
+}
+
+interface AlertAction {
+  actionType: 'purchase_order' | 'transfer' | 'adjustment' | 'other'
+  description: string
+  performedBy: string
+  metadata?: any
+  performedAt: string
 }
 
 interface StockAlertStats {
@@ -73,10 +86,12 @@ interface StockAlertStats {
   resolvedAlerts: number
   dismissedAlerts: number
   criticalAlerts: number
+  needsActionAlerts: number
   highAlerts: number
   mediumAlerts: number
   lowAlerts: number
   lowStockAlerts: number
+  nearReorderAlerts: number
   outOfStockAlerts: number
   expiryAlerts: number
   overstockAlerts: number
@@ -112,11 +127,33 @@ const getSeverityBadge = (severity: string) => {
   }
 }
 
-const getStatusBadge = (status: string) => {
+const getStatusBadge = (status: string, alertStatus?: string) => {
+  // استفاده از alertStatus اگر موجود باشد
+  if (alertStatus) {
+    switch (alertStatus) {
+      case 'critical': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">بحرانی</span>
+      case 'needs_action': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">نیاز به اقدام</span>
+      case 'resolved': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">حل شده</span>
+      default: return null
+    }
+  }
+  
+  // fallback به status قدیمی
   switch (status) {
     case 'active': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">فعال</span>
     case 'resolved': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">حل شده</span>
     case 'dismissed': return <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">نادیده گرفته</span>
+    default: return null
+  }
+}
+
+const getAlertTypeCodeBadge = (alertTypeCode?: string) => {
+  switch (alertTypeCode) {
+    case 'LOW_STOCK': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">موجودی کم</span>
+    case 'NEAR_REORDER': return <span className="status-badge bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">نزدیک به سفارش</span>
+    case 'OVERSTOCK': return <span className="status-badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">موجودی اضافی</span>
+    case 'EXPIRY_SOON': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">انقضا نزدیک</span>
+    case 'OUT_OF_STOCK': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">تمام شده</span>
     default: return null
   }
 }
@@ -146,13 +183,23 @@ export default function StockAlertsPage() {
     resolvedAlerts: 0,
     dismissedAlerts: 0,
     criticalAlerts: 0,
+    needsActionAlerts: 0,
     highAlerts: 0,
     mediumAlerts: 0,
     lowAlerts: 0,
     lowStockAlerts: 0,
+    nearReorderAlerts: 0,
     outOfStockAlerts: 0,
     expiryAlerts: 0,
     overstockAlerts: 0
+  })
+  const [filterCategory, setFilterCategory] = useState('all')
+  const [filterAlertStatus, setFilterAlertStatus] = useState('all')
+  const [showActionModal, setShowActionModal] = useState(false)
+  const [actionFormData, setActionFormData] = useState({
+    actionType: 'purchase_order' as 'purchase_order' | 'transfer' | 'adjustment' | 'other',
+    description: '',
+    metadata: {}
   })
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -356,25 +403,88 @@ export default function StockAlertsPage() {
     }
   }
 
-  // اضافه کردن داده‌های نمونه
-  const handleAddSampleData = async () => {
+  // محاسبه و به‌روزرسانی هشدارها
+  const handleCalculateAlerts = async () => {
     try {
-      const response = await fetch('/api/add-sample-stock-alerts', {
+      setActionLoading(true)
+      const response = await fetch('/api/stock-alerts/calculate', {
         method: 'POST',
       })
       
       const data = await response.json()
       
       if (data.success) {
-        alert('داده‌های نمونه با موفقیت اضافه شد')
+        alert(`هشدارها به‌روزرسانی شدند: ${data.data.created} ایجاد، ${data.data.updated} به‌روزرسانی، ${data.data.resolved} حل شده`)
         fetchAlerts()
       } else {
-        alert('خطا در اضافه کردن داده‌های نمونه: ' + data.message)
+        alert('خطا در محاسبه هشدارها: ' + data.message)
       }
     } catch (error) {
-      console.error('Error adding sample data:', error)
-      alert('خطا در اضافه کردن داده‌های نمونه')
+      console.error('Error calculating alerts:', error)
+      alert('خطا در محاسبه هشدارها')
+    } finally {
+      setActionLoading(false)
     }
+  }
+
+  // ثبت اقدام برای هشدار
+  const handleAddAction = async (alert: StockAlertData) => {
+    setSelectedAlert(alert)
+    setActionFormData({
+      actionType: 'purchase_order',
+      description: '',
+      metadata: {}
+    })
+    setShowActionModal(true)
+  }
+
+  const handleSubmitAction = async () => {
+    if (!selectedAlert || !actionFormData.description.trim()) {
+      alert('توضیحات اقدام اجباری است')
+      return
+    }
+
+    try {
+      setActionLoading(true)
+      const response = await fetch(`/api/stock-alerts/${selectedAlert._id}/actions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...actionFormData,
+          performedBy: 'کاربر سیستم' // در آینده از authentication بگیر
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('اقدام با موفقیت ثبت شد')
+        setShowActionModal(false)
+        fetchAlerts()
+      } else {
+        alert('خطا در ثبت اقدام: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error adding action:', error)
+      alert('خطا در ثبت اقدام')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // محاسبه وضعیت تجمیعی هشدار
+  const calculateAlertStatus = (alert: StockAlertData): 'critical' | 'needs_action' | 'resolved' => {
+    if (alert.status === 'resolved' || alert.status === 'dismissed') {
+      return 'resolved'
+    }
+    
+    if (alert.severity === 'critical' || alert.currentStock === 0) {
+      return 'critical'
+    }
+    
+    return 'needs_action'
   }
 
   // بازنشانی فرم
@@ -432,8 +542,12 @@ export default function StockAlertsPage() {
   }
 
   // فیلتر هشدارها - نمایش همه هشدارهایی که انبارشان در لیست انبارهای واقعی وجود دارد یا "تایماز" است
-  const filteredAlerts = alerts.filter(alert => {
+  const filteredAlerts = alerts.map(alert => ({
+    ...alert,
+    alertStatus: calculateAlertStatus(alert)
+  })).filter(alert => {
     const alertWarehouse = alert.warehouse || ''
+    const alertStatus = alert.alertStatus || calculateAlertStatus(alert)
     
     // بررسی اینکه آیا انبار "تایماز" است (با هر نامی)
     const isTaymaz = alertWarehouse && (
@@ -445,36 +559,36 @@ export default function StockAlertsPage() {
     // بررسی اینکه انبار در لیست انبارهای واقعی وجود دارد
     const warehouseExists = warehouses.length > 0 && warehouses.some(w => {
       const warehouseName = w.name || ''
-      // مقایسه دقیق و case-insensitive
       return warehouseName === alertWarehouse || 
              warehouseName.toLowerCase() === alertWarehouse.toLowerCase() ||
              warehouseName.includes(alertWarehouse) ||
              alertWarehouse.includes(warehouseName)
     })
     
-    // اگر انبارها هنوز لود نشده‌اند، همه هشدارهای "تایماز" را نمایش بده
-    if (warehouses.length === 0) {
-      // اگر "تایماز" است، نمایش بده
-      if (isTaymaz) {
-        // فیلترهای دیگر
-        return (
-          (searchTerm === '' || 
-            alert.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            alert.itemCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            alert.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            alertWarehouse.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            alert.message.toLowerCase().includes(searchTerm.toLowerCase())) &&
-          (filterType === 'all' || alert.type === filterType) &&
-          (filterSeverity === 'all' || alert.severity === filterSeverity) &&
-          (filterStatus === 'all' || alert.status === filterStatus) &&
-          (filterWarehouse === 'all' || alertWarehouse === filterWarehouse)
-        )
+    // فیلتر انبار
+    if (filterWarehouse !== 'all') {
+      const warehouseMatch = alertWarehouse === filterWarehouse || 
+                            alertWarehouse.toLowerCase() === filterWarehouse.toLowerCase() ||
+                            (filterWarehouse === 'تایماز' && isTaymaz)
+      if (!warehouseMatch) return false
+    } else {
+      // اگر انبارها لود شده‌اند، فقط انبارهای موجود را نمایش بده
+      if (warehouses.length > 0 && !warehouseExists && !isTaymaz) {
+        return false
       }
+      // اگر انبارها لود نشده‌اند، فقط "تایماز" را نمایش بده
+      if (warehouses.length === 0 && !isTaymaz) {
+        return false
+      }
+    }
+    
+    // فیلتر دسته‌بندی
+    if (filterCategory !== 'all' && alert.category !== filterCategory) {
       return false
     }
     
-    // اگر انبار در لیست انبارهای واقعی وجود دارد یا "تایماز" است، نمایش بده
-    if (!warehouseExists && !isTaymaz) {
+    // فیلتر وضعیت تجمیعی
+    if (filterAlertStatus !== 'all' && alertStatus !== filterAlertStatus) {
       return false
     }
     
@@ -488,8 +602,7 @@ export default function StockAlertsPage() {
         alert.message.toLowerCase().includes(searchTerm.toLowerCase())) &&
       (filterType === 'all' || alert.type === filterType) &&
       (filterSeverity === 'all' || alert.severity === filterSeverity) &&
-      (filterStatus === 'all' || alert.status === filterStatus) &&
-      (filterWarehouse === 'all' || alertWarehouse === filterWarehouse)
+      (filterStatus === 'all' || alert.status === filterStatus)
     )
   })
 
@@ -627,11 +740,12 @@ export default function StockAlertsPage() {
             <span>هشدار جدید</span>
           </button>
           <button
-            onClick={handleAddSampleData}
-            className="premium-button flex items-center space-x-2 space-x-reverse"
+            onClick={handleCalculateAlerts}
+            disabled={actionLoading}
+            className="premium-button flex items-center space-x-2 space-x-reverse disabled:opacity-50"
           >
-            <Bell className="w-5 h-5" />
-            <span>داده نمونه</span>
+            <Zap className="w-5 h-5" />
+            <span>محاسبه هشدارها</span>
           </button>
           <button
             onClick={fetchAlerts}
@@ -646,29 +760,20 @@ export default function StockAlertsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="premium-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل هشدارها</h3>
-            <Bell className="w-6 h-6 text-primary-600" />
-          </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalAlerts}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">هشدار ثبت شده</p>
-        </div>
-
-        <div className="premium-card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">هشدارهای فعال</h3>
-            <AlertTriangle className="w-6 h-6 text-warning-600" />
-          </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.activeAlerts}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">نیاز به اقدام</p>
-        </div>
-
-        <div className="premium-card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">هشدارهای بحرانی</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">بحرانی</h3>
             <AlertCircle className="w-6 h-6 text-danger-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.criticalAlerts}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">اولویت بالا</p>
+          <p className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.criticalAlerts}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">هشدار بحرانی</p>
+        </div>
+
+        <div className="premium-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">نیاز به اقدام</h3>
+            <AlertTriangle className="w-6 h-6 text-warning-600" />
+          </div>
+          <p className="text-3xl font-bold text-yellow-600 dark:text-yellow-400">{stats.needsActionAlerts}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">هشدار فعال</p>
         </div>
 
         <div className="premium-card p-6">
@@ -676,8 +781,17 @@ export default function StockAlertsPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">حل شده</h3>
             <CheckCircle className="w-6 h-6 text-success-600" />
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.resolvedAlerts}</p>
+          <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.resolvedAlerts}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">هشدار حل شده</p>
+        </div>
+
+        <div className="premium-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل هشدارها</h3>
+            <Bell className="w-6 h-6 text-primary-600" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalAlerts}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">هشدار ثبت شده</p>
         </div>
       </div>
 
@@ -700,7 +814,7 @@ export default function StockAlertsPage() {
 
       {/* Filters */}
       <div className="premium-card p-6">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
           <div className="relative">
             <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
@@ -711,6 +825,16 @@ export default function StockAlertsPage() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          <select
+            className="premium-input"
+            value={filterAlertStatus}
+            onChange={(e) => setFilterAlertStatus(e.target.value)}
+          >
+            <option value="all">همه وضعیت‌ها</option>
+            <option value="critical">بحرانی</option>
+            <option value="needs_action">نیاز به اقدام</option>
+            <option value="resolved">حل شده</option>
+          </select>
           <select
             className="premium-input"
             value={filterType}
@@ -735,13 +859,13 @@ export default function StockAlertsPage() {
           </select>
           <select
             className="premium-input"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
           >
-            <option value="all">همه وضعیت‌ها</option>
-            <option value="active">فعال</option>
-            <option value="resolved">حل شده</option>
-            <option value="dismissed">نادیده گرفته</option>
+            <option value="all">همه دسته‌ها</option>
+            {Array.from(new Set(alerts.map(a => a.category))).map(category => (
+              <option key={category} value={category}>{category}</option>
+            ))}
           </select>
           <select
             className="premium-input"
@@ -757,6 +881,24 @@ export default function StockAlertsPage() {
           </select>
         </div>
 
+        {/* یادآور توضیحی */}
+        <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <div className="flex items-start space-x-3 space-x-reverse">
+            <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-blue-800 dark:text-blue-300">
+              <p className="font-semibold mb-1">راهنمای هشدارهای موجودی:</p>
+              <ul className="list-disc list-inside space-y-1 text-blue-700 dark:text-blue-400">
+                <li><strong>بحرانی:</strong> موجودی صفر یا منفی، یا موجودی زیر حداقل که نیاز به اقدام فوری دارد.</li>
+                <li><strong>نیاز به اقدام:</strong> موجودی بین حداقل و نقطه سفارش که باید برای تأمین موجودی اقدام شود.</li>
+                <li><strong>حل شده:</strong> هشدارهایی که با اقدامات انجام شده (خرید، انتقال، تعدیل) برطرف شده‌اند.</li>
+              </ul>
+              <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+                هشدارها به صورت خودکار با هر تغییر موجودی به‌روزرسانی می‌شوند. می‌توانید برای هر هشدار اقدامات انجام شده را ثبت کنید.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Alerts Table */}
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-right whitespace-nowrap">
@@ -770,7 +912,7 @@ export default function StockAlertsPage() {
                 <th className="px-4 py-3">نوع هشدار</th>
                 <th className="px-4 py-3">شدت</th>
                 <th className="px-4 py-3">اولویت</th>
-                <th className="px-4 py-3">وضعیت</th>
+                <th className="px-4 py-3">وضعیت تجمیعی</th>
                 <th className="px-4 py-3">تاریخ ایجاد</th>
                 <th className="px-4 py-3 rounded-l-lg">عملیات</th>
               </tr>
@@ -792,7 +934,7 @@ export default function StockAlertsPage() {
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{alert.currentStock}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{alert.minStock}</td>
                   <td className="px-4 py-3">
-                    {getAlertTypeBadge(alert.type)}
+                    {alert.alertTypeCode ? getAlertTypeCodeBadge(alert.alertTypeCode) : getAlertTypeBadge(alert.type)}
                   </td>
                   <td className="px-4 py-3">
                     {getSeverityBadge(alert.severity)}
@@ -801,7 +943,7 @@ export default function StockAlertsPage() {
                     {getPriorityBadge(alert.priority)}
                   </td>
                   <td className="px-4 py-3">
-                    {getStatusBadge(alert.status)}
+                    {getStatusBadge(alert.status, alert.alertStatus)}
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
                     {new Date(alert.createdAt).toLocaleDateString('fa-IR')}
@@ -816,30 +958,14 @@ export default function StockAlertsPage() {
                         <Eye className="w-4 h-4" />
                       </button>
                       {alert.status === 'active' && (
-                        <>
-                          <button
-                            onClick={() => handleStatusChange(alert._id, 'resolved', 'هشدار حل شد')}
-                            className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                            title="حل کردن"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleStatusChange(alert._id, 'dismissed')}
-                            className="p-1 rounded-full text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-900/30 transition-colors"
-                            title="نادیده گرفتن"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </>
+                        <button
+                          onClick={() => handleAddAction(alert)}
+                          className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                          title="ثبت اقدام"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                        </button>
                       )}
-                      <button
-                        onClick={() => handleEditAlert(alert)}
-                        className="p-1 rounded-full text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
-                        title="ویرایش"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
                       <button
                         onClick={() => handleDeleteAlert(alert._id)}
                         className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
@@ -1335,6 +1461,116 @@ export default function StockAlertsPage() {
                   <p className="text-gray-600 dark:text-gray-400">هیچ داده‌ای برای نمایش وجود ندارد</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action Modal */}
+      {showActionModal && selectedAlert && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">ثبت اقدام برای هشدار</h2>
+              <button
+                onClick={() => {
+                  setShowActionModal(false)
+                  setSelectedAlert(null)
+                }}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* اطلاعات هشدار */}
+              <div className="premium-card p-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">اطلاعات هشدار</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">نام آیتم:</span>
+                    <span className="mr-2 font-medium text-gray-900 dark:text-white">{selectedAlert.itemName}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">انبار:</span>
+                    <span className="mr-2 font-medium text-gray-900 dark:text-white">{selectedAlert.warehouse}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">موجودی فعلی:</span>
+                    <span className="mr-2 font-medium text-gray-900 dark:text-white">{selectedAlert.currentStock}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">حداقل:</span>
+                    <span className="mr-2 font-medium text-gray-900 dark:text-white">{selectedAlert.minStock}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* نوع اقدام */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  نوع اقدام *
+                </label>
+                <select
+                  value={actionFormData.actionType}
+                  onChange={(e) => setActionFormData({ ...actionFormData, actionType: e.target.value as any })}
+                  className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  required
+                >
+                  <option value="purchase_order">ثبت سفارش خرید</option>
+                  <option value="transfer">انتقال از انبار دیگر</option>
+                  <option value="adjustment">اصلاح موجودی</option>
+                  <option value="other">سایر</option>
+                </select>
+              </div>
+
+              {/* توضیحات */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  توضیحات اقدام *
+                </label>
+                <textarea
+                  value={actionFormData.description}
+                  onChange={(e) => setActionFormData({ ...actionFormData, description: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  rows={4}
+                  placeholder="توضیحات اقدام انجام شده را وارد کنید..."
+                  required
+                />
+              </div>
+
+              {/* دکمه‌ها */}
+              <div className="flex items-center justify-end space-x-3 space-x-reverse">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionModal(false)
+                    setSelectedAlert(null)
+                  }}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitAction}
+                  disabled={actionLoading || !actionFormData.description.trim()}
+                  className="premium-button flex items-center space-x-2 space-x-reverse disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {actionLoading ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      <span>در حال ثبت...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>ثبت اقدام</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

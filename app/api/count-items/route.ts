@@ -83,9 +83,11 @@ export async function POST(request: NextRequest) {
     const {
       countId,
       itemId,
+      warehouse, // برای شناسایی آیتم در چند انبار
       countedQuantity,
       countedBy,
-      notes
+      notes,
+      roundNumber // شماره نوبت شمارش
     } = body
 
     if (!countId || !itemId || countedQuantity === null || countedQuantity === undefined) {
@@ -96,52 +98,76 @@ export async function POST(request: NextRequest) {
     }
 
     // بررسی اینکه آیا آیتم قبلاً ثبت شده است
-    const existingItem = await collection.findOne({ countId, itemId })
-
-    const systemQuantity = existingItem?.systemQuantity || 0
-    const unitPrice = existingItem?.unitPrice || 0
-    const discrepancy = countedQuantity - systemQuantity
-    const discrepancyValue = discrepancy * unitPrice
-
-    const itemData = {
-      countId,
-      itemId,
-      countedQuantity: Number(countedQuantity),
-      discrepancy,
-      countedValue: countedQuantity * unitPrice,
-      discrepancyValue,
-      countedBy: countedBy || null,
-      countedDate: new Date().toISOString(),
-      notes: notes || '',
-      updatedAt: new Date().toISOString()
+    const query: any = { countId, itemId }
+    if (warehouse) {
+      query.warehouse = warehouse
     }
+    const existingItem = await collection.findOne(query)
 
-    let result
-    if (existingItem) {
-      // به‌روزرسانی
-      await collection.updateOne(
-        { _id: existingItem._id },
-        { 
-          $set: {
-            ...itemData,
-            itemName: existingItem.itemName,
-            itemCode: existingItem.itemCode,
-            category: existingItem.category,
-            unit: existingItem.unit,
-            systemQuantity: existingItem.systemQuantity,
-            unitPrice: existingItem.unitPrice,
-            systemValue: existingItem.systemValue
-          }
-        }
-      )
-      result = { insertedId: existingItem._id }
-    } else {
-      // ایجاد جدید (نباید این حالت رخ دهد چون در ایجاد شمارش آیتم‌ها ایجاد می‌شوند)
+    if (!existingItem) {
       return NextResponse.json(
         { success: false, message: 'آیتم شمارش یافت نشد' },
         { status: 404 }
       )
     }
+
+    const systemQuantity = existingItem.systemQuantity || 0
+    const unitPrice = existingItem.unitPrice || 0
+    const countedQty = Number(countedQuantity)
+    
+    // اگر roundNumber داده شده، به countingRounds اضافه کن
+    const countingRounds = existingItem.countingRounds || []
+    if (roundNumber !== undefined && roundNumber !== null) {
+      const roundIndex = countingRounds.findIndex((r: any) => r.roundNumber === roundNumber)
+      const roundData = {
+        roundNumber: roundNumber,
+        quantity: countedQty,
+        countedBy: countedBy || null,
+        countedDate: new Date().toISOString(),
+        notes: notes || ''
+      }
+      
+      if (roundIndex >= 0) {
+        countingRounds[roundIndex] = roundData
+      } else {
+        countingRounds.push(roundData)
+      }
+    }
+    
+    // محاسبه discrepancy بر اساس آخرین مقدار شمارش
+    const discrepancy = countedQty - systemQuantity
+    const discrepancyValue = discrepancy * unitPrice
+
+    const itemData = {
+      countedQuantity: countedQty,
+      discrepancy,
+      countedValue: countedQty * unitPrice,
+      discrepancyValue,
+      countedBy: countedBy || existingItem.countedBy,
+      countedDate: new Date().toISOString(),
+      countingRounds: countingRounds,
+      notes: notes || existingItem.notes || '',
+      updatedAt: new Date().toISOString()
+    }
+
+    // به‌روزرسانی
+    await collection.updateOne(
+      { _id: existingItem._id },
+      { 
+        $set: {
+          ...itemData,
+          itemName: existingItem.itemName,
+          itemCode: existingItem.itemCode,
+          category: existingItem.category,
+          unit: existingItem.unit,
+          warehouse: existingItem.warehouse,
+          systemQuantity: existingItem.systemQuantity,
+          unitPrice: existingItem.unitPrice,
+          systemValue: existingItem.systemValue
+        }
+      }
+    )
+    const result = { insertedId: existingItem._id }
 
     // به‌روزرسانی آمار شمارش
     await updateCountStats(countId, countsCollection, collection)

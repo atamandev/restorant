@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { OnHandReportTab, MovementReportTab, TurnoverReportTab, AlertsReportTab, ExpiryReportTab } from './components'
 import {
   ClipboardList,
   BarChart3,
@@ -111,7 +113,7 @@ export default function InventoryReportsPage() {
   const [filterType, setFilterType] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [selectedPeriod, setSelectedPeriod] = useState('current_month')
-  const [activeTab, setActiveTab] = useState<'reports' | 'analytics' | 'charts'>('reports')
+  const [activeTab, setActiveTab] = useState<'reports' | 'on-hand' | 'movement' | 'turnover' | 'alerts' | 'expiry'>('reports')
   const [loading, setLoading] = useState(false)
   const [stockLevelData, setStockLevelData] = useState<StockLevelData[]>([])
   const [movementData, setMovementData] = useState<MovementData[]>([])
@@ -121,6 +123,30 @@ export default function InventoryReportsPage() {
     generatingReports: 0,
     totalDownloads: 0
   })
+  
+  // فیلترهای گزارشات
+  const [reportFilters, setReportFilters] = useState({
+    warehouseName: 'all',
+    category: 'all',
+    dateFrom: '',
+    dateTo: ''
+  })
+  
+  // داده‌های گزارشات
+  const [onHandData, setOnHandData] = useState<any[]>([])
+  const [movementReportData, setMovementReportData] = useState<any[]>([])
+  const [turnoverData, setTurnoverData] = useState<any[]>([])
+  const [alertsData, setAlertsData] = useState<any[]>([])
+  const [expiryData, setExpiryData] = useState<any[]>([])
+  
+  // انبارها و دسته‌بندی‌ها
+  const [warehouses, setWarehouses] = useState<any[]>([])
+  const [categories, setCategories] = useState<string[]>([])
+  
+  // فیلترهای ذخیره شده
+  const [savedFilters, setSavedFilters] = useState<any[]>([])
+  const [showSaveFilterModal, setShowSaveFilterModal] = useState(false)
+  const [filterName, setFilterName] = useState('')
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '-'
@@ -186,16 +212,177 @@ export default function InventoryReportsPage() {
     }
   }, [])
 
+  // بارگذاری انبارها
+  const fetchWarehouses = useCallback(async () => {
+    try {
+      const response = await fetch('/api/warehouses')
+      const data = await response.json()
+      if (data.success) {
+        setWarehouses(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching warehouses:', error)
+    }
+  }, [])
+
+  // بارگذاری دسته‌بندی‌ها
+  const fetchCategories = useCallback(async () => {
+    try {
+      const response = await fetch('/api/warehouse/items?limit=10000')
+      const data = await response.json()
+      if (data.success) {
+        const uniqueCategories = [...new Set((data.data || []).map((item: any) => item.category).filter(Boolean))]
+        setCategories(uniqueCategories)
+      }
+    } catch (error) {
+      console.error('Error fetching categories:', error)
+    }
+  }, [])
+
+  // بارگذاری فیلترهای ذخیره شده
+  const fetchSavedFilters = useCallback(async () => {
+    try {
+      const response = await fetch('/api/inventory-reports/save-filters')
+      const data = await response.json()
+      if (data.success) {
+        setSavedFilters(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching saved filters:', error)
+    }
+  }, [])
+
+  // بارگذاری گزارش موجودی لحظه‌ای
+  const fetchOnHandReport = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+      if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+      if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+      if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+
+      const response = await fetch(`/api/inventory-reports/on-hand?${params.toString()}`)
+      const data = await response.json()
+      if (data.success) {
+        setOnHandData(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching on-hand report:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [reportFilters])
+
+  // بارگذاری گزارش گردش کالا
+  const fetchMovementReport = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+      if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+      if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+      if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+
+      const response = await fetch(`/api/inventory-reports/movement?${params.toString()}`)
+      const data = await response.json()
+      if (data.success) {
+        setMovementReportData(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching movement report:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [reportFilters])
+
+  // بارگذاری گزارش کم‌گردش
+  const fetchTurnoverReport = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+      if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+      if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+      if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+
+      const response = await fetch(`/api/inventory-reports/turnover?${params.toString()}`)
+      const data = await response.json()
+      if (data.success) {
+        setTurnoverData(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching turnover report:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [reportFilters])
+
+  // بارگذاری گزارش هشدارها
+  const fetchAlertsReport = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+      if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+      if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+      if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+
+      const response = await fetch(`/api/inventory-reports/alerts?${params.toString()}`)
+      const data = await response.json()
+      if (data.success) {
+        setAlertsData(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching alerts report:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [reportFilters])
+
+  // بارگذاری گزارش انقضا
+  const fetchExpiryReport = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+      if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+
+      const response = await fetch(`/api/inventory-reports/expiry?${params.toString()}`)
+      const data = await response.json()
+      if (data.success) {
+        setExpiryData(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching expiry report:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [reportFilters])
+
   useEffect(() => {
     fetchReports()
-  }, [fetchReports])
+    fetchWarehouses()
+    fetchCategories()
+    fetchSavedFilters()
+  }, [fetchReports, fetchWarehouses, fetchCategories, fetchSavedFilters])
 
   useEffect(() => {
     if (activeTab === 'analytics') {
       fetchStockLevelAnalytics()
       fetchMovementAnalytics()
+    } else if (activeTab === 'on-hand') {
+      fetchOnHandReport()
+    } else if (activeTab === 'movement') {
+      fetchMovementReport()
+    } else if (activeTab === 'turnover') {
+      fetchTurnoverReport()
+    } else if (activeTab === 'alerts') {
+      fetchAlertsReport()
+    } else if (activeTab === 'expiry') {
+      fetchExpiryReport()
     }
-  }, [activeTab, fetchStockLevelAnalytics, fetchMovementAnalytics])
+  }, [activeTab, reportFilters, fetchStockLevelAnalytics, fetchMovementAnalytics, fetchOnHandReport, fetchMovementReport, fetchTurnoverReport, fetchAlertsReport, fetchExpiryReport])
 
   const filteredReports = reports.filter(report =>
     (searchTerm === '' || 
@@ -320,6 +507,53 @@ export default function InventoryReportsPage() {
     window.print()
   }
 
+  // ذخیره فیلتر
+  const handleSaveFilter = async () => {
+    if (!filterName.trim()) {
+      alert('لطفاً نامی برای فیلتر وارد کنید')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/inventory-reports/save-filters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: filterName,
+          filters: reportFilters
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchSavedFilters()
+        setShowSaveFilterModal(false)
+        setFilterName('')
+        alert('فیلتر با موفقیت ذخیره شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error saving filter:', error)
+      alert('خطا در ذخیره فیلتر')
+    }
+  }
+
+  // پاک کردن فیلترها
+  const handleClearFilters = () => {
+    setReportFilters({
+      warehouseName: 'all',
+      category: 'all',
+      dateFrom: '',
+      dateTo: ''
+    })
+  }
+
+  // اعمال فیلتر ذخیره شده
+  const handleApplySavedFilter = (savedFilter: any) => {
+    setReportFilters(savedFilter.filters)
+    setShowSaveFilterModal(false)
+  }
+
   return (
     <div className="fade-in-animation space-y-6">
       <div className="flex items-center justify-between">
@@ -393,10 +627,10 @@ export default function InventoryReportsPage() {
 
       {/* Tabs */}
       <div className="premium-card p-6">
-        <div className="flex space-x-1 space-x-reverse bg-gray-100 dark:bg-gray-800 rounded-lg p-1 mb-6">
+        <div className="flex space-x-1 space-x-reverse bg-gray-100 dark:bg-gray-800 rounded-lg p-1 mb-6 overflow-x-auto">
           <button
             onClick={() => setActiveTab('reports')}
-            className={`flex-1 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
+            className={`flex-shrink-0 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
               activeTab === 'reports'
                 ? 'bg-white dark:bg-gray-700 text-primary-600 shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -406,28 +640,122 @@ export default function InventoryReportsPage() {
             <span>گزارشات</span>
           </button>
           <button
-            onClick={() => setActiveTab('analytics')}
-            className={`flex-1 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
-              activeTab === 'analytics'
+            onClick={() => setActiveTab('on-hand')}
+            className={`flex-shrink-0 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
+              activeTab === 'on-hand'
                 ? 'bg-white dark:bg-gray-700 text-primary-600 shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            <BarChart3 className="w-5 h-5" />
-            <span>تحلیل‌ها</span>
+            <Package className="w-5 h-5" />
+            <span>موجودی لحظه‌ای</span>
           </button>
           <button
-            onClick={() => setActiveTab('charts')}
-            className={`flex-1 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
-              activeTab === 'charts'
+            onClick={() => setActiveTab('movement')}
+            className={`flex-shrink-0 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
+              activeTab === 'movement'
                 ? 'bg-white dark:bg-gray-700 text-primary-600 shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            <PieChart className="w-5 h-5" />
-            <span>نمودارها</span>
+            <Activity className="w-5 h-5" />
+            <span>گردش کالا</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('turnover')}
+            className={`flex-shrink-0 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
+              activeTab === 'turnover'
+                ? 'bg-white dark:bg-gray-700 text-primary-600 shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            <TrendingDown className="w-5 h-5" />
+            <span>کم‌گردش/راکد</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('alerts')}
+            className={`flex-shrink-0 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
+              activeTab === 'alerts'
+                ? 'bg-white dark:bg-gray-700 text-primary-600 shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            <Bell className="w-5 h-5" />
+            <span>هشدارها</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('expiry')}
+            className={`flex-shrink-0 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
+              activeTab === 'expiry'
+                ? 'bg-white dark:bg-gray-700 text-primary-600 shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            <Clock className="w-5 h-5" />
+            <span>انقضا</span>
           </button>
         </div>
+        
+        {/* فیلترهای مشترک برای گزارشات */}
+        {(activeTab === 'on-hand' || activeTab === 'movement' || activeTab === 'turnover' || activeTab === 'alerts' || activeTab === 'expiry') && (
+          <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">فیلترها</h3>
+              <div className="flex items-center space-x-2 space-x-reverse">
+                <button
+                  onClick={() => setShowSaveFilterModal(true)}
+                  className="px-3 py-1 text-sm text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded flex items-center space-x-1 space-x-reverse"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>ذخیره فیلتر</span>
+                </button>
+                <button
+                  onClick={handleClearFilters}
+                  className="px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center space-x-1 space-x-reverse"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>پاک کردن</span>
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <select
+                className="premium-input"
+                value={reportFilters.warehouseName}
+                onChange={(e) => setReportFilters({ ...reportFilters, warehouseName: e.target.value })}
+              >
+                <option value="all">همه انبارها</option>
+                {warehouses.map(wh => (
+                  <option key={wh._id || wh.id} value={wh.name}>{wh.name}</option>
+                ))}
+              </select>
+              <select
+                className="premium-input"
+                value={reportFilters.category}
+                onChange={(e) => setReportFilters({ ...reportFilters, category: e.target.value })}
+              >
+                <option value="all">همه دسته‌بندی‌ها</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                className="premium-input"
+                value={reportFilters.dateFrom}
+                onChange={(e) => setReportFilters({ ...reportFilters, dateFrom: e.target.value })}
+                placeholder="از تاریخ"
+              />
+              <input
+                type="date"
+                className="premium-input"
+                value={reportFilters.dateTo}
+                onChange={(e) => setReportFilters({ ...reportFilters, dateTo: e.target.value })}
+                placeholder="تا تاریخ"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Reports Tab */}
         {activeTab === 'reports' && (
@@ -586,6 +914,89 @@ export default function InventoryReportsPage() {
           </>
         )}
 
+        {/* On-Hand Report Tab */}
+        {activeTab === 'on-hand' && (
+          <OnHandReportTab 
+            data={onHandData}
+            loading={loading}
+            onExport={(format: string) => {
+              const params = new URLSearchParams()
+              if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+              if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+              if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+              if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+              params.append('format', format)
+              window.open(`/api/inventory-reports/on-hand?${params.toString()}`, '_blank')
+            }}
+          />
+        )}
+        
+        {/* Movement Report Tab */}
+        {activeTab === 'movement' && (
+          <MovementReportTab 
+            data={movementReportData}
+            loading={loading}
+            onExport={(format: string) => {
+              const params = new URLSearchParams()
+              if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+              if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+              if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+              if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+              params.append('format', format)
+              window.open(`/api/inventory-reports/movement?${params.toString()}`, '_blank')
+            }}
+          />
+        )}
+        
+        {/* Turnover Report Tab */}
+        {activeTab === 'turnover' && (
+          <TurnoverReportTab 
+            data={turnoverData}
+            loading={loading}
+            onExport={(format: string) => {
+              const params = new URLSearchParams()
+              if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+              if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+              if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+              if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+              params.append('format', format)
+              window.open(`/api/inventory-reports/turnover?${params.toString()}`, '_blank')
+            }}
+          />
+        )}
+        
+        {/* Alerts Report Tab */}
+        {activeTab === 'alerts' && (
+          <AlertsReportTab 
+            data={alertsData}
+            loading={loading}
+            onExport={(format: string) => {
+              const params = new URLSearchParams()
+              if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+              if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+              if (reportFilters.dateFrom) params.append('dateFrom', reportFilters.dateFrom)
+              if (reportFilters.dateTo) params.append('dateTo', reportFilters.dateTo)
+              params.append('format', format)
+              window.open(`/api/inventory-reports/alerts?${params.toString()}`, '_blank')
+            }}
+          />
+        )}
+        
+        {/* Expiry Report Tab */}
+        {activeTab === 'expiry' && (
+          <ExpiryReportTab 
+            data={expiryData}
+            loading={loading}
+            onExport={(format: string) => {
+              const params = new URLSearchParams()
+              if (reportFilters.warehouseName !== 'all') params.append('warehouseName', reportFilters.warehouseName)
+              if (reportFilters.category !== 'all') params.append('category', reportFilters.category)
+              params.append('format', format)
+              window.open(`/api/inventory-reports/expiry?${params.toString()}`, '_blank')
+            }}
+          />
+        )}
+        
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (
           <div className="space-y-6">
@@ -756,6 +1167,71 @@ export default function InventoryReportsPage() {
           </button>
         </div>
       </div>
+
+      {/* مودال ذخیره فیلتر */}
+      {showSaveFilterModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="premium-card p-6 max-w-md w-full mx-4">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">ذخیره فیلتر</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  نام فیلتر
+                </label>
+                <input
+                  type="text"
+                  value={filterName}
+                  onChange={(e) => setFilterName(e.target.value)}
+                  placeholder="مثلاً: گزارش تایماز - مواد اولیه"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+
+              {savedFilters.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    فیلترهای ذخیره شده
+                  </label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                    {savedFilters.map((filter: any) => (
+                      <button
+                        key={filter._id || filter.id}
+                        onClick={() => handleApplySavedFilter(filter)}
+                        className="w-full text-right px-4 py-2 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                      >
+                        <div className="font-medium text-gray-900 dark:text-white">{filter.name}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {filter.filters.warehouseName !== 'all' && `انبار: ${filter.filters.warehouseName} • `}
+                          {filter.filters.category !== 'all' && `دسته: ${filter.filters.category}`}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-3 space-x-reverse pt-4">
+                <button
+                  onClick={handleSaveFilter}
+                  className="flex-1 premium-button"
+                >
+                  ذخیره
+                </button>
+                <button
+                  onClick={() => {
+                    setShowSaveFilterModal(false)
+                    setFilterName('')
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  انصراف
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

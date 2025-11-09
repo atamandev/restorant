@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { get, post, patch, remove } from '@/lib/http'
 import Drawer from '@/components/Drawer'
 import Toast, { useToast } from '@/components/Toast'
+import { inventorySync, notifyStockMovement } from '@/lib/inventory-sync'
+import { formatDate, formatNumber, formatPrice } from '@/lib/date-utils'
 import { 
   Warehouse, 
   Package, 
@@ -82,8 +84,10 @@ export default function InitialInventoryPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterCategory, setFilterCategory] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [filterWarehouse, setFilterWarehouse] = useState('all')
   const [showDrawer, setShowDrawer] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
+  const [balances, setBalances] = useState<any[]>([]) // موجودی از Balance
 
   const [formData, setFormData] = useState({
     name: '',
@@ -135,6 +139,20 @@ export default function InitialInventoryPage() {
     }
   }
 
+  // دریافت موجودی از Balance
+  const fetchBalances = async () => {
+    try {
+      const warehouseFilter = filterWarehouse !== 'all' ? `&warehouseName=${encodeURIComponent(filterWarehouse)}` : ''
+      const response = await get<any[]>(`/api/inventory/balance?${warehouseFilter}`)
+      
+      if (response.success) {
+        setBalances(Array.isArray(response.data) ? response.data : [])
+      }
+    } catch (error) {
+      console.error('Error fetching balances:', error)
+    }
+  }
+
   // دریافت لیست کالاها
   const fetchItems = async () => {
     try {
@@ -168,24 +186,143 @@ export default function InitialInventoryPage() {
   useEffect(() => {
     fetchWarehouses()
     fetchItems()
+    fetchBalances()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, filterCategory, filterStatus])
+  }, [searchTerm, filterCategory, filterStatus, filterWarehouse])
 
   // Auto-refresh برای به‌روزرسانی real-time موجودی
   useEffect(() => {
     // Refresh هر 5 ثانیه
     const interval = setInterval(() => {
       fetchItems()
+      fetchBalances()
     }, 5000) // 5 ثانیه
 
     // Cleanup interval وقتی component unmount می‌شود
     return () => clearInterval(interval)
   }, []) // فقط یکبار اجرا می‌شود
 
+  // گوش دادن به events همگام‌سازی موجودی
+  useEffect(() => {
+    const unsubscribeStockMovement = inventorySync.subscribe('stock_movement_created', () => {
+      fetchItems()
+      fetchBalances()
+    })
+    
+    const unsubscribeBalance = inventorySync.subscribe('balance_updated', () => {
+      fetchItems()
+      fetchBalances()
+    })
+    
+    const unsubscribeAlert = inventorySync.subscribe('alert_updated', () => {
+      fetchItems()
+      fetchBalances()
+    })
+
+    return () => {
+      unsubscribeStockMovement()
+      unsubscribeBalance()
+      unsubscribeAlert()
+    }
+  }, [])
+
+  // محاسبه موجودی از Balance
+  const getItemBalance = (itemId: string) => {
+    // تبدیل itemId به string برای مقایسه
+    let itemIdStr = ''
+    if (typeof itemId === 'string') {
+      itemIdStr = itemId
+    } else if (itemId && typeof itemId === 'object' && '_id' in itemId) {
+      itemIdStr = (itemId as any)._id?.toString() || ''
+    } else {
+      itemIdStr = String(itemId || '')
+    }
+    
+    const itemBalances = balances.filter(b => {
+      const balanceItemId = b.itemId?.toString() || String(b.itemId || '')
+      return balanceItemId === itemIdStr
+    })
+    
+    // اگر فیلتر انبار فعال است، فقط موجودی آن انبار را محاسبه کن
+    if (filterWarehouse !== 'all') {
+      const filteredBalances = itemBalances.filter(b => {
+        const warehouseName = b.warehouseName || ''
+        return warehouseName === filterWarehouse || 
+               warehouseName.toLowerCase() === filterWarehouse.toLowerCase() ||
+               (filterWarehouse === 'تایماز' && (
+                 warehouseName === 'تایماز' || 
+                 warehouseName.toLowerCase().includes('taymaz') ||
+                 warehouseName.includes('تایماز')
+               ))
+      })
+      
+      const totalQuantity = filteredBalances.reduce((sum, b) => sum + (b.quantity || 0), 0)
+      const totalValue = filteredBalances.reduce((sum, b) => sum + (b.totalValue || 0), 0)
+      
+      return {
+        totalQuantity,
+        availableQuantity: totalQuantity, // در آینده می‌توان رزرو شده را کم کرد
+        totalValue,
+        averagePrice: totalQuantity > 0 ? totalValue / totalQuantity : 0
+      }
+    }
+    
+    // محاسبه از همه انبارها
+    const totalQuantity = itemBalances.reduce((sum, b) => sum + (b.quantity || 0), 0)
+    const totalValue = itemBalances.reduce((sum, b) => sum + (b.totalValue || 0), 0)
+    
+    // موجودی قابل‌فروش (کل موجودی - رزرو شده)
+    const availableQuantity = totalQuantity // در آینده می‌توان رزرو شده را کم کرد
+    
+    return {
+      totalQuantity,
+      availableQuantity,
+      totalValue,
+      averagePrice: totalQuantity > 0 ? totalValue / totalQuantity : 0
+    }
+  }
+
+  // محاسبه وضعیت کالا
+  const getItemStatus = (item: InventoryItem, balance: ReturnType<typeof getItemBalance>) => {
+    const quantity = balance.totalQuantity || item.currentStock || 0
+    const minStock = item.minStock || 0
+    const maxStock = item.maxStock || 0
+    
+    if (quantity === 0) {
+      return { status: 'low' as const, alert: 'تمام شده' }
+    }
+    if (quantity <= minStock) {
+      return { status: 'low' as const, alert: 'کمبود' }
+    }
+    if (quantity >= maxStock && maxStock > 0) {
+      return { status: 'warning' as const, alert: 'مازاد' }
+    }
+    if (quantity <= minStock * 1.2 && minStock > 0) {
+      return { status: 'warning' as const, alert: 'نزدیک به اتمام' }
+    }
+    return { status: 'sufficient' as const, alert: null }
+  }
+
   // فیلتر و مرتب‌سازی داده‌ها
   const filteredItems = useMemo(() => {
-    return [...inventory].sort((a, b) => a.name.localeCompare(b.name))
-  }, [inventory])
+    let items = [...inventory]
+    
+    // فیلتر بر اساس انبار
+    if (filterWarehouse !== 'all') {
+      items = items.filter(item => {
+        const itemWarehouse = item.warehouse || ''
+        return itemWarehouse === filterWarehouse || 
+               itemWarehouse.toLowerCase() === filterWarehouse.toLowerCase() ||
+               (filterWarehouse === 'تایماز' && (
+                 itemWarehouse === 'تایماز' || 
+                 itemWarehouse.toLowerCase().includes('taymaz') ||
+                 itemWarehouse.includes('تایماز')
+               ))
+      })
+    }
+    
+    return items.sort((a, b) => a.name.localeCompare(b.name))
+  }, [inventory, filterWarehouse])
 
   // ذخیره کالا
   const handleSave = async () => {
@@ -206,6 +343,12 @@ export default function InitialInventoryPage() {
     
     if (!formData.name.trim() || !formData.category.trim() || !formData.unit.trim()) {
       showToast('نام، دسته‌بندی و واحد اجباری است', 'warning')
+      return
+    }
+    
+    // بررسی اجباری بودن انبار
+    if (!finalWarehouse || finalWarehouse.trim() === '') {
+      showToast('انتخاب انبار اجباری است', 'warning')
       return
     }
 
@@ -252,10 +395,64 @@ export default function InitialInventoryPage() {
         console.log('Created item warehouse:', (response.data as any)?.warehouse)
         
         if (response.success) {
-          showToast('کالا با موفقیت ایجاد شد', 'success')
+          const createdItem = response.data as any
+          const itemId = createdItem._id || createdItem.id
+          
+          // ثبت Stock Movement از نوع INITIAL
+          if (itemId && formData.currentStock > 0) {
+            try {
+              const movementResponse = await post('/api/inventory/stock-movements', {
+                itemId: itemId,
+                warehouseName: finalWarehouse,
+                movementType: 'INITIAL',
+                quantity: formData.currentStock,
+                unitPrice: formData.unitPrice || 0,
+                documentNumber: `INIT-${Date.now()}`,
+                documentType: 'INITIAL',
+                description: 'موجودی اولیه',
+                createdBy: 'سیستم'
+              })
+              
+              if (movementResponse.success) {
+                // همگام‌سازی موجودی
+                await post('/api/inventory/sync-balance', {
+                  itemId: itemId,
+                  warehouseName: finalWarehouse
+                })
+                
+                // اطلاع‌رسانی به سایر صفحات برای به‌روزرسانی UI
+                notifyStockMovement({
+                  itemId,
+                  warehouseName: finalWarehouse,
+                  movementType: 'INITIAL',
+                  quantity: formData.currentStock
+                })
+                
+                showToast('کالا با موفقیت ایجاد شد و موجودی اولیه ثبت شد', 'success')
+                
+                // به‌روزرسانی فوری UI
+                await fetchItems()
+                await fetchBalances()
+                
+                // هدایت به ماژول انبارها بعد از 2 ثانیه
+                setTimeout(() => {
+                  window.location.href = '/inventory/warehouses'
+                }, 2000)
+              } else {
+                showToast('کالا ایجاد شد اما ثبت موجودی اولیه با خطا مواجه شد', 'warning')
+              }
+            } catch (error) {
+              console.error('Error creating initial stock movement:', error)
+              showToast('کالا ایجاد شد اما ثبت موجودی اولیه با خطا مواجه شد', 'warning')
+            }
+          } else {
+            showToast('کالا با موفقیت ایجاد شد', 'success')
+          }
+          
           setShowDrawer(false)
           resetForm()
           await fetchItems()
+          await fetchBalances()
         } else {
           showToast(response.message || 'خطا در ایجاد کالا', 'error')
         }
@@ -349,19 +546,69 @@ export default function InitialInventoryPage() {
 
   // محاسبه آمار
   const stats = useMemo(() => {
-    const totalValue = inventory.reduce((sum, item) => sum + (item.totalValue || 0), 0)
-    const lowStockCount = inventory.filter(item => item.isLowStock || item.status === 'low').length
-    const warningCount = inventory.filter(item => item.status === 'warning').length
-    const sufficientCount = inventory.filter(item => item.status === 'sufficient').length
+    // محاسبه آمار بر اساس filteredItems و Balance
+    let totalValue = 0
+    let lowStockCount = 0
+    let warningCount = 0
+    let sufficientCount = 0
+    
+    filteredItems.forEach(item => {
+      // محاسبه موجودی از Balance
+      const itemIdStr = typeof (item.id || item._id || '') === 'string' 
+        ? (item.id || item._id || '') 
+        : String(item.id || item._id || '')
+      
+      const itemBalances = balances.filter(b => {
+        const balanceItemId = b.itemId?.toString() || String(b.itemId || '')
+        return balanceItemId === itemIdStr
+      })
+      
+      // اگر فیلتر انبار فعال است، فقط موجودی آن انبار را محاسبه کن
+      let relevantBalances = itemBalances
+      if (filterWarehouse !== 'all') {
+        relevantBalances = itemBalances.filter(b => {
+          const warehouseName = b.warehouseName || ''
+          return warehouseName === filterWarehouse || 
+                 warehouseName.toLowerCase() === filterWarehouse.toLowerCase() ||
+                 (filterWarehouse === 'تایماز' && (
+                   warehouseName === 'تایماز' || 
+                   warehouseName.toLowerCase().includes('taymaz') ||
+                   warehouseName.includes('تایماز')
+                 ))
+        })
+      }
+      
+      const totalQuantity = relevantBalances.reduce((sum, b) => sum + (b.quantity || 0), 0)
+      const balanceTotalValue = relevantBalances.reduce((sum, b) => sum + (b.totalValue || 0), 0)
+      
+      const balance = {
+        totalQuantity,
+        availableQuantity: totalQuantity,
+        totalValue: balanceTotalValue,
+        averagePrice: totalQuantity > 0 ? balanceTotalValue / totalQuantity : 0
+      }
+      
+      const statusInfo = getItemStatus(item, balance)
+      
+      totalValue += balance.totalValue || item.totalValue || 0
+      
+      if (statusInfo.status === 'low') {
+        lowStockCount++
+      } else if (statusInfo.status === 'warning') {
+        warningCount++
+      } else {
+        sufficientCount++
+      }
+    })
     
     return {
-      total: inventory.length,
+      total: filteredItems.length,
       totalValue,
       lowStock: lowStockCount,
       warning: warningCount,
       sufficient: sufficientCount
     }
-  }, [inventory])
+  }, [filteredItems, balances, filterWarehouse])
 
   if (loading && inventory.length === 0) {
     return (
@@ -471,6 +718,20 @@ export default function InitialInventoryPage() {
               <option value="warning">هشدار</option>
               <option value="low">کم</option>
             </select>
+            
+            {/* Warehouse Filter */}
+            <select
+              value={filterWarehouse}
+              onChange={(e) => setFilterWarehouse(e.target.value)}
+              className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="all">همه انبارها</option>
+              {warehouses.map(warehouse => (
+                <option key={warehouse._id} value={warehouse.name}>
+                  {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+                </option>
+              ))}
+            </select>
           </div>
           
           {/* Add Button */}
@@ -500,16 +761,16 @@ export default function InitialInventoryPage() {
                   دسته‌بندی
                 </th>
                 <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
-                  موجودی
+                  موجودی فعلی (کل / قابل‌فروش)
                 </th>
                 <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
-                  قیمت واحد
+                  قیمت واحد / میانگین
                 </th>
                 <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
                   ارزش کل
                 </th>
                 <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
-                  وضعیت
+                  وضعیت / هشدار
                 </th>
                 <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
                   عملیات
@@ -556,27 +817,77 @@ export default function InitialInventoryPage() {
                       </span>
                     </td>
                     <td className="py-4 px-6">
-                      <div>
-                        <span className="text-gray-900 dark:text-white font-medium">
-                          {item.currentStock.toLocaleString('fa-IR')}
-                        </span>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          حداقل: {item.minStock} | حداکثر: {item.maxStock}
-                        </div>
-                      </div>
+                      {(() => {
+                        const balance = getItemBalance(item.id || item._id || '')
+                        const totalQty = balance.totalQuantity || item.currentStock || 0
+                        const availableQty = balance.availableQuantity || totalQty
+                        
+                        return (
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-900 dark:text-white font-medium">
+                                {totalQty.toLocaleString('fa-IR')}
+                              </span>
+                              <span className="text-gray-400">/</span>
+                              <span className="text-gray-600 dark:text-gray-400">
+                                {availableQty.toLocaleString('fa-IR')}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              حداقل: {item.minStock} | حداکثر: {item.maxStock}
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="py-4 px-6">
-                      <span className="text-gray-900 dark:text-white">
-                        {item.unitPrice.toLocaleString('fa-IR')} تومان
-                      </span>
+                      {(() => {
+                        const balance = getItemBalance(item.id || item._id || '')
+                        const avgPrice = balance.averagePrice || item.unitPrice || 0
+                        const unitPrice = item.unitPrice || 0
+                        
+                        return (
+                          <div>
+                            <div className="text-gray-900 dark:text-white">
+                              {unitPrice.toLocaleString('fa-IR')} تومان
+                            </div>
+                            {avgPrice !== unitPrice && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                میانگین: {avgPrice.toLocaleString('fa-IR')}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="py-4 px-6">
-                      <span className="font-semibold text-gray-900 dark:text-white">
-                        {item.totalValue.toLocaleString('fa-IR')} تومان
-                      </span>
+                      {(() => {
+                        const balance = getItemBalance(item.id || item._id || '')
+                        const totalValue = balance.totalValue || item.totalValue || 0
+                        
+                        return (
+                          <span className="font-semibold text-gray-900 dark:text-white">
+                            {totalValue.toLocaleString('fa-IR')} تومان
+                          </span>
+                        )
+                      })()}
                     </td>
                     <td className="py-4 px-6">
-                      {getStatusBadge(item.status, item.isLowStock)}
+                      {(() => {
+                        const balance = getItemBalance(item.id || item._id || '')
+                        const statusInfo = getItemStatus(item, balance)
+                        
+                        return (
+                          <div>
+                            {getStatusBadge(statusInfo.status, item.isLowStock)}
+                            {statusInfo.alert && (
+                              <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+                                {statusInfo.alert}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center space-x-2 space-x-reverse">

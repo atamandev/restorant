@@ -64,6 +64,21 @@ interface LedgerEntry {
   averagePrice: number
   reference: string
   notes: string
+  lotNumber?: string | null
+  expirationDate?: string | null
+}
+
+interface LedgerSummary {
+  initialBalance: number
+  initialValue: number
+  totalIn: number
+  totalInValue: number
+  totalOut: number
+  totalOutValue: number
+  endingBalance: number
+  endingValue: number
+  costOfGoodsSold: number
+  averagePrice: number
 }
 
 interface Item {
@@ -143,6 +158,8 @@ export default function ItemLedgerPage() {
     lowStockItems: 0,
     outOfStockItems: 0
   })
+  const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null)
+  const [warehouses, setWarehouses] = useState<Array<{ _id: string; name: string; code?: string }>>([])
 
   // بارگذاری آیتم‌ها
   const fetchItems = async () => {
@@ -164,27 +181,75 @@ export default function ItemLedgerPage() {
 
   // بارگذاری ورودی‌های دفتر کل
   const fetchLedgerEntries = async (itemId?: string) => {
+    if (!itemId) return
+    
     try {
+      setLoading(true)
       const params = new URLSearchParams()
-      if (itemId) params.append('itemId', itemId)
-      if (filterWarehouse !== 'all') params.append('warehouse', filterWarehouse)
-      if (filterDocumentType !== 'all') params.append('documentType', filterDocumentType)
+      params.append('itemId', itemId)
+      if (filterWarehouse !== 'all') params.append('warehouseName', filterWarehouse)
       if (filterDateFrom) params.append('dateFrom', filterDateFrom)
       if (filterDateTo) params.append('dateTo', filterDateTo)
 
-      const response = await fetch(`/api/item-ledger?${params.toString()}`)
+      const response = await fetch(`/api/inventory/ledger?${params.toString()}`)
       const data = await response.json()
       
       if (data.success) {
-        // تبدیل _id به id برای سازگاری
-        const entries = data.data.map((entry: any) => ({
-          ...entry,
-          id: entry._id || entry.id
+        // تبدیل movements به فرمت LedgerEntry
+        const entries = (data.data.entries || []).map((movement: any) => ({
+          _id: movement._id,
+          id: movement._id?.toString() || movement.id,
+          itemId: movement.itemId?.toString() || movement.itemId,
+          itemName: movement.itemName || selectedItem?.name || '',
+          itemCode: movement.itemCode || selectedItem?.code || '',
+          date: movement.createdAt || movement.date,
+          documentNumber: movement.documentNumber || '',
+          documentType: mapMovementTypeToDocumentType(movement.movementType),
+          description: movement.description || '',
+          warehouse: movement.warehouseName || '',
+          userId: movement.createdBy || '',
+          user: movement.createdBy || '',
+          quantityIn: movement.quantityIn || (movement.quantity > 0 ? movement.quantity : 0),
+          quantityOut: movement.quantityOut || (movement.quantity < 0 ? Math.abs(movement.quantity) : 0),
+          unitPrice: movement.unitPrice || 0,
+          totalValue: movement.totalValue || 0,
+          runningBalance: movement.runningBalance || 0,
+          runningValue: movement.runningValue || 0,
+          averagePrice: movement.averagePrice || 0,
+          reference: movement.orderNumber || movement.documentNumber || movement.referenceId?.toString() || '',
+          notes: movement.description || '',
+          lotNumber: movement.lotNumber || null,
+          expirationDate: movement.expirationDate || null
         }))
         setLedgerEntries(entries)
+        setLedgerSummary(data.data.summary || {})
       }
     } catch (error) {
       console.error('Error fetching ledger entries:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // تبدیل movementType به documentType
+  const mapMovementTypeToDocumentType = (movementType: string): 'receipt' | 'issue' | 'transfer_in' | 'transfer_out' | 'adjustment' | 'count' => {
+    switch (movementType) {
+      case 'INITIAL':
+      case 'PURCHASE_IN':
+      case 'RETURN_IN':
+      case 'ADJUSTMENT_INCREMENT':
+        return 'receipt'
+      case 'SALE_CONSUMPTION':
+      case 'WASTAGE':
+      case 'RETURN_OUT':
+      case 'ADJUSTMENT_DECREMENT':
+        return 'issue'
+      case 'TRANSFER_IN':
+        return 'transfer_in'
+      case 'TRANSFER_OUT':
+        return 'transfer_out'
+      default:
+        return 'adjustment'
     }
   }
 
@@ -222,8 +287,8 @@ export default function ItemLedgerPage() {
       (selectedItem === null || entry.itemId === itemId) &&
       (filterWarehouse === 'all' || entry.warehouse === filterWarehouse) &&
       (filterDocumentType === 'all' || entry.documentType === filterDocumentType) &&
-      (filterDateFrom === '' || entry.date >= filterDateFrom) &&
-      (filterDateTo === '' || entry.date <= filterDateTo)
+      (!filterDateFrom || !entry.date || new Date(entry.date) >= new Date(filterDateFrom)) &&
+      (!filterDateTo || !entry.date || new Date(entry.date) <= new Date(filterDateTo))
     )
   })
 
@@ -241,8 +306,85 @@ export default function ItemLedgerPage() {
     }
   }
 
-  const handleExport = () => {
-    alert('گزارش کاردکس کالا به صورت Excel صادر شد.')
+  const handleExport = async (format: 'excel' | 'pdf' = 'excel') => {
+    if (!selectedItem) {
+      alert('لطفاً ابتدا یک کالا انتخاب کنید')
+      return
+    }
+    
+    try {
+      const itemId = selectedItem.id || selectedItem._id
+      const params = new URLSearchParams()
+      params.append('itemId', String(itemId))
+      if (filterWarehouse !== 'all') params.append('warehouseName', filterWarehouse)
+      if (filterDateFrom) params.append('dateFrom', filterDateFrom)
+      if (filterDateTo) params.append('dateTo', filterDateTo)
+      params.append('format', format)
+      
+      const response = await fetch(`/api/inventory/ledger/export?${params.toString()}`)
+      const data = await response.json()
+      
+      if (!data.success) {
+        alert(data.message || 'خطا در خروجی گرفتن گزارش')
+        return
+      }
+      
+      if (format === 'excel') {
+        // تبدیل JSON به CSV/Excel
+        const csvContent = convertToCSV(data.data)
+        const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `کاردکس_${selectedItem.name}_${new Date().toISOString().split('T')[0]}.csv`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        alert('خروجی PDF در حال توسعه است')
+      }
+    } catch (error) {
+      console.error('Error exporting ledger:', error)
+      alert('خطا در خروجی گرفتن گزارش')
+    }
+  }
+  
+  const convertToCSV = (data: any): string => {
+    const headers = ['تاریخ', 'نوع حرکت', 'شماره سند', 'مرجع', 'انبار', 'ورودی', 'خروجی', 'موجودی مانده', 'قیمت واحد', 'ارزش حرکت', 'ارزش مانده', 'Lot Number', 'تاریخ انقضا', 'توضیحات']
+    const rows = data.entries.map((entry: any) => [
+      entry.تاریخ,
+      entry['نوع حرکت'],
+      entry['شماره سند'],
+      entry.مرجع,
+      entry.انبار,
+      entry.ورودی,
+      entry.خروجی,
+      entry['موجودی مانده'],
+      entry['قیمت واحد'],
+      entry['ارزش حرکت'],
+      entry['ارزش مانده'],
+      entry['Lot Number'],
+      entry['تاریخ انقضا'],
+      entry.توضیحات
+    ])
+    
+    const csv = [
+      `کاردکس کالا: ${data.item.name} (${data.item.code})`,
+      `واحد: ${data.item.unit}`,
+      '',
+      'جمع‌بندی:',
+      `موجودی ابتدا: ${data.summary.initialBalance} (${data.summary.initialValue.toLocaleString('fa-IR')} تومان)`,
+      `کل ورودی‌ها: ${data.summary.totalIn} (${data.summary.totalInValue.toLocaleString('fa-IR')} تومان)`,
+      `کل خروجی‌ها: ${data.summary.totalOut} (${data.summary.totalOutValue.toLocaleString('fa-IR')} تومان)`,
+      `موجودی پایان: ${data.summary.endingBalance} (${data.summary.endingValue.toLocaleString('fa-IR')} تومان)`,
+      `بهای مصرف دوره: ${data.summary.costOfGoodsSold.toLocaleString('fa-IR')} تومان`,
+      '',
+      headers.join(','),
+      ...rows.map((row: any[]) => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+    
+    return csv
   }
 
   const handlePrint = () => {
@@ -261,6 +403,7 @@ export default function ItemLedgerPage() {
 
   useEffect(() => {
     fetchItems()
+    fetchWarehouses()
   }, [])
 
   useEffect(() => {
@@ -382,9 +525,11 @@ export default function ItemLedgerPage() {
             onChange={(e) => setFilterWarehouse(e.target.value)}
           >
             <option value="all">همه انبارها</option>
-            <option value="انبار اصلی">انبار اصلی</option>
-            <option value="انبار مواد اولیه">انبار مواد اولیه</option>
-            <option value="انبار محصولات نهایی">انبار محصولات نهایی</option>
+            {warehouses.map(warehouse => (
+              <option key={warehouse._id} value={warehouse.name}>
+                {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+              </option>
+            ))}
           </select>
           <select
             className="premium-input"
@@ -540,67 +685,178 @@ export default function ItemLedgerPage() {
               </div>
             </div>
 
+            {/* Summary */}
+            {ledgerSummary && (
+              <div className="premium-card p-6 mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">جمع‌بندی دوره</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">موجودی ابتدا</p>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {ledgerSummary.initialBalance.toLocaleString('fa-IR')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
+                      {ledgerSummary.initialValue.toLocaleString('fa-IR')} تومان
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">کل ورودی‌ها</p>
+                    <p className="text-lg font-semibold text-green-600 dark:text-green-400">
+                      {ledgerSummary.totalIn.toLocaleString('fa-IR')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
+                      {ledgerSummary.totalInValue.toLocaleString('fa-IR')} تومان
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">کل خروجی‌ها</p>
+                    <p className="text-lg font-semibold text-red-600 dark:text-red-400">
+                      {ledgerSummary.totalOut.toLocaleString('fa-IR')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
+                      {ledgerSummary.totalOutValue.toLocaleString('fa-IR')} تومان
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">موجودی پایان</p>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {ledgerSummary.endingBalance.toLocaleString('fa-IR')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
+                      {ledgerSummary.endingValue.toLocaleString('fa-IR')} تومان
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">بهای مصرف دوره</p>
+                    <p className="text-lg font-semibold text-orange-600 dark:text-orange-400">
+                      {ledgerSummary.costOfGoodsSold.toLocaleString('fa-IR')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500">تومان</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">قیمت میانگین</p>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {Math.round(ledgerSummary.averagePrice).toLocaleString('fa-IR')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500">تومان</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Ledger Entries */}
             <div className="premium-card p-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">تاریخچه گردش</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">تاریخچه گردش</h3>
+                <div className="flex items-center space-x-2 space-x-reverse">
+                  <button
+                    onClick={() => handleExport('excel')}
+                    className="premium-button flex items-center space-x-2 space-x-reverse"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>خروجی Excel</span>
+                  </button>
+                  <button
+                    onClick={() => handleExport('pdf')}
+                    className="premium-button flex items-center space-x-2 space-x-reverse"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>خروجی PDF</span>
+                  </button>
+                </div>
+              </div>
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-right whitespace-nowrap">
                   <thead>
                     <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
                       <th className="px-4 py-3 rounded-r-lg">تاریخ</th>
+                      <th className="px-4 py-3">نوع حرکت</th>
                       <th className="px-4 py-3">شماره سند</th>
-                      <th className="px-4 py-3">نوع سند</th>
-                      <th className="px-4 py-3">شرح</th>
+                      <th className="px-4 py-3">مرجع</th>
                       <th className="px-4 py-3">انبار</th>
-                      <th className="px-4 py-3">کاربر</th>
                       <th className="px-4 py-3">ورودی</th>
                       <th className="px-4 py-3">خروجی</th>
+                      <th className="px-4 py-3">موجودی مانده</th>
                       <th className="px-4 py-3">قیمت واحد</th>
-                      <th className="px-4 py-3">ارزش</th>
-                      <th className="px-4 py-3">مانده تعدادی</th>
-                      <th className="px-4 py-3">مانده ریالی</th>
-                      <th className="px-4 py-3">مرجع</th>
-                      <th className="px-4 py-3 rounded-l-lg">یادداشت</th>
+                      <th className="px-4 py-3">ارزش حرکت</th>
+                      <th className="px-4 py-3">ارزش مانده</th>
+                      <th className="px-4 py-3">Lot/Expiry</th>
+                      <th className="px-4 py-3 rounded-l-lg">توضیحات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {filteredLedgerEntries.map(entry => (
-                      <tr key={entry._id || entry.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                        <td className="px-4 py-3 text-gray-900 dark:text-white">
-                          {entry.date ? new Date(entry.date).toLocaleDateString('fa-IR') : entry.date}
+                    {filteredLedgerEntries.length === 0 ? (
+                      <tr>
+                        <td colSpan={13} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                          <History className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                          <p>هیچ حرکتی برای این کالا یافت نشد</p>
                         </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono">{entry.documentNumber}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center space-x-2 space-x-reverse">
-                            {getDocumentTypeIcon(entry.documentType)}
-                            {getDocumentTypeBadge(entry.documentType)}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.description}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.warehouse}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.user || entry.userId || '-'}</td>
-                        <td className="px-4 py-3 text-green-600 dark:text-green-400">
-                          {entry.quantityIn > 0 ? entry.quantityIn : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-red-600 dark:text-red-400">
-                          {entry.quantityOut > 0 ? entry.quantityOut : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
-                          {(entry.unitPrice || 0).toLocaleString('fa-IR')}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
-                          {(entry.totalValue || 0).toLocaleString('fa-IR')}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">
-                          {entry.runningBalance || 0}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">
-                          {(entry.runningValue || 0).toLocaleString('fa-IR')}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{entry.reference}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate">{entry.notes}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredLedgerEntries.map(entry => (
+                        <tr key={entry._id || entry.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <td className="px-4 py-3 text-gray-900 dark:text-white">
+                            {entry.date ? new Date(entry.date).toLocaleString('fa-IR', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : entry.date}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center space-x-2 space-x-reverse">
+                              {getDocumentTypeIcon(entry.documentType)}
+                              {getDocumentTypeBadge(entry.documentType)}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono text-xs">
+                            {entry.documentNumber || '-'}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200 text-xs">
+                            {entry.reference || '-'}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                            {entry.warehouse || '-'}
+                          </td>
+                          <td className="px-4 py-3 text-green-600 dark:text-green-400 font-medium">
+                            {entry.quantityIn > 0 ? entry.quantityIn.toLocaleString('fa-IR') : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-red-600 dark:text-red-400 font-medium">
+                            {entry.quantityOut > 0 ? entry.quantityOut.toLocaleString('fa-IR') : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-semibold">
+                            {entry.runningBalance.toLocaleString('fa-IR')}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                            {entry.unitPrice.toLocaleString('fa-IR')} تومان
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                            {entry.totalValue.toLocaleString('fa-IR')} تومان
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-semibold">
+                            {entry.runningValue.toLocaleString('fa-IR')} تومان
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200 text-xs">
+                            {entry.lotNumber ? (
+                              <div>
+                                <div>Lot: {entry.lotNumber}</div>
+                                {entry.expirationDate && (
+                                  <div className="text-red-600 dark:text-red-400">
+                                    Exp: {new Date(entry.expirationDate).toLocaleDateString('fa-IR')}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate text-xs">
+                            {entry.description || entry.notes || '-'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

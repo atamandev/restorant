@@ -53,14 +53,20 @@ interface TransferData {
   totalValue: number
   requestedBy: string
   approvedBy?: string
-  status: 'pending' | 'in_transit' | 'completed' | 'cancelled'
+  status: 'draft' | 'pending' | 'in_transit' | 'completed' | 'cancelled'
   priority: 'low' | 'normal' | 'high' | 'urgent'
   scheduledDate?: string
   actualDate?: string
   notes: string
   reason: string
+  transferMode?: 'simple' | 'two_stage'
+  transferRef?: string
+  inTransit?: { [itemId: string]: number }
   createdAt: string
   updatedAt: string
+  approvedAt?: string
+  completedAt?: string
+  cancelledAt?: string
 }
 
 interface TransferItem {
@@ -76,6 +82,7 @@ interface TransferItem {
 
 interface TransferStats {
   totalTransfers: number
+  draftTransfers: number
   pendingTransfers: number
   inTransitTransfers: number
   completedTransfers: number
@@ -96,7 +103,8 @@ const getStatusColor = (status: string) => {
 
 const getStatusBadge = (status: string) => {
   switch (status) {
-    case 'pending': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">در انتظار</span>
+    case 'draft': return <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">پیش‌نویس</span>
+    case 'pending': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">منتظر تایید</span>
     case 'in_transit': return <span className="status-badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">در حال انتقال</span>
     case 'completed': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">تکمیل شده</span>
     case 'cancelled': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">لغو شده</span>
@@ -150,6 +158,7 @@ export default function TransfersPage() {
   const [selectedWarehouseForItems, setSelectedWarehouseForItems] = useState('')
   const [stats, setStats] = useState<TransferStats>({
     totalTransfers: 0,
+    draftTransfers: 0,
     pendingTransfers: 0,
     inTransitTransfers: 0,
     completedTransfers: 0,
@@ -174,11 +183,12 @@ export default function TransfersPage() {
     toWarehouse: '',
     requestedBy: '',
     approvedBy: '',
-    status: 'pending',
-    priority: 'normal',
+    status: 'draft' as 'draft' | 'pending' | 'in_transit' | 'completed' | 'cancelled',
+    priority: 'normal' as 'low' | 'normal' | 'high' | 'urgent',
     scheduledDate: '',
     notes: '',
     reason: '',
+    transferMode: 'simple' as 'simple' | 'two_stage',
     items: [] as TransferItem[]
   })
 
@@ -328,10 +338,98 @@ export default function TransfersPage() {
     }
   }
 
+  // تأیید انتقال
+  const handleApproveTransfer = async (transfer: TransferData) => {
+    if (!confirm('آیا از تأیید این انتقال اطمینان دارید؟')) return
+    
+    try {
+      const response = await fetch(`/api/transfers/${transfer._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          action: 'approve',
+          approvedBy: 'کاربر سیستم' // در آینده از authentication بگیر
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('انتقال با موفقیت تأیید شد')
+        fetchTransfers()
+      } else {
+        alert('خطا در تأیید انتقال: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error approving transfer:', error)
+      alert('خطا در تأیید انتقال')
+    }
+  }
+
+  // دریافت در مقصد (فقط برای مدل دو مرحله‌ای)
+  const handleReceiveTransfer = async (transfer: TransferData) => {
+    if (!confirm('آیا از دریافت این انتقال در مقصد اطمینان دارید؟')) return
+    
+    try {
+      const response = await fetch(`/api/transfers/${transfer._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          action: 'receive'
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('انتقال با موفقیت دریافت شد')
+        fetchTransfers()
+      } else {
+        alert('خطا در دریافت انتقال: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error receiving transfer:', error)
+      alert('خطا در دریافت انتقال')
+    }
+  }
+
+  // لغو انتقال
+  const handleCancelTransfer = async (transfer: TransferData) => {
+    if (!confirm('آیا از لغو این انتقال اطمینان دارید؟')) return
+    
+    try {
+      const response = await fetch(`/api/transfers/${transfer._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          action: 'cancel'
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('انتقال با موفقیت لغو شد')
+        fetchTransfers()
+      } else {
+        alert('خطا در لغو انتقال: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error cancelling transfer:', error)
+      alert('خطا در لغو انتقال')
+    }
+  }
+
   // تغییر وضعیت انتقال
   const handleStatusChange = async (transferId: string, newStatus: string) => {
     try {
-      const response = await fetch(`/api/transfers/${transferId}/status`, {
+      const response = await fetch(`/api/transfers/${transferId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -426,11 +524,12 @@ export default function TransfersPage() {
       toWarehouse: '',
       requestedBy: '',
       approvedBy: '',
-      status: 'pending',
+      status: 'draft',
       priority: 'normal',
       scheduledDate: '',
       notes: '',
       reason: '',
+      transferMode: 'simple',
       items: []
     })
     setInventoryItems([])
@@ -522,13 +621,6 @@ export default function TransfersPage() {
             <span>انتقال جدید</span>
           </button>
           <button
-            onClick={handleAddSampleData}
-            className="premium-button flex items-center space-x-2 space-x-reverse"
-          >
-            <Package className="w-5 h-5" />
-            <span>داده نمونه</span>
-          </button>
-          <button
             onClick={fetchTransfers}
             className="premium-button p-3"
           >
@@ -538,7 +630,7 @@ export default function TransfersPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <div className="premium-card p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">کل انتقالات</h3>
@@ -550,11 +642,20 @@ export default function TransfersPage() {
 
         <div className="premium-card p-6">
           <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">پیش‌نویس</h3>
+            <FileText className="w-6 h-6 text-gray-600" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.draftTransfers}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">در انتظار ثبت</p>
+        </div>
+
+        <div className="premium-card p-6">
+          <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">در انتظار</h3>
             <Clock className="w-6 h-6 text-warning-600" />
           </div>
           <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.pendingTransfers}</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">انتقال نیاز به تایید</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">منتظر تایید</p>
         </div>
 
         <div className="premium-card p-6">
@@ -595,7 +696,8 @@ export default function TransfersPage() {
             onChange={(e) => setFilterStatus(e.target.value)}
           >
             <option value="all">همه وضعیت‌ها</option>
-            <option value="pending">در انتظار</option>
+            <option value="draft">پیش‌نویس</option>
+            <option value="pending">منتظر تایید</option>
             <option value="in_transit">در حال انتقال</option>
             <option value="completed">تکمیل شده</option>
             <option value="cancelled">لغو شده</option>
@@ -685,16 +787,34 @@ export default function TransfersPage() {
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      {transfer.status === 'pending' && (
+                      {(transfer.status === 'draft' || transfer.status === 'pending') && (
                         <button
-                          onClick={() => handleStatusChange(transfer._id, 'in_transit')}
+                          onClick={() => handleApproveTransfer(transfer)}
                           className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                          title="شروع انتقال"
+                          title="تأیید انتقال"
                         >
                           <CheckCircle className="w-4 h-4" />
                         </button>
                       )}
-                      {transfer.status === 'in_transit' && (
+                      {transfer.status === 'in_transit' && transfer.transferMode === 'two_stage' && (
+                        <button
+                          onClick={() => handleReceiveTransfer(transfer)}
+                          className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                          title="دریافت در مقصد"
+                        >
+                          <Receipt className="w-4 h-4" />
+                        </button>
+                      )}
+                      {(transfer.status === 'draft' || transfer.status === 'pending' || transfer.status === 'in_transit') && (
+                        <button
+                          onClick={() => handleCancelTransfer(transfer)}
+                          className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                          title="لغو انتقال"
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                      {transfer.status !== 'completed' && transfer.status !== 'cancelled' && (
                         <button
                           onClick={() => handleStatusChange(transfer._id, 'completed')}
                           className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
@@ -949,18 +1069,95 @@ export default function TransfersPage() {
                 </div>
               </div>
 
-              {/* درخواست‌کننده */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  درخواست‌کننده *
-                </label>
-                <input
-                  type="text"
-                  value={formData.requestedBy}
-                  onChange={(e) => setFormData({ ...formData, requestedBy: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  required
-                />
+              {/* درخواست‌کننده و مدل انتقال */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    درخواست‌کننده *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.requestedBy}
+                    onChange={(e) => setFormData({ ...formData, requestedBy: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    مدل انتقال *
+                  </label>
+                  <select
+                    value={formData.transferMode}
+                    onChange={(e) => setFormData({ ...formData, transferMode: e.target.value as any })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    required
+                  >
+                    <option value="simple">یک‌مرحله‌ای (ساده)</option>
+                    <option value="two_stage">دو مرحله‌ای (در راه)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {formData.transferMode === 'simple' 
+                      ? 'پس از تأیید، انتقال فوراً انجام می‌شود'
+                      : 'پس از تأیید، کالا در راه قرار می‌گیرد و باید در مقصد دریافت شود'}
+                  </p>
+                </div>
+              </div>
+
+              {/* اولویت و تاریخ برنامه‌ریزی */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    اولویت
+                  </label>
+                  <select
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="low">کم</option>
+                    <option value="normal">عادی</option>
+                    <option value="high">بالا</option>
+                    <option value="urgent">فوری</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    تاریخ برنامه‌ریزی
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.scheduledDate}
+                    onChange={(e) => setFormData({ ...formData, scheduledDate: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {/* توضیحات و دلیل */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    توضیحات
+                  </label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    دلیل انتقال
+                  </label>
+                  <textarea
+                    value={formData.reason}
+                    onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    rows={3}
+                  />
+                </div>
               </div>
 
               {/* کالاها */}
@@ -1031,31 +1228,6 @@ export default function TransfersPage() {
                 )}
               </div>
 
-              {/* یادداشت و دلیل */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    یادداشت
-                  </label>
-                  <textarea
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    rows={3}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    دلیل انتقال
-                  </label>
-                  <textarea
-                    value={formData.reason}
-                    onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    rows={3}
-                  />
-                </div>
-              </div>
 
               {/* دکمه‌ها */}
               <div className="flex items-center justify-end space-x-3 space-x-reverse">

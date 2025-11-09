@@ -3,7 +3,6 @@ import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 const DB_NAME = 'restoren'
-const COLLECTION_NAME = 'transfers'
 
 let client: MongoClient
 let db: any
@@ -17,88 +16,67 @@ async function connectToDatabase() {
   return db
 }
 
-// GET - دریافت تمام انتقالات با فیلتر و مرتب‌سازی
+// تنظیمات سیستم: مدل انتقال (simple یا two_stage)
+const TRANSFER_MODE = process.env.TRANSFER_MODE || 'simple' // 'simple' | 'two_stage'
+
+// GET - دریافت تمام انتقال‌ها
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
-    const collection = db.collection(COLLECTION_NAME)
+    const db = await connectToDatabase()
+    const transferCollection = db.collection('transfers')
     
     const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status') // pending, in_transit, completed, cancelled
-    const type = searchParams.get('type') // internal, external, return, adjustment
+    const status = searchParams.get('status')
+    const type = searchParams.get('type')
     const fromWarehouse = searchParams.get('fromWarehouse')
     const toWarehouse = searchParams.get('toWarehouse')
-    const sortBy = searchParams.get('sortBy') || 'createdAt'
-    const sortOrder = searchParams.get('sortOrder') || 'desc'
+    const dateFrom = searchParams.get('dateFrom')
+    const dateTo = searchParams.get('dateTo')
     const limit = parseInt(searchParams.get('limit') || '100')
     const skip = parseInt(searchParams.get('skip') || '0')
-    const search = searchParams.get('search') || ''
-
-    // ساخت فیلتر
+    
     const filter: any = {}
     if (status && status !== 'all') filter.status = status
     if (type && type !== 'all') filter.type = type
-    if (fromWarehouse && fromWarehouse !== 'all') filter.fromWarehouse = fromWarehouse
-    if (toWarehouse && toWarehouse !== 'all') filter.toWarehouse = toWarehouse
-    if (search) {
-      filter.$or = [
-        { transferNumber: { $regex: search, $options: 'i' } },
-        { fromWarehouse: { $regex: search, $options: 'i' } },
-        { toWarehouse: { $regex: search, $options: 'i' } },
-        { requestedBy: { $regex: search, $options: 'i' } },
-        { notes: { $regex: search, $options: 'i' } }
-      ]
+    if (fromWarehouse) filter.fromWarehouse = fromWarehouse
+    if (toWarehouse) filter.toWarehouse = toWarehouse
+    if (dateFrom || dateTo) {
+      filter.createdAt = {}
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom)
+      if (dateTo) filter.createdAt.$lte = new Date(dateTo)
     }
-
-    // ساخت مرتب‌سازی
-    const sort: any = {}
-    sort[sortBy] = sortOrder === 'asc' ? 1 : -1
-
-    const transfers = await collection
+    
+    const transfers = await transferCollection
       .find(filter)
-      .sort(sort)
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .toArray()
-
-    // آمار کلی
-    const stats = await collection.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalTransfers: { $sum: 1 },
-          pendingTransfers: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
-          inTransitTransfers: { $sum: { $cond: [{ $eq: ['$status', 'in_transit'] }, 1, 0] } },
-          completedTransfers: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
-          cancelledTransfers: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
-          totalItems: { $sum: { $size: '$items' } },
-          totalValue: { $sum: '$totalValue' }
-        }
-      }
-    ]).toArray()
-
+    
+    const total = await transferCollection.countDocuments(filter)
+    
+    // محاسبه آمار
+    const stats = {
+      totalTransfers: await transferCollection.countDocuments({}),
+      pendingTransfers: await transferCollection.countDocuments({ status: 'pending' }),
+      inTransitTransfers: await transferCollection.countDocuments({ status: 'in_transit' }),
+      completedTransfers: await transferCollection.countDocuments({ status: 'completed' }),
+      cancelledTransfers: await transferCollection.countDocuments({ status: 'cancelled' }),
+      draftTransfers: await transferCollection.countDocuments({ status: 'draft' })
+    }
+    
     return NextResponse.json({
       success: true,
       data: transfers,
-      stats: stats[0] || {
-        totalTransfers: 0,
-        pendingTransfers: 0,
-        inTransitTransfers: 0,
-        completedTransfers: 0,
-        cancelledTransfers: 0,
-        totalItems: 0,
-        totalValue: 0
-      },
-      pagination: {
-        limit,
-        skip,
-        total: await collection.countDocuments(filter)
-      }
+      stats,
+      total,
+      limit,
+      skip
     })
   } catch (error) {
     console.error('Error fetching transfers:', error)
     return NextResponse.json(
-      { success: false, message: 'خطا در دریافت انتقالات' },
+      { success: false, message: 'خطا در دریافت انتقال‌ها' },
       { status: 500 }
     )
   }
@@ -107,40 +85,138 @@ export async function GET(request: NextRequest) {
 // POST - ایجاد انتقال جدید
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase()
-    const collection = db.collection(COLLECTION_NAME)
+    const db = await connectToDatabase()
+    const client = (db as any).client || await connectToDatabase()
+    const transferCollection = db.collection('transfers')
+    const balanceCollection = db.collection('inventory_balance')
+    const movementCollection = db.collection('stock_movements')
+    const fifoLayerCollection = db.collection('fifo_layers')
+    const warehouseCollection = db.collection('warehouses')
     
     const body = await request.json()
+    const {
+      type = 'internal',
+      fromWarehouse,
+      toWarehouse,
+      items,
+      requestedBy,
+      priority = 'normal',
+      scheduledDate,
+      notes = '',
+      reason = '',
+      status = 'draft', // پیش‌نویس
+      transferMode = TRANSFER_MODE // 'simple' یا 'two_stage'
+    } = body
     
-    // تولید شماره انتقال منحصر به فرد
-    const transferCount = await collection.countDocuments()
+    // اعتبارسنجی
+    if (!fromWarehouse || !toWarehouse) {
+      return NextResponse.json(
+        { success: false, message: 'انبار مبدا و مقصد اجباری است' },
+        { status: 400 }
+      )
+    }
+    
+    if (fromWarehouse === toWarehouse) {
+      return NextResponse.json(
+        { success: false, message: 'انتقال به همان انبار ممنوع است' },
+        { status: 400 }
+      )
+    }
+    
+    if (!items || items.length === 0) {
+      return NextResponse.json(
+        { success: false, message: 'حداقل یک آیتم برای انتقال لازم است' },
+        { status: 400 }
+      )
+    }
+    
+    // بررسی مقادیر
+    for (const item of items) {
+      if (!item.quantity || item.quantity <= 0) {
+        return NextResponse.json(
+          { success: false, message: `مقدار آیتم "${item.itemName}" باید بیشتر از صفر باشد` },
+          { status: 400 }
+        )
+      }
+    }
+    
+    // بررسی وضعیت انبار مقصد
+    const toWarehouseDoc = await warehouseCollection.findOne({ 
+      $or: [
+        { name: toWarehouse },
+        { name: { $regex: toWarehouse, $options: 'i' } }
+      ]
+    })
+    
+    if (!toWarehouseDoc) {
+      return NextResponse.json(
+        { success: false, message: `انبار مقصد "${toWarehouse}" یافت نشد` },
+        { status: 400 }
+      )
+    }
+    
+    if (toWarehouseDoc.status === 'inactive') {
+      return NextResponse.json(
+        { success: false, message: `انتقال به انبار غیرفعال "${toWarehouse}" ممنوع است` },
+        { status: 400 }
+      )
+    }
+    
+    // بررسی موجودی در انبار مبدا
+    for (const item of items) {
+      const balance = await balanceCollection.findOne({
+        itemId: new ObjectId(item.itemId),
+        warehouseName: fromWarehouse
+      })
+      
+      const availableQuantity = balance?.quantity || 0
+      if (availableQuantity < item.quantity) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            message: `موجودی کافی نیست. آیتم "${item.itemName}": موجودی ${availableQuantity}، درخواست ${item.quantity}` 
+          },
+          { status: 400 }
+        )
+      }
+    }
+    
+    // تولید شماره انتقال
+    const transferCount = await transferCollection.countDocuments()
     const transferNumber = `TRF-${String(transferCount + 1).padStart(6, '0')}`
     
-    // محاسبه ارزش کل
-    const totalValue = body.items?.reduce((sum: number, item: any) => 
-      sum + (item.quantity * item.unitPrice), 0) || 0
+    // محاسبه مجموع
+    const totalItems = items.reduce((sum: number, item: any) => sum + item.quantity, 0)
+    const totalValue = items.reduce((sum: number, item: any) => sum + (item.totalValue || item.quantity * item.unitPrice), 0)
     
+    // ایجاد سند انتقال
     const transfer = {
       transferNumber,
-      type: body.type || 'internal', // internal, external, return, adjustment
-      fromWarehouse: body.fromWarehouse,
-      toWarehouse: body.toWarehouse,
-      items: body.items || [],
-      totalItems: body.items?.length || 0,
+      type,
+      fromWarehouse,
+      toWarehouse,
+      items,
+      totalItems,
       totalValue,
-      requestedBy: body.requestedBy,
-      approvedBy: body.approvedBy || null,
-      status: body.status || 'pending', // pending, in_transit, completed, cancelled
-      priority: body.priority || 'normal', // low, normal, high, urgent
-      scheduledDate: body.scheduledDate || null,
-      actualDate: body.actualDate || null,
-      notes: body.notes || '',
-      reason: body.reason || '',
+      requestedBy,
+      approvedBy: null,
+      status,
+      priority,
+      scheduledDate: scheduledDate || null,
+      actualDate: null,
+      notes,
+      reason,
+      transferMode,
+      transferRef: null, // برای اتصال TRANSFER_OUT و TRANSFER_IN
+      inTransit: {}, // برای مدل دو مرحله‌ای: { itemId: quantity }
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      approvedAt: null,
+      completedAt: null,
+      cancelledAt: null
     }
-
-    const result = await collection.insertOne(transfer)
+    
+    const result = await transferCollection.insertOne(transfer)
     
     return NextResponse.json({
       success: true,
@@ -151,289 +227,6 @@ export async function POST(request: NextRequest) {
     console.error('Error creating transfer:', error)
     return NextResponse.json(
       { success: false, message: 'خطا در ایجاد انتقال' },
-      { status: 500 }
-    )
-  }
-}
-
-// PUT - به‌روزرسانی انتقال (با اتصال به انبار)
-export async function PUT(request: NextRequest) {
-  try {
-    await connectToDatabase()
-    const collection = db.collection(COLLECTION_NAME)
-    const inventoryCollection = db.collection('inventory_items')
-    const ledgerCollection = db.collection('item_ledger')
-    
-    const body = await request.json()
-    const { id, ...updateData } = body
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'شناسه انتقال اجباری است' },
-        { status: 400 }
-      )
-    }
-
-    // دریافت انتقال فعلی
-    const currentTransfer = await collection.findOne({ _id: new ObjectId(id) })
-    if (!currentTransfer) {
-      return NextResponse.json(
-        { success: false, message: 'انتقال یافت نشد' },
-        { status: 404 }
-      )
-    }
-
-    const oldStatus = currentTransfer.status
-    const newStatus = updateData.status
-
-    // شروع تراکنش برای به‌روزرسانی همزمان موجودی
-    const session = client.startSession()
-    
-    try {
-      await session.withTransaction(async () => {
-        // محاسبه مجدد ارزش کل اگر آیتم‌ها تغییر کرده باشند
-        if (updateData.items) {
-          updateData.totalItems = updateData.items.length
-          updateData.totalValue = updateData.items.reduce((sum: number, item: any) => 
-            sum + (item.quantity * item.unitPrice), 0)
-        }
-
-        // مدیریت تغییر وضعیت به 'completed' (تکمیل شد)
-        if (oldStatus !== 'completed' && newStatus === 'completed') {
-          updateData.status = 'completed'
-          updateData.actualDate = new Date().toISOString()
-
-          // برای هر آیتم انتقال:
-          for (const item of currentTransfer.items || []) {
-            const itemId = item.itemId || item.inventoryItemId
-            if (!itemId) continue
-
-            const inventoryItem = await inventoryCollection.findOne({ 
-              _id: new ObjectId(itemId)
-            }, { session })
-
-            if (!inventoryItem) continue
-
-            // 1. کسر از انبار مبدأ
-            if (currentTransfer.fromWarehouse) {
-              const lastEntryFrom = await ledgerCollection
-                .findOne(
-                  { itemId, warehouse: currentTransfer.fromWarehouse },
-                  { sort: { date: -1, createdAt: -1 }, session }
-                )
-
-              const lastBalanceFrom = lastEntryFrom?.runningBalance || inventoryItem.currentStock || 0
-              const lastValueFrom = lastEntryFrom?.runningValue || (inventoryItem.totalValue || 0)
-              
-              const qtyOut = item.quantity || 0
-              const unitPrice = item.unitPrice || inventoryItem.unitPrice || 0
-              
-              const newBalanceFrom = Math.max(0, lastBalanceFrom - qtyOut)
-              const avgPriceFrom = lastBalanceFrom > 0 ? lastValueFrom / lastBalanceFrom : unitPrice
-              const newValueFrom = Math.max(0, lastValueFrom - (qtyOut * avgPriceFrom))
-
-              // ایجاد ورودی دفتر کل برای خروج از انبار مبدأ
-              const docNumberFrom = `TROUT-${currentTransfer.transferNumber.substring(currentTransfer.transferNumber.length - 4)}`
-              const ledgerEntryFrom = {
-                itemId,
-                itemName: inventoryItem.name,
-                itemCode: inventoryItem.code || '',
-                date: new Date(),
-                documentNumber: docNumberFrom,
-                documentType: 'transfer_out',
-                description: `انتقال از ${currentTransfer.fromWarehouse} به ${currentTransfer.toWarehouse} - ${currentTransfer.transferNumber}`,
-                warehouse: currentTransfer.fromWarehouse,
-                quantityIn: 0,
-                quantityOut: qtyOut,
-                unitPrice: unitPrice,
-                totalValue: -(qtyOut * avgPriceFrom),
-                runningBalance: newBalanceFrom,
-                runningValue: newValueFrom,
-                averagePrice: newBalanceFrom > 0 ? newValueFrom / newBalanceFrom : avgPriceFrom,
-                reference: currentTransfer.transferNumber,
-                notes: `انتقال به ${currentTransfer.toWarehouse}`,
-                userId: currentTransfer.requestedBy || 'سیستم',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              }
-
-              await ledgerCollection.insertOne(ledgerEntryFrom, { session })
-            }
-
-            // 2. اضافه به انبار مقصد
-            if (currentTransfer.toWarehouse) {
-              const lastEntryTo = await ledgerCollection
-                .findOne(
-                  { itemId, warehouse: currentTransfer.toWarehouse },
-                  { sort: { date: -1, createdAt: -1 }, session }
-                )
-
-              const lastBalanceTo = lastEntryTo?.runningBalance || 0
-              const lastValueTo = lastEntryTo?.runningValue || 0
-              
-              const qtyIn = item.quantity || 0
-              const unitPrice = item.unitPrice || inventoryItem.unitPrice || 0
-              
-              const newBalanceTo = lastBalanceTo + qtyIn
-              const totalValueTo = lastValueTo + (qtyIn * unitPrice)
-              const avgPriceTo = newBalanceTo > 0 ? totalValueTo / newBalanceTo : unitPrice
-
-              // ایجاد ورودی دفتر کل برای ورود به انبار مقصد
-              const docNumberTo = `TRIN-${currentTransfer.transferNumber.substring(currentTransfer.transferNumber.length - 4)}`
-              const ledgerEntryTo = {
-                itemId,
-                itemName: inventoryItem.name,
-                itemCode: inventoryItem.code || '',
-                date: new Date(),
-                documentNumber: docNumberTo,
-                documentType: 'transfer_in',
-                description: `انتقال از ${currentTransfer.fromWarehouse} به ${currentTransfer.toWarehouse} - ${currentTransfer.transferNumber}`,
-                warehouse: currentTransfer.toWarehouse,
-                quantityIn: qtyIn,
-                quantityOut: 0,
-                unitPrice: unitPrice,
-                totalValue: qtyIn * unitPrice,
-                runningBalance: newBalanceTo,
-                runningValue: totalValueTo,
-                averagePrice: avgPriceTo,
-                reference: currentTransfer.transferNumber,
-                notes: `انتقال از ${currentTransfer.fromWarehouse}`,
-                userId: currentTransfer.requestedBy || 'سیستم',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              }
-
-              await ledgerCollection.insertOne(ledgerEntryTo, { session })
-
-              // به‌روزرسانی موجودی کلی آیتم (انبار اصلی)
-              const lastEntryMain = await ledgerCollection
-                .findOne(
-                  { itemId },
-                  { sort: { date: -1, createdAt: -1 }, session }
-                )
-
-              const lastBalanceMain = lastEntryMain?.runningBalance || inventoryItem.currentStock || 0
-              const lastValueMain = lastEntryMain?.runningValue || (inventoryItem.totalValue || 0)
-              
-              // موجودی کلی تغییر نمی‌کند (فقط بین انبارها منتقل می‌شود)
-              // اما می‌توانیم موجودی کل را از مجموع موجودی تمام انبارها محاسبه کنیم
-              const allWarehouseEntries = await ledgerCollection
-                .find({ itemId })
-                .sort({ date: -1, createdAt: -1 })
-                .limit(100)
-                .toArray()
-
-              let totalStock = 0
-              for (const entry of allWarehouseEntries) {
-                if (entry.quantityIn > 0) totalStock += entry.quantityIn
-                if (entry.quantityOut > 0) totalStock -= entry.quantityOut
-              }
-
-              await inventoryCollection.updateOne(
-                { _id: new ObjectId(itemId) },
-                {
-                  $set: {
-                    currentStock: totalStock > 0 ? totalStock : lastBalanceMain,
-                    isLowStock: (totalStock > 0 ? totalStock : lastBalanceMain) <= (inventoryItem.minStock || 0),
-                    lastUpdated: new Date().toISOString(),
-                    updatedAt: new Date()
-                  }
-                },
-                { session }
-              )
-            }
-          }
-        }
-        // مدیریت لغو انتقال (اگر از completed به cancelled تغییر کرد)
-        else if (oldStatus === 'completed' && newStatus === 'cancelled') {
-          // برگرداندن موجودی (معکوس کردن transfer)
-          // این بخش پیچیده است و باید تراکنش‌های قبلی را معکوس کند
-          // برای سادگی، پیاده‌سازی نمی‌کنیم در این مرحله
-          updateData.status = 'cancelled'
-        }
-        // به‌روزرسانی عادی
-        else {
-          if (newStatus !== undefined) updateData.status = newStatus
-          updateData.updatedAt = new Date().toISOString()
-        }
-
-        await collection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: updateData },
-          { session }
-        )
-      })
-    } finally {
-      await session.endSession()
-    }
-
-    const updatedTransfer = await collection.findOne({ _id: new ObjectId(id) })
-
-    return NextResponse.json({
-      success: true,
-      data: updatedTransfer,
-      message: newStatus === 'completed' 
-        ? 'انتقال تکمیل شد و موجودی انبار به‌روزرسانی شد'
-        : 'انتقال با موفقیت به‌روزرسانی شد'
-    })
-  } catch (error) {
-    console.error('Error updating transfer:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: 'خطا در به‌روزرسانی انتقال',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    )
-  }
-}
-
-// DELETE - حذف انتقال
-export async function DELETE(request: NextRequest) {
-  try {
-    await connectToDatabase()
-    const collection = db.collection(COLLECTION_NAME)
-    
-    const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
-    
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'شناسه انتقال اجباری است' },
-        { status: 400 }
-      )
-    }
-
-    // بررسی وضعیت انتقال
-    const transfer = await collection.findOne({ _id: new ObjectId(id) })
-    if (transfer && transfer.status === 'completed') {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: 'امکان حذف انتقال تکمیل شده وجود ندارد. ابتدا انتقال را لغو کنید.' 
-        },
-        { status: 400 }
-      )
-    }
-
-    const result = await collection.deleteOne({ _id: new ObjectId(id) })
-    
-    if (result.deletedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'انتقال یافت نشد' },
-        { status: 404 }
-      )
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: 'انتقال با موفقیت حذف شد'
-    })
-  } catch (error) {
-    console.error('Error deleting transfer:', error)
-    return NextResponse.json(
-      { success: false, message: 'خطا در حذف انتقال' },
       { status: 500 }
     )
   }

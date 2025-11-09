@@ -101,13 +101,43 @@ export async function GET(request: NextRequest) {
 
     // محاسبه آمار کلی بر اساس usedCapacity واقعی
     const totalUsedCapacity = warehousesWithRealCapacity.reduce((sum, w) => sum + (w.usedCapacity || 0), 0)
+    
+    // محاسبه ارزش کل موجودی و موجودی کم
+    const balanceCollection = db.collection('inventory_balance')
+    const stockAlertsCollection = db.collection('stock_alerts')
+    
+    const allBalances = await balanceCollection.find({}).toArray()
+    const totalInventoryValue = allBalances.reduce((sum: number, b: any) => sum + (b.totalValue || 0), 0)
+    
+    // محاسبه موجودی کم (کالاهایی که currentStock <= minStock)
+    const lowStockItems = await inventoryCollection.find({
+      $expr: {
+        $lte: ['$currentStock', { $ifNull: ['$minStock', 0] }]
+      }
+    }).toArray()
+    const lowStockCount = lowStockItems.length
+    
+    // محاسبه هشدارهای فعال و بحرانی
+    const activeAlerts = await stockAlertsCollection.countDocuments({ status: 'active' })
+    const criticalAlerts = await stockAlertsCollection.countDocuments({ 
+      status: 'active',
+      $or: [
+        { severity: 'critical' },
+        { alertStatus: 'critical' }
+      ]
+    })
+    
     const stats = {
       totalWarehouses: warehouses.length,
       activeWarehouses: warehouses.filter(w => w.status === 'active').length,
       inactiveWarehouses: warehouses.filter(w => w.status === 'inactive').length,
       maintenanceWarehouses: warehouses.filter(w => w.status === 'maintenance').length,
       totalCapacity: warehouses.reduce((sum, w) => sum + (w.capacity || 0), 0),
-      totalUsedCapacity: totalUsedCapacity
+      totalUsedCapacity: totalUsedCapacity,
+      totalInventoryValue: totalInventoryValue,
+      lowStockItems: lowStockCount,
+      activeAlerts: activeAlerts,
+      criticalAlerts: criticalAlerts
     }
 
     return NextResponse.json({
@@ -140,14 +170,26 @@ export async function POST(request: NextRequest) {
     
     const body = await request.json()
     
-    // تولید کد انبار منحصر به فرد
-    const warehouseCount = await collection.countDocuments()
-    const warehouseCode = `WH-${String(warehouseCount + 1).padStart(3, '0')}`
+    // تولید کد انبار منحصر به فرد (اگر ارائه نشده باشد)
+    let warehouseCode = body.code
+    if (!warehouseCode || warehouseCode.trim() === '') {
+      const warehouseCount = await collection.countDocuments()
+      warehouseCode = `WH-${String(warehouseCount + 1).padStart(3, '0')}`
+    }
+    
+    // بررسی تکراری نبودن کد
+    const existingWarehouse = await collection.findOne({ code: warehouseCode })
+    if (existingWarehouse) {
+      return NextResponse.json(
+        { success: false, message: `کد انبار "${warehouseCode}" تکراری است` },
+        { status: 400 }
+      )
+    }
     
     const warehouse = {
       code: warehouseCode,
       name: body.name,
-      type: body.type || 'main', // main, storage, cold, dry
+      type: body.type || 'general', // general, raw_materials, main, storage, cold, dry
       location: body.location || '',
       address: body.address || '',
       capacity: body.capacity || 0,
@@ -160,7 +202,8 @@ export async function POST(request: NextRequest) {
       email: body.email || '',
       description: body.description || '',
       status: body.status || 'active', // active, inactive, maintenance
-      isActive: body.isActive !== undefined ? body.isActive : true,
+      isActive: body.status === 'active',
+      allowNegativeStock: body.allowNegativeStock || false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }

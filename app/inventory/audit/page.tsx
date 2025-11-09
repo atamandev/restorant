@@ -54,10 +54,15 @@ interface InventoryCount {
   _id?: string
   id: string
   countNumber: string
-  type: 'cycle' | 'full'
+  type: 'full' | 'partial' | 'cycle'
   warehouse: string
-  status: 'draft' | 'in_progress' | 'completed' | 'cancelled'
+  warehouses?: string[] // برای چند انبار
+  section?: string | null // بازه/بخش
+  freezeMovements: boolean // فریز حرکت یا شمارش زنده
+  status: 'draft' | 'counting' | 'ready_for_approval' | 'approved' | 'closed' | 'cancelled'
   createdBy: string
+  approvedBy?: string | null
+  approvedDate?: string | null
   createdDate: string
   startedDate: string | null
   completedDate: string | null
@@ -67,24 +72,36 @@ interface InventoryCount {
   totalValue: number
   discrepancyValue: number
   notes: string
+  category?: string | null
 }
 
 interface CountItem {
   _id?: string
   id: string
+  countId: string
+  itemId: string
   itemName: string
   itemCode: string
   category: string
   unit: string
+  warehouse: string
   systemQuantity: number
+  systemQuantityAtFinalization?: number | null
   countedQuantity: number | null
   discrepancy: number
   unitPrice: number
   systemValue: number
   countedValue: number
   discrepancyValue: number
-  countedBy: string | null
-  countedDate: string | null
+  countedBy?: string | null
+  countedDate?: string | null
+  countingRounds?: Array<{
+    roundNumber: number
+    quantity: number
+    countedBy?: string | null
+    countedDate: string
+    notes?: string
+  }>
   notes: string
 }
 
@@ -144,11 +161,11 @@ const getStatusColor = (status: string) => {
 const getStatusBadge = (status: string) => {
   switch (status) {
     case 'draft': return <span className="status-badge bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300">پیش‌نویس</span>
-    case 'in_progress': return <span className="status-badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">در حال انجام</span>
-    case 'completed': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">تکمیل شده</span>
-    case 'cancelled': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">لغو شده</span>
+    case 'counting': return <span className="status-badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">در حال شمارش</span>
+    case 'ready_for_approval': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">آماده تایید</span>
     case 'approved': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">تایید شده</span>
-    case 'posted': return <span className="status-badge bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">ثبت شده</span>
+    case 'closed': return <span className="status-badge bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">بسته</span>
+    case 'cancelled': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">ابطال</span>
     default: return null
   }
 }
@@ -163,6 +180,148 @@ const formatDate = (dateString: string | null) => {
   if (!dateString) return '-'
   const date = new Date(dateString)
   return date.toLocaleDateString('fa-IR')
+}
+
+// کامپوننت گزارش مغایرت
+function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[], warehouses: any[] }) {
+  const [selectedCountId, setSelectedCountId] = useState<string>('all')
+  const [groupBy, setGroupBy] = useState<'category' | 'section' | 'warehouse' | 'countedBy'>('category')
+  const [reportData, setReportData] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+
+  const fetchReport = async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (selectedCountId !== 'all') params.append('countId', selectedCountId)
+      params.append('groupBy', groupBy)
+
+      const response = await fetch(`/api/inventory-counts/discrepancy-report?${params.toString()}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setReportData(data.data)
+      }
+    } catch (error) {
+      console.error('Error fetching report:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (selectedCountId) {
+      fetchReport()
+    }
+  }, [selectedCountId, groupBy])
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <select
+          className="premium-input"
+          value={selectedCountId}
+          onChange={(e) => setSelectedCountId(e.target.value)}
+        >
+          <option value="all">همه برگه‌های شمارش</option>
+          {counts.map(count => (
+            <option key={count.id} value={count.id}>{count.countNumber}</option>
+          ))}
+        </select>
+        <select
+          className="premium-input"
+          value={groupBy}
+          onChange={(e) => setGroupBy(e.target.value as any)}
+        >
+          <option value="category">دسته‌بندی</option>
+          <option value="warehouse">انبار</option>
+          <option value="section">بخش</option>
+          <option value="countedBy">شمارنده</option>
+        </select>
+        <button
+          onClick={fetchReport}
+          className="premium-button flex items-center justify-center space-x-2 space-x-reverse"
+        >
+          <RefreshCw className="w-5 h-5" />
+          <span>به‌روزرسانی</span>
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader className="w-8 h-8 animate-spin text-primary-600" />
+        </div>
+      ) : reportData ? (
+        <>
+          <div className="premium-card p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">خلاصه گزارش</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">کل مغایرت‌ها</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {reportData.summary.totalDiscrepancies}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">ارزش کل مغایرت</p>
+                <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                  {reportData.summary.totalDiscrepancyValue.toLocaleString('fa-IR')} تومان
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">اضافی</p>
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                  {reportData.summary.positiveCount}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">کسری</p>
+                <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                  {reportData.summary.negativeCount}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="premium-card p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              گزارش به تفکیک {groupBy === 'category' ? 'دسته‌بندی' : groupBy === 'warehouse' ? 'انبار' : groupBy === 'section' ? 'بخش' : 'شمارنده'}
+            </h3>
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-right whitespace-nowrap">
+                <thead>
+                  <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
+                    <th className="px-4 py-3 rounded-r-lg">گروه</th>
+                    <th className="px-4 py-3">تعداد آیتم‌ها</th>
+                    <th className="px-4 py-3">کل مغایرت</th>
+                    <th className="px-4 py-3">ارزش مغایرت</th>
+                    <th className="px-4 py-3">اضافی</th>
+                    <th className="px-4 py-3 rounded-l-lg">کسری</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {reportData.report.map((group: any, index: number) => (
+                    <tr key={index} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{group.key}</td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{group.itemsCount}</td>
+                      <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(group.totalDiscrepancy)}`}>
+                        {group.totalDiscrepancy > 0 ? `+${group.totalDiscrepancy.toLocaleString('fa-IR')}` : group.totalDiscrepancy.toLocaleString('fa-IR')}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                        {group.totalDiscrepancyValue.toLocaleString('fa-IR')} تومان
+                      </td>
+                      <td className="px-4 py-3 text-green-600 dark:text-green-400">{group.positiveDiscrepancies}</td>
+                      <td className="px-4 py-3 text-red-600 dark:text-red-400">{group.negativeDiscrepancies}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
 }
 
 export default function InventoryAuditPage() {
@@ -276,8 +435,9 @@ export default function InventoryAuditPage() {
   }, [selectedCount?.id, fetchCountItems])
 
   const totalCounts = inventoryCounts.length
-  const completedCounts = inventoryCounts.filter(c => c.status === 'completed').length
-  const inProgressCounts = inventoryCounts.filter(c => c.status === 'in_progress').length
+  const completedCounts = inventoryCounts.filter(c => c.status === 'approved' || c.status === 'closed').length
+  const inProgressCounts = inventoryCounts.filter(c => c.status === 'counting' || c.status === 'ready_for_approval').length
+  const draftCounts = inventoryCounts.filter(c => c.status === 'draft').length
   const totalDiscrepancies = inventoryCounts.reduce((sum, c) => sum + c.discrepancies, 0)
   const totalDiscrepancyValue = inventoryCounts.reduce((sum, c) => sum + c.discrepancyValue, 0)
 
@@ -286,30 +446,57 @@ export default function InventoryAuditPage() {
   }
 
   const handleSubmitCreateCount = async () => {
-    if (!createForm.warehouse || !createForm.createdBy) {
-      alert('لطفاً انبار و ایجادکننده را انتخاب کنید')
+    if ((!createForm.warehouse && (!createForm.warehouses || createForm.warehouses.length === 0)) || !createForm.createdBy) {
+      alert('لطفاً حداقل یک انبار و ایجادکننده را انتخاب کنید')
       return
     }
 
     try {
       setCreateLoading(true)
+      const requestBody: any = {
+        type: createForm.type,
+        createdBy: createForm.createdBy,
+        notes: createForm.notes || '',
+        freezeMovements: createForm.freezeMovements,
+        autoAddItems: createForm.autoAddItems
+      }
+      
+      if (createForm.warehouses && createForm.warehouses.length > 0) {
+        requestBody.warehouses = createForm.warehouses
+      } else {
+        requestBody.warehouse = createForm.warehouse
+      }
+      
+      if (createForm.section) {
+        requestBody.section = createForm.section
+      }
+      
+      if (createForm.category && createForm.category !== 'all') {
+        requestBody.category = createForm.category
+      }
+      
+      if (createForm.itemIds && createForm.itemIds.length > 0) {
+        requestBody.itemIds = createForm.itemIds
+      }
+      
       const response = await fetch('/api/inventory-counts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: createForm.type,
-          warehouse: createForm.warehouse,
-          createdBy: createForm.createdBy,
-          notes: createForm.notes
-        })
+        body: JSON.stringify(requestBody)
       })
       const data = await response.json()
       if (data.success) {
         await fetchCounts()
         setShowCreateModal(false)
         setCreateForm({
-          type: 'cycle',
+          type: 'full',
           warehouse: '',
+          warehouses: [],
+          section: '',
+          freezeMovements: false,
+          category: 'all',
+          autoAddItems: true,
+          itemIds: [],
           createdBy: 'کاربر سیستم',
           notes: ''
         })
@@ -325,30 +512,87 @@ export default function InventoryAuditPage() {
     }
   }
 
-  const handleViewCount = async (count: InventoryCount) => {
-    setSelectedCount(count)
-    setShowCountModal(true)
-    await fetchCountItems(count.id)
-  }
-
-  const handleStartCount = async (countId: string) => {
+  // تغییر وضعیت برگه شمارش
+  const handleChangeStatus = async (countId: string, newStatus: string) => {
     try {
       const response = await fetch(`/api/inventory-counts/${countId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'in_progress' })
+        body: JSON.stringify({
+          status: newStatus,
+          performedBy: 'کاربر سیستم'
+        })
       })
       const data = await response.json()
       if (data.success) {
         await fetchCounts()
-        alert('شمارش شروع شد.')
+        alert(`وضعیت برگه شمارش به "${newStatus}" تغییر یافت`)
       } else {
-        alert('خطا: ' + data.message)
+        alert(data.message || 'خطا در تغییر وضعیت')
       }
     } catch (error) {
-      console.error('Error starting count:', error)
-      alert('خطا در شروع شمارش')
+      console.error('Error changing status:', error)
+      alert('خطا در تغییر وضعیت')
     }
+  }
+  
+  // تأیید برگه شمارش
+  const handleApproveCount = async (countId: string) => {
+    if (!confirm('آیا از تأیید این برگه شمارش اطمینان دارید؟ این عمل حرکات ADJUSTMENT ایجاد می‌کند.')) {
+      return
+    }
+    
+    try {
+      const response = await fetch(`/api/inventory-counts/${countId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          approvedBy: 'کاربر سیستم'
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchCounts()
+        if (selectedCount?.id === countId) {
+          await fetchCountItems(countId)
+        }
+        alert(`برگه شمارش تأیید شد. ${data.data.movementsCreated} حرکت ADJUSTMENT ایجاد شد.`)
+      } else {
+        alert(data.message || 'خطا در تأیید برگه')
+      }
+    } catch (error) {
+      console.error('Error approving count:', error)
+      alert('خطا در تأیید برگه')
+    }
+  }
+  
+  // شروع شمارش
+  const handleStartCount = async (countId: string) => {
+    await handleChangeStatus(countId, 'counting')
+  }
+  
+  // آماده برای تأیید
+  const handleReadyForApproval = async (countId: string) => {
+    await handleChangeStatus(countId, 'ready_for_approval')
+  }
+  
+  // بستن برگه
+  const handleCloseCount = async (countId: string) => {
+    await handleChangeStatus(countId, 'closed')
+  }
+  
+  // ابطال برگه
+  const handleCancelCount = async (countId: string) => {
+    if (!confirm('آیا از ابطال این برگه شمارش اطمینان دارید؟')) {
+      return
+    }
+    await handleChangeStatus(countId, 'cancelled')
+  }
+  
+  const handleViewCount = async (count: InventoryCount) => {
+    setSelectedCount(count)
+    setShowCountModal(true)
+    await fetchCountItems(count.id)
   }
 
   const handleCompleteCount = async (countId: string) => {
@@ -368,26 +612,6 @@ export default function InventoryAuditPage() {
     } catch (error) {
       console.error('Error completing count:', error)
       alert('خطا در تکمیل شمارش')
-    }
-  }
-
-  const handleCancelCount = async (countId: string) => {
-    try {
-      const response = await fetch(`/api/inventory-counts/${countId}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' })
-      })
-      const data = await response.json()
-      if (data.success) {
-        await fetchCounts()
-        alert('شمارش لغو شد.')
-      } else {
-        alert('خطا: ' + data.message)
-      }
-    } catch (error) {
-      console.error('Error cancelling count:', error)
-      alert('خطا در لغو شمارش')
     }
   }
 
@@ -586,9 +810,11 @@ export default function InventoryAuditPage() {
               >
                 <option value="all">همه وضعیت‌ها</option>
                 <option value="draft">پیش‌نویس</option>
-                <option value="in_progress">در حال انجام</option>
-                <option value="completed">تکمیل شده</option>
-                <option value="cancelled">لغو شده</option>
+                <option value="counting">در حال شمارش</option>
+                <option value="ready_for_approval">آماده تایید</option>
+                <option value="approved">تایید شده</option>
+                <option value="closed">بسته</option>
+                <option value="cancelled">ابطال</option>
               </select>
               <select
                 className="premium-input"
@@ -596,8 +822,9 @@ export default function InventoryAuditPage() {
                 onChange={(e) => setFilterType(e.target.value)}
               >
                 <option value="all">همه انواع</option>
-                <option value="cycle">دوره‌ای</option>
                 <option value="full">کامل</option>
+                <option value="partial">جزئی</option>
+                <option value="cycle">دوره‌ای</option>
               </select>
               <select
                 className="premium-input"
@@ -675,32 +902,47 @@ export default function InventoryAuditPage() {
                             <button
                               onClick={() => handleStartCount(count.id)}
                               className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                              title="شروع شمارش"
                             >
                               <Play className="w-4 h-4" />
                             </button>
                           )}
-                          {count.status === 'in_progress' && (
+                          {count.status === 'counting' && (
+                            <>
+                              <button
+                                onClick={() => handleReadyForApproval(count.id)}
+                                className="p-1 rounded-full text-yellow-600 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
+                                title="آماده برای تأیید"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                          {count.status === 'ready_for_approval' && (
                             <button
-                              onClick={() => handleCompleteCount(count.id)}
-                              className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                              onClick={() => handleApproveCount(count.id)}
+                              className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                              title="تأیید و ایجاد حرکات"
                             >
-                              <CheckCircle className="w-4 h-4" />
+                              <CheckCircle2 className="w-4 h-4" />
                             </button>
                           )}
-                          {count.status === 'completed' && count.discrepancies > 0 && (
+                          {count.status === 'approved' && (
                             <button
-                              onClick={() => handleCreateAdjustment(count.id)}
+                              onClick={() => handleCloseCount(count.id)}
                               className="p-1 rounded-full text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
+                              title="بستن برگه"
                             >
-                              <Calculator className="w-4 h-4" />
+                              <Square className="w-4 h-4" />
                             </button>
                           )}
-                          {(count.status === 'draft' || count.status === 'in_progress') && (
+                          {(count.status === 'draft' || count.status === 'counting' || count.status === 'ready_for_approval') && (
                             <button
                               onClick={() => handleCancelCount(count.id)}
                               className="p-1 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                              title="ابطال"
                             >
-                              <Square className="w-4 h-4" />
+                              <XCircle className="w-4 h-4" />
                             </button>
                           )}
                         </div>
@@ -779,39 +1021,10 @@ export default function InventoryAuditPage() {
 
         {/* Reports Tab */}
         {activeTab === 'reports' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="premium-card p-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
-                  <PieChart className="w-6 h-6 text-primary-600" />
-                  <span>توزیع اختلافات</span>
-                </h2>
-                <div className="h-64 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-gray-500 dark:text-gray-400">
-                  <p>نمودار دایره‌ای اختلافات در اینجا قرار می‌گیرد.</p>
-                </div>
-              </div>
-
-              <div className="premium-card p-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
-                  <BarChart3 className="w-6 h-6 text-success-600" />
-                  <span>روند انبارگردانی</span>
-                </h2>
-                <div className="h-64 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-gray-500 dark:text-gray-400">
-                  <p>نمودار ستونی روند در اینجا قرار می‌گیرد.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="premium-card p-6">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2 space-x-reverse">
-                <TrendingUp className="w-6 h-6 text-accent-600" />
-                <span>تحلیل دقت شمارش</span>
-              </h2>
-              <div className="h-64 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-gray-500 dark:text-gray-400">
-                <p>نمودار خطی دقت در اینجا قرار می‌گیرد.</p>
-              </div>
-            </div>
-          </div>
+          <DiscrepancyReportTab 
+            counts={inventoryCounts}
+            warehouses={allWarehouses}
+          />
         )}
       </div>
 
@@ -845,8 +1058,24 @@ export default function InventoryAuditPage() {
                     {getCountTypeBadge(selectedCount.type)}
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">انبار:</span>
-                    <span className="text-gray-900 dark:text-white">{selectedCount.warehouse}</span>
+                    <span className="text-gray-600 dark:text-gray-400">انبار(ها):</span>
+                    <span className="text-gray-900 dark:text-white">
+                      {selectedCount.warehouses && selectedCount.warehouses.length > 0 
+                        ? selectedCount.warehouses.join(', ') 
+                        : selectedCount.warehouse}
+                    </span>
+                  </div>
+                  {selectedCount.section && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">بخش:</span>
+                      <span className="text-gray-900 dark:text-white">{selectedCount.section}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">فریز حرکت:</span>
+                    <span className="text-gray-900 dark:text-white">
+                      {selectedCount.freezeMovements ? 'بله' : 'خیر'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">وضعیت:</span>
@@ -915,6 +1144,7 @@ export default function InventoryAuditPage() {
                       <th className="px-4 py-3">کد</th>
                       <th className="px-4 py-3">دسته‌بندی</th>
                       <th className="px-4 py-3">واحد</th>
+                      <th className="px-4 py-3">انبار</th>
                       <th className="px-4 py-3">موجودی سیستم</th>
                       <th className="px-4 py-3">موجودی شمارش</th>
                       <th className="px-4 py-3">اختلاف</th>
@@ -932,14 +1162,65 @@ export default function InventoryAuditPage() {
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-mono">{item.itemCode}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.category}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unit}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.systemQuantity}</td>
-                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.countedQuantity ?? '-'}</td>
-                        <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(item.discrepancy)}`}>
-                          {item.discrepancy > 0 ? `+${item.discrepancy}` : item.discrepancy}
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.warehouse || '-'}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                          {item.systemQuantityAtFinalization !== null && item.systemQuantityAtFinalization !== undefined
+                            ? `${item.systemQuantity} → ${item.systemQuantityAtFinalization}`
+                            : item.systemQuantity}
+                        </td>
+                        <td className="px-4 py-3">
+                          {selectedCount.status === 'counting' || selectedCount.status === 'draft' ? (
+                            <input
+                              type="number"
+                              className="premium-input w-24 text-center"
+                              value={item.countedQuantity ?? ''}
+                              onChange={async (e) => {
+                                const value = e.target.value === '' ? null : parseFloat(e.target.value)
+                                try {
+                                  const response = await fetch('/api/count-items', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      countId: item.countId,
+                                      itemId: item.itemId,
+                                      warehouse: item.warehouse,
+                                      countedQuantity: value,
+                                      countedBy: 'کاربر سیستم'
+                                    })
+                                  })
+                                  const data = await response.json()
+                                  if (data.success) {
+                                    await fetchCountItems(item.countId)
+                                  }
+                                } catch (error) {
+                                  console.error('Error updating count item:', error)
+                                }
+                              }}
+                              min="0"
+                              step="0.01"
+                              placeholder="0"
+                            />
+                          ) : (
+                            <span className="text-gray-700 dark:text-gray-200">{item.countedQuantity ?? '-'}</span>
+                          )}
+                        </td>
+                        <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(
+                          (item.countedQuantity || 0) - (item.systemQuantityAtFinalization || item.systemQuantity || 0)
+                        )}`}>
+                          {(() => {
+                            const disc = (item.countedQuantity || 0) - (item.systemQuantityAtFinalization || item.systemQuantity || 0)
+                            return disc > 0 ? `+${disc}` : disc
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.unitPrice.toLocaleString('fa-IR')}</td>
-                        <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(item.discrepancyValue)}`}>
-                          {item.discrepancyValue > 0 ? `+${item.discrepancyValue.toLocaleString('fa-IR')}` : item.discrepancyValue.toLocaleString('fa-IR')}
+                        <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(
+                          ((item.countedQuantity || 0) - (item.systemQuantityAtFinalization || item.systemQuantity || 0)) * (item.unitPrice || 0)
+                        )}`}>
+                          {(() => {
+                            const disc = (item.countedQuantity || 0) - (item.systemQuantityAtFinalization || item.systemQuantity || 0)
+                            const discValue = disc * (item.unitPrice || 0)
+                            return discValue > 0 ? `+${discValue.toLocaleString('fa-IR')}` : discValue.toLocaleString('fa-IR')
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{item.countedBy || '-'}</td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{formatDate(item.countedDate)}</td>
@@ -957,10 +1238,10 @@ export default function InventoryAuditPage() {
       {/* Create Count Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-2xl">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                ایجاد شمارش جدید
+                ایجاد برگه شمارش جدید
               </h2>
               <button
                 onClick={() => setShowCreateModal(false)}
@@ -978,27 +1259,94 @@ export default function InventoryAuditPage() {
                 <select
                   className="premium-input w-full"
                   value={createForm.type}
-                  onChange={(e) => setCreateForm({ ...createForm, type: e.target.value as 'cycle' | 'full' })}
+                  onChange={(e) => setCreateForm({ ...createForm, type: e.target.value as 'full' | 'partial' | 'cycle' })}
                 >
-                  <option value="cycle">دوره‌ای</option>
                   <option value="full">کامل</option>
+                  <option value="partial">جزئی</option>
+                  <option value="cycle">دوره‌ای</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  انبار <span className="text-red-500">*</span>
+                  انبار(ها) <span className="text-red-500">*</span>
                 </label>
                 <select
                   className="premium-input w-full"
-                  value={createForm.warehouse}
-                  onChange={(e) => setCreateForm({ ...createForm, warehouse: e.target.value })}
+                  multiple
+                  size={4}
+                  value={createForm.warehouses.length > 0 ? createForm.warehouses : (createForm.warehouse ? [createForm.warehouse] : [])}
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.selectedOptions, option => option.value)
+                    setCreateForm({ 
+                      ...createForm, 
+                      warehouses: selected,
+                      warehouse: selected.length === 1 ? selected[0] : ''
+                    })
+                  }}
                 >
-                  <option value="">انتخاب انبار</option>
                   {allWarehouses.map(wh => (
-                    <option key={wh._id || wh.id} value={wh.name}>{wh.name}</option>
+                    <option key={wh._id || wh.id} value={wh.name}>{wh.name} {wh.code ? `(${wh.code})` : ''}</option>
                   ))}
                 </select>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  برای انتخاب چند انبار، Ctrl (یا Cmd در Mac) را نگه دارید
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  بازه/بخش (اختیاری)
+                </label>
+                <input
+                  type="text"
+                  className="premium-input w-full"
+                  value={createForm.section}
+                  onChange={(e) => setCreateForm({ ...createForm, section: e.target.value })}
+                  placeholder="مثال: A1-A10, طبقه 1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  دسته‌بندی (اختیاری)
+                </label>
+                <select
+                  className="premium-input w-full"
+                  value={createForm.category}
+                  onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
+                >
+                  <option value="all">همه دسته‌بندی‌ها</option>
+                  <option value="مواد اولیه">مواد اولیه</option>
+                  <option value="نوشیدنی">نوشیدنی</option>
+                  <option value="سبزیجات">سبزیجات</option>
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <input
+                  type="checkbox"
+                  id="freezeMovements"
+                  checked={createForm.freezeMovements}
+                  onChange={(e) => setCreateForm({ ...createForm, freezeMovements: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 rounded"
+                />
+                <label htmlFor="freezeMovements" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  فریز حرکت (موجودی در زمان ایجاد فریز می‌شود)
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <input
+                  type="checkbox"
+                  id="autoAddItems"
+                  checked={createForm.autoAddItems}
+                  onChange={(e) => setCreateForm({ ...createForm, autoAddItems: e.target.checked })}
+                  className="w-4 h-4 text-primary-600 rounded"
+                />
+                <label htmlFor="autoAddItems" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  اضافه کردن خودکار آیتم‌ها بر اساس موجودی
+                </label>
               </div>
 
               <div>

@@ -68,7 +68,43 @@ export async function GET(request: NextRequest) {
           activeAlerts: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
           resolvedAlerts: { $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] } },
           dismissedAlerts: { $sum: { $cond: [{ $eq: ['$status', 'dismissed'] }, 1, 0] } },
-          criticalAlerts: { $sum: { $cond: [{ $eq: ['$severity', 'critical'] }, 1, 0] } },
+          criticalAlerts: { 
+            $sum: { 
+              $cond: [
+                { 
+                  $or: [
+                    { $eq: ['$severity', 'critical'] },
+                    { $eq: ['$alertStatus', 'critical'] },
+                    { $and: [
+                      { $eq: ['$status', 'active'] },
+                      { $or: [
+                        { $eq: ['$currentStock', 0] },
+                        { $lt: ['$currentStock', 0] }
+                      ]}
+                    ]}
+                  ]
+                }, 
+                1, 
+                0
+              ] 
+            } 
+          },
+          needsActionAlerts: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$status', 'active'] },
+                    { $ne: ['$severity', 'critical'] },
+                    { $ne: ['$alertStatus', 'critical'] },
+                    { $gt: ['$currentStock', 0] }
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          },
           highAlerts: { $sum: { $cond: [{ $eq: ['$severity', 'high'] }, 1, 0] } },
           mediumAlerts: { $sum: { $cond: [{ $eq: ['$severity', 'medium'] }, 1, 0] } },
           lowAlerts: { $sum: { $cond: [{ $eq: ['$severity', 'low'] }, 1, 0] } },
@@ -89,6 +125,7 @@ export async function GET(request: NextRequest) {
         resolvedAlerts: 0,
         dismissedAlerts: 0,
         criticalAlerts: 0,
+        needsActionAlerts: 0,
         highAlerts: 0,
         mediumAlerts: 0,
         lowAlerts: 0,

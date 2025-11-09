@@ -176,23 +176,40 @@ export async function POST(request: NextRequest) {
     const {
       type,
       warehouse,
+      warehouses, // برای چند انبار
+      section, // بازه/بخش
+      freezeMovements, // فریز حرکت یا شمارش زنده
       createdBy,
       notes,
-      itemIds
+      itemIds,
+      category, // فیلتر دسته‌بندی
+      autoAddItems // اضافه کردن خودکار آیتم‌ها
     } = body
 
-    if (!type || !warehouse || !createdBy) {
+    if (!warehouse && (!warehouses || warehouses.length === 0)) {
       return NextResponse.json(
-        { success: false, message: 'نوع، انبار و ایجادکننده اجباری است' },
+        { success: false, message: 'حداقل یک انبار اجباری است' },
         { status: 400 }
       )
     }
 
+    if (!createdBy) {
+      return NextResponse.json(
+        { success: false, message: 'ایجادکننده اجباری است' },
+        { status: 400 }
+      )
+    }
+
+    // تعیین انبار(ها)
+    const targetWarehouses = warehouses && warehouses.length > 0 ? warehouses : [warehouse]
+    const freezeMode = freezeMovements === true || freezeMovements === 'true'
+
     // تولید شماره شمارش
     const countNumber = await generateCountNumber(collection)
 
-    // دریافت آیتم‌های موجودی برای این انبار
+    // دریافت آیتم‌های موجودی برای انبار(ها)
     let items = []
+    const balanceCollection = db.collection('inventory_balance')
     
     // بررسی وجود آیتم‌های موجودی
     const totalItemsCount = await inventoryCollection.countDocuments({})
@@ -204,51 +221,61 @@ export async function POST(request: NextRequest) {
     }
 
     if (itemIds && itemIds.length > 0) {
+      // آیتم‌های انتخابی
       const objectIds = itemIds.map((id: string) => new ObjectId(id))
-      const query: any = { _id: { $in: objectIds } }
-      // اگر آیتم‌ها warehouse دارند، فیلتر کن
-      const sampleItem = await inventoryCollection.findOne({ _id: { $in: objectIds } })
-      if (sampleItem && sampleItem.warehouse) {
-        query.warehouse = warehouse
+      items = await inventoryCollection.find({ _id: { $in: objectIds } }).toArray()
+      
+      // اگر category فیلتر شده، اعمال کن
+      if (category && category !== 'all') {
+        items = items.filter((item: any) => item.category === category)
       }
-      items = await inventoryCollection.find(query).toArray()
-    } else {
-      // ابتدا بررسی کن که آیا آیتم‌ها warehouse دارند یا نه
-      const sampleItem = await inventoryCollection.findOne({})
-      if (sampleItem && sampleItem.warehouse) {
-        // اگر warehouse دارند، فیلتر کن
-        items = await inventoryCollection.find({ warehouse: warehouse }).toArray()
-        if (items.length === 0) {
-          return NextResponse.json(
-            { success: false, message: `هیچ آیتمی در انبار "${warehouse}" یافت نشد. لطفاً ابتدا آیتم‌های موجودی را به این انبار اضافه کنید.` },
-            { status: 400 }
-          )
-        }
-      } else {
-        // اگر warehouse ندارند، همه آیتم‌ها را بگیر
-        items = await inventoryCollection.find({}).limit(100).toArray()
-        if (items.length === 0) {
-          return NextResponse.json(
-            { success: false, message: 'هیچ آیتم موجودی در سیستم یافت نشد. لطفاً ابتدا آیتم‌های موجودی را اضافه کنید.' },
-            { status: 400 }
-          )
+    } else if (autoAddItems !== false) {
+      // اضافه کردن خودکار بر اساس موجودی Balance
+      const query: any = {}
+      if (category && category !== 'all') {
+        query.category = category
+      }
+      
+      // دریافت آیتم‌ها از inventory_items
+      const allItems = await inventoryCollection.find(query).toArray()
+      
+      // فیلتر بر اساس انبار(ها) از Balance
+      for (const item of allItems) {
+        for (const wh of targetWarehouses) {
+          const balance = await balanceCollection.findOne({
+            itemId: item._id,
+            warehouseName: wh
+          })
+          
+          if (balance && balance.quantity > 0) {
+            // اگر قبلاً اضافه نشده، اضافه کن
+            if (!items.find((i: any) => i._id.toString() === item._id.toString())) {
+              items.push(item)
+            }
+            break
+          }
         }
       }
     }
 
     if (items.length === 0) {
       return NextResponse.json(
-        { success: false, message: 'هیچ آیتمی برای شمارش یافت نشد. لطفاً ابتدا آیتم‌های موجودی را اضافه کنید.' },
+        { success: false, message: 'هیچ آیتمی برای شمارش یافت نشد.' },
         { status: 400 }
       )
     }
 
     const count = {
       countNumber,
-      type,
-      warehouse,
-      status: 'draft',
+      type: type || 'full', // full, partial, cycle
+      warehouse: warehouse || targetWarehouses[0], // برای سازگاری
+      warehouses: targetWarehouses, // چند انبار
+      section: section || null, // بازه/بخش
+      freezeMovements: freezeMode, // فریز حرکت یا شمارش زنده
+      status: 'draft', // draft, counting, ready_for_approval, approved, closed, cancelled
       createdBy,
+      approvedBy: null,
+      approvedDate: null,
       createdDate: new Date().toISOString(),
       startedDate: null,
       completedDate: null,
@@ -258,6 +285,7 @@ export async function POST(request: NextRequest) {
       totalValue: items.reduce((sum: number, item: any) => sum + (item.totalValue || 0), 0),
       discrepancyValue: 0,
       notes: notes || '',
+      category: category || null, // فیلتر دسته‌بندی
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -266,26 +294,45 @@ export async function POST(request: NextRequest) {
 
     // ایجاد آیتم‌های شمارش
     const countId = result.insertedId.toString()
-    const countItems = items.map((item: any) => ({
-      countId,
-      itemId: item._id.toString(),
-      itemName: item.name,
-      itemCode: item.code || `ITEM-${item._id.toString().substring(0, 8)}`,
-      category: item.category,
-      unit: item.unit,
-      systemQuantity: item.currentStock || 0,
-      countedQuantity: null,
-      discrepancy: 0,
-      unitPrice: item.unitPrice || 0,
-      systemValue: (item.currentStock || 0) * (item.unitPrice || 0),
-      countedValue: 0,
-      discrepancyValue: 0,
-      countedBy: null,
-      countedDate: null,
-      notes: '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }))
+    const countItems = []
+    
+    for (const item of items) {
+      // برای هر انبار، یک آیتم شمارش ایجاد کن
+      for (const wh of targetWarehouses) {
+        // دریافت موجودی از Balance
+        const balance = await balanceCollection.findOne({
+          itemId: item._id,
+          warehouseName: wh
+        })
+        
+        const systemQty = balance?.quantity || item.currentStock || 0
+        const unitPrice = item.unitPrice || 0
+        
+        countItems.push({
+          countId,
+          itemId: item._id.toString(),
+          itemName: item.name,
+          itemCode: item.code || `ITEM-${item._id.toString().substring(0, 8)}`,
+          category: item.category,
+          unit: item.unit,
+          warehouse: wh,
+          systemQuantity: systemQty, // موجودی سیستم در زمان ایجاد
+          systemQuantityAtFinalization: null, // موجودی سیستم در زمان نهایی‌سازی
+          countedQuantity: null,
+          discrepancy: 0,
+          unitPrice: unitPrice,
+          systemValue: systemQty * unitPrice,
+          countedValue: 0,
+          discrepancyValue: 0,
+          countedBy: null,
+          countedDate: null,
+          countingRounds: [], // چند نوبت شمارش
+          notes: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+      }
+    }
 
     await countItemsCollection.insertMany(countItems)
 
