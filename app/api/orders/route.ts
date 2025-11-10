@@ -103,15 +103,23 @@ export async function GET(request: NextRequest) {
           orderNumber: 1,
           customerName: 1,
           customerPhone: 1,
+          customerAddress: 1,
           orderType: 1,
           tableNumber: 1,
-          items: { $slice: 10 }, // محدود کردن آیتم‌ها
+          items: { $slice: 20 }, // محدود کردن آیتم‌ها
+          subtotal: 1,
+          tax: 1,
+          serviceCharge: 1,
+          discount: 1,
           total: 1,
           status: 1,
           paymentMethod: 1,
           orderTime: 1,
+          estimatedTime: 1,
+          estimatedReadyTime: 1,
           createdAt: 1,
-          priority: 1
+          priority: 1,
+          notes: 1
         }
       })
       .sort(sort)

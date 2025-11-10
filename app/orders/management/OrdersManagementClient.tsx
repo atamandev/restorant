@@ -22,7 +22,8 @@ import {
   SortDesc,
   Plus,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  Receipt
 } from 'lucide-react'
 
 interface OrderItem {
@@ -39,20 +40,21 @@ interface Order {
   customerName: string
   customerPhone: string
   customerAddress?: string
-  orderType: 'dine-in' | 'takeaway' | 'delivery'
+  orderType: 'dine-in' | 'takeaway' | 'delivery' | 'quick-sale' | 'table-order'
   tableNumber?: string
   items: OrderItem[]
   subtotal: number
   tax: number
-  serviceCharge: number
+  serviceCharge?: number
   discount: number
   total: number
   orderTime: string
-  estimatedTime: string
+  estimatedTime?: string
+  estimatedReadyTime?: string
   status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'completed'
   notes: string
   paymentMethod: 'cash' | 'card' | 'credit'
-  priority: 'normal' | 'high' | 'urgent'
+  priority?: 'normal' | 'high' | 'urgent'
   createdAt?: Date
   updatedAt?: Date
 }
@@ -69,6 +71,7 @@ export default function OrdersManagementClient() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
+  const [openPrintMenu, setOpenPrintMenu] = useState<string | null>(null)
   const loadingRef = useRef(false)
   const mountedRef = useRef(false)
 
@@ -134,7 +137,24 @@ export default function OrdersManagementClient() {
       mountedRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // فقط یک بار اجرا شود - loadOrders با useCallback memoize شده
+  }, [])
+
+  // بستن dropdown با کلیک خارج از آن
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.relative.group')) {
+        setOpenPrintMenu(null)
+      }
+    }
+    
+    if (openPrintMenu) {
+      document.addEventListener('click', handleClickOutside)
+      return () => {
+        document.removeEventListener('click', handleClickOutside)
+      }
+    }
+  }, [openPrintMenu]) // فقط یک بار اجرا شود - loadOrders با useCallback memoize شده
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -263,6 +283,8 @@ export default function OrdersManagementClient() {
       case 'dine-in': return <Utensils className="w-4 h-4" />
       case 'takeaway': return <Package className="w-4 h-4" />
       case 'delivery': return <Truck className="w-4 h-4" />
+      case 'quick-sale': return <Receipt className="w-4 h-4" />
+      case 'table-order': return <Utensils className="w-4 h-4" />
       default: return <ShoppingBag className="w-4 h-4" />
     }
   }
@@ -272,6 +294,8 @@ export default function OrdersManagementClient() {
       case 'dine-in': return 'حضوری'
       case 'takeaway': return 'بیرون‌بر'
       case 'delivery': return 'ارسال'
+      case 'quick-sale': return 'فروش سریع'
+      case 'table-order': return 'سفارش میز'
       default: return 'نامشخص'
     }
   }
@@ -283,6 +307,261 @@ export default function OrdersManagementClient() {
   const getReadyOrders = () => orders.filter(order => order.status === 'ready').length
   const getCompletedOrders = () => orders.filter(order => order.status === 'completed').length
   const getTotalRevenue = () => orders.reduce((sum, order) => sum + order.total, 0)
+
+  // تابع چاپ پرینتر
+  const printOrder = (order: Order, printType: 'printer' | 'laser' = 'printer') => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      alert('لطفاً popup blocker را غیرفعال کنید')
+      return
+    }
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="fa">
+      <head>
+        <meta charset="UTF-8">
+        <title>چاپ سفارش ${order.orderNumber}</title>
+        <style>
+          @page {
+            size: ${printType === 'laser' ? 'A4' : '80mm'};
+            margin: ${printType === 'laser' ? '10mm' : '5mm'};
+          }
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            font-family: 'Tahoma', 'Arial', sans-serif;
+            font-size: ${printType === 'laser' ? '12px' : '10px'};
+            line-height: 1.6;
+            color: #000;
+            background: #fff;
+            padding: ${printType === 'laser' ? '20px' : '10px'};
+          }
+          .header {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: ${printType === 'laser' ? '15px' : '10px'};
+            margin-bottom: ${printType === 'laser' ? '20px' : '15px'};
+          }
+          .header h1 {
+            font-size: ${printType === 'laser' ? '24px' : '16px'};
+            font-weight: bold;
+            margin-bottom: 5px;
+          }
+          .header p {
+            font-size: ${printType === 'laser' ? '14px' : '10px'};
+            color: #666;
+          }
+          .order-info {
+            margin-bottom: ${printType === 'laser' ? '15px' : '10px'};
+          }
+          .order-info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: ${printType === 'laser' ? '11px' : '9px'};
+          }
+          .order-info-label {
+            font-weight: bold;
+          }
+          .customer-info {
+            background: #f5f5f5;
+            padding: ${printType === 'laser' ? '12px' : '8px'};
+            border-radius: 5px;
+            margin-bottom: ${printType === 'laser' ? '15px' : '10px'};
+          }
+          .customer-info h3 {
+            font-size: ${printType === 'laser' ? '14px' : '11px'};
+            margin-bottom: 8px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+          }
+          .customer-info p {
+            font-size: ${printType === 'laser' ? '11px' : '9px'};
+            margin-bottom: 3px;
+          }
+          .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: ${printType === 'laser' ? '15px' : '10px'};
+          }
+          .items-table th,
+          .items-table td {
+            border: 1px solid #ddd;
+            padding: ${printType === 'laser' ? '8px' : '5px'};
+            text-align: right;
+            font-size: ${printType === 'laser' ? '11px' : '9px'};
+          }
+          .items-table th {
+            background: #f5f5f5;
+            font-weight: bold;
+          }
+          .items-table td {
+            background: #fff;
+          }
+          .summary {
+            margin-top: ${printType === 'laser' ? '15px' : '10px'};
+            border-top: 2px solid #000;
+            padding-top: ${printType === 'laser' ? '15px' : '10px'};
+          }
+          .summary-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: ${printType === 'laser' ? '12px' : '10px'};
+          }
+          .summary-total {
+            font-size: ${printType === 'laser' ? '18px' : '14px'};
+            font-weight: bold;
+            border-top: 2px solid #000;
+            padding-top: 8px;
+            margin-top: 8px;
+          }
+          .footer {
+            text-align: center;
+            margin-top: ${printType === 'laser' ? '20px' : '15px'};
+            padding-top: ${printType === 'laser' ? '15px' : '10px'};
+            border-top: 1px solid #ddd;
+            font-size: ${printType === 'laser' ? '10px' : '8px'};
+            color: #666;
+          }
+          .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: ${printType === 'laser' ? '10px' : '8px'};
+            font-weight: bold;
+          }
+          .status-pending { background: #fef3c7; color: #92400e; }
+          .status-confirmed { background: #dbeafe; color: #1e40af; }
+          .status-preparing { background: #fed7aa; color: #9a3412; }
+          .status-ready { background: #d1fae5; color: #065f46; }
+          .status-delivered { background: #dbeafe; color: #1e40af; }
+          .status-completed { background: #e9d5ff; color: #6b21a8; }
+          @media print {
+            body {
+              padding: 0;
+            }
+            .no-print {
+              display: none;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>فاکتور سفارش</h1>
+          <p>شماره سفارش: ${order.orderNumber}</p>
+          <p>تاریخ: ${new Date(order.orderTime).toLocaleDateString('fa-IR')} - ${new Date(order.orderTime).toLocaleTimeString('fa-IR')}</p>
+        </div>
+
+        <div class="order-info">
+          <div class="order-info-row">
+            <span class="order-info-label">نوع سفارش:</span>
+            <span>${getOrderTypeText(order.orderType)}</span>
+          </div>
+          <div class="order-info-row">
+            <span class="order-info-label">وضعیت:</span>
+            <span class="status-badge status-${order.status}">${getStatusText(order.status)}</span>
+          </div>
+          ${order.tableNumber ? `
+          <div class="order-info-row">
+            <span class="order-info-label">میز:</span>
+            <span>${order.tableNumber}</span>
+          </div>
+          ` : ''}
+          <div class="order-info-row">
+            <span class="order-info-label">روش پرداخت:</span>
+            <span>${order.paymentMethod === 'cash' ? 'نقدی' : order.paymentMethod === 'card' ? 'کارت' : 'اعتباری'}</span>
+          </div>
+        </div>
+
+        ${order.customerName || order.customerPhone ? `
+        <div class="customer-info">
+          <h3>اطلاعات مشتری</h3>
+          ${order.customerName ? `<p><strong>نام:</strong> ${order.customerName}</p>` : ''}
+          ${order.customerPhone ? `<p><strong>تلفن:</strong> ${order.customerPhone}</p>` : ''}
+          ${order.customerAddress ? `<p><strong>آدرس:</strong> ${order.customerAddress}</p>` : ''}
+        </div>
+        ` : ''}
+
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th>ردیف</th>
+              <th>نام آیتم</th>
+              <th>تعداد</th>
+              <th>قیمت واحد</th>
+              <th>جمع</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${order.items && Array.isArray(order.items) ? order.items.map((item: any, index: number) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${item.name}${item.notes ? `<br><small style="color: #666;">${item.notes}</small>` : ''}</td>
+                <td>${item.quantity}</td>
+                <td>${item.price.toLocaleString('fa-IR')} تومان</td>
+                <td>${(item.quantity * item.price).toLocaleString('fa-IR')} تومان</td>
+              </tr>
+            `).join('') : ''}
+          </tbody>
+        </table>
+
+        <div class="summary">
+          <div class="summary-row">
+            <span>زیرمجموع:</span>
+            <span>${order.subtotal.toLocaleString('fa-IR')} تومان</span>
+          </div>
+          ${order.tax > 0 ? `
+          <div class="summary-row">
+            <span>مالیات:</span>
+            <span>${order.tax.toLocaleString('fa-IR')} تومان</span>
+          </div>
+          ` : ''}
+          ${order.serviceCharge && order.serviceCharge > 0 ? `
+          <div class="summary-row">
+            <span>کارمزد سرویس:</span>
+            <span>${order.serviceCharge.toLocaleString('fa-IR')} تومان</span>
+          </div>
+          ` : ''}
+          ${order.discount > 0 ? `
+          <div class="summary-row" style="color: #059669;">
+            <span>تخفیف:</span>
+            <span>-${order.discount.toLocaleString('fa-IR')} تومان</span>
+          </div>
+          ` : ''}
+          <div class="summary-row summary-total">
+            <span>مبلغ کل:</span>
+            <span>${order.total.toLocaleString('fa-IR')} تومان</span>
+          </div>
+        </div>
+
+        ${order.notes ? `
+        <div style="margin-top: 15px; padding: 10px; background: #f5f5f5; border-radius: 5px;">
+          <strong>یادداشت:</strong> ${order.notes}
+        </div>
+        ` : ''}
+
+        <div class="footer">
+          <p>با تشکر از انتخاب شما</p>
+          <p>${new Date().toLocaleDateString('fa-IR')} - ${new Date().toLocaleTimeString('fa-IR')}</p>
+        </div>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+    
+    // صبر کن تا محتوا لود شود، سپس چاپ کن
+    setTimeout(() => {
+      printWindow.print()
+    }, 250)
+  }
 
   const addSampleData = async () => {
     try {
@@ -613,9 +892,39 @@ export default function OrdersManagementClient() {
                     >
                       <Eye className="w-4 h-4" />
                     </button>
-                    <button className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors">
-                      <Printer className="w-4 h-4" />
-                    </button>
+                    <div className="relative group">
+                      <button 
+                        onClick={() => {
+                          const orderId = order._id?.toString() || order.orderNumber
+                          setOpenPrintMenu(openPrintMenu === orderId ? null : orderId)
+                        }}
+                        className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </button>
+                      <div className={`absolute left-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 z-50 ${
+                        openPrintMenu === (order._id?.toString() || order.orderNumber) ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
+                      }`}>
+                        <button
+                          onClick={() => {
+                            printOrder(order, 'printer')
+                            setOpenPrintMenu(null)
+                          }}
+                          className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg transition-colors"
+                        >
+                          چاپ پرینتر
+                        </button>
+                        <button
+                          onClick={() => {
+                            printOrder(order, 'laser')
+                            setOpenPrintMenu(null)
+                          }}
+                          className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg transition-colors"
+                        >
+                          چاپ لیزری
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -745,10 +1054,40 @@ export default function OrdersManagementClient() {
                           <span>تکمیل سفارش</span>
                         </button>
                       )}
-                      <button className="w-full flex items-center justify-center space-x-2 space-x-reverse px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm">
-                        <Printer className="w-4 h-4" />
-                        <span>چاپ</span>
-                      </button>
+                      <div className="relative group">
+                        <button 
+                          onClick={() => {
+                            const orderId = order._id?.toString() || order.orderNumber
+                            setOpenPrintMenu(openPrintMenu === orderId ? null : orderId)
+                          }}
+                          className="w-full flex items-center justify-center space-x-2 space-x-reverse px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span>چاپ</span>
+                        </button>
+                        <div className={`absolute left-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 z-50 ${
+                          openPrintMenu === (order._id?.toString() || order.orderNumber) ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
+                        }`}>
+                          <button
+                            onClick={() => {
+                              printOrder(order, 'printer')
+                              setOpenPrintMenu(null)
+                            }}
+                            className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg transition-colors"
+                          >
+                            چاپ پرینتر
+                          </button>
+                          <button
+                            onClick={() => {
+                              printOrder(order, 'laser')
+                              setOpenPrintMenu(null)
+                            }}
+                            className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg transition-colors"
+                          >
+                            چاپ لیزری
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -903,10 +1242,42 @@ export default function OrdersManagementClient() {
                 >
                   بستن
                 </button>
-                <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-2 space-x-reverse">
-                  <Printer className="w-4 h-4" />
-                  <span>چاپ</span>
-                </button>
+                <div className="relative group">
+                  <button 
+                    onClick={() => {
+                      const orderId = selectedOrder._id?.toString() || selectedOrder.orderNumber || 'modal'
+                      setOpenPrintMenu(openPrintMenu === orderId ? null : orderId)
+                    }}
+                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-2 space-x-reverse"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>چاپ</span>
+                  </button>
+                  <div className={`absolute left-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 z-50 ${
+                    openPrintMenu === (selectedOrder._id?.toString() || selectedOrder.orderNumber || 'modal') ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
+                  }`}>
+                    <button
+                      onClick={() => {
+                        printOrder(selectedOrder, 'printer')
+                        setSelectedOrder(null)
+                        setOpenPrintMenu(null)
+                      }}
+                      className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg transition-colors"
+                    >
+                      چاپ پرینتر
+                    </button>
+                    <button
+                      onClick={() => {
+                        printOrder(selectedOrder, 'laser')
+                        setSelectedOrder(null)
+                        setOpenPrintMenu(null)
+                      }}
+                      className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg transition-colors"
+                    >
+                      چاپ لیزری
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

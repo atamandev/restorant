@@ -15,6 +15,7 @@ import {
   MapPin,
   User,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   XCircle,
   X,
@@ -359,13 +360,15 @@ export default function WarehousesPage() {
     fetchWarehouses()
   }, [])
 
-  // Auto-refresh برای به‌روزرسانی real-time موجودی انبار انتخاب شده
+  // Auto-refresh برای به‌روزرسانی real-time موجودی انبار انتخاب شده - بهینه شده
   useEffect(() => {
     if (selectedWarehouse && showInventoryModal) {
-      // Refresh هر 5 ثانیه
+      // Refresh هر 30 ثانیه و فقط وقتی صفحه visible است
       const interval = setInterval(() => {
-        fetchWarehouseInventory(selectedWarehouse._id)
-      }, 5000) // 5 ثانیه
+        if (document.visibilityState === 'visible') {
+          fetchWarehouseInventory(selectedWarehouse._id)
+        }
+      }, 30000) // 30 ثانیه به جای 5 ثانیه
 
       // Cleanup interval وقتی component unmount می‌شود یا انبار تغییر می‌کند
       return () => clearInterval(interval)

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useMenuItems } from '@/hooks/useMenuItems'
 import { 
   ShoppingCart, 
   Plus, 
@@ -12,190 +13,174 @@ import {
   Receipt,
   Search,
   Package,
-  Star,
-  Clock,
   CheckCircle,
   AlertCircle,
   X,
   Loader2,
-  Printer
+  Printer,
+  RefreshCw
 } from 'lucide-react'
 
-interface MenuItem {
-  _id?: string
-  id?: string
-  name: string
-  price: number
-  category: string
-  image?: string
-  description?: string
-  isAvailable?: boolean
-}
-
-interface CartItem {
+interface OrderItem {
   id: string
   name: string
   price: number
   quantity: number
   total: number
-}
-
-interface QuickSale {
-  _id?: string
-  customerName?: string
-  items: CartItem[]
-  subtotal: number
-  discount: number
-  discountAmount: number
-  tax: number
-  total: number
-  paymentMethod: string
-  invoiceNumber: string
-  status: string
-  createdAt?: Date | string
+  category: string
+  image?: string
+  preparationTime?: number
+  uniqueId?: string
 }
 
 export default function QuickSalePage() {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [cart, setCart] = useState<CartItem[]>([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('همه')
+  const [selectedCategory, setSelectedCategory] = useState('all')
+  const [order, setOrder] = useState<OrderItem[]>([])
   const [customerName, setCustomerName] = useState('')
   const [discount, setDiscount] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'credit'>('cash')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [invoiceNumber, setInvoiceNumber] = useState('')
+  const [notes, setNotes] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [branchId, setBranchId] = useState<string | null>(null)
 
-  // دریافت لیست آیتم‌های منو
-  const fetchMenuItems = async () => {
-    try {
-      setLoading(true)
-      const response = await fetch('/api/menu-items')
-      const data = await response.json()
-      
-      if (data.success) {
-        setMenuItems(data.data)
-      } else {
-        setError(data.message || 'خطا در دریافت لیست آیتم‌های منو')
-      }
-    } catch (error) {
-      console.error('Error fetching menu items:', error)
-      setError('خطا در اتصال به سرور')
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // Load default branch
   useEffect(() => {
-    fetchMenuItems()
-    // Generate invoice number
-    setInvoiceNumber(`QS${Date.now()}`)
+    const loadDefaultBranch = async () => {
+      try {
+        const response = await fetch('/api/branches')
+        const result = await response.json()
+        if (result.success && result.data && result.data.length > 0) {
+          const activeBranch = result.data.find((b: any) => b.isActive) || result.data[0]
+          if (activeBranch) {
+            setBranchId(activeBranch._id || activeBranch.id)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading branch:', error)
+      }
+    }
+    loadDefaultBranch()
   }, [])
 
-  const categories = ['همه', ...Array.from(new Set(menuItems.map(item => item.category)))]
-
-  const filteredItems = menuItems.filter(item => {
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.description?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesCategory = selectedCategory === 'همه' || item.category === selectedCategory
-    const isAvailable = item.isAvailable !== false
-    return matchesSearch && matchesCategory && isAvailable
+  // Load menu items from API - استفاده از hook مشترک
+  const { menuItems: loadedMenuItems, loading: menuLoading, reload: reloadMenu } = useMenuItems({
+    isAvailable: true, // فقط آیتم‌های موجود
+    autoRefresh: true,
+    refreshInterval: 30000 // هر 30 ثانیه به‌روزرسانی
   })
 
-  const addToCart = (item: MenuItem) => {
-    const existingItem = cart.find(cartItem => cartItem.id === (item._id || item.id))
-    if (existingItem) {
-      setCart(cart.map(cartItem =>
-        cartItem.id === (item._id || item.id)
-          ? { ...cartItem, quantity: cartItem.quantity + 1, total: (cartItem.quantity + 1) * cartItem.price }
-          : cartItem
-      ))
-    } else {
-      setCart([...cart, { 
-        id: item._id || item.id || '', 
-        name: item.name, 
-        price: item.price, 
-        quantity: 1, 
-        total: item.price 
-      }])
-    }
+  // دریافت دسته‌بندی‌ها از menu items
+  const categories = ['all', ...Array.from(new Set(loadedMenuItems.map(item => item.category))).filter(Boolean)]
+
+  const filteredMenuItems = loadedMenuItems.filter(item =>
+    (selectedCategory === 'all' || item.category === selectedCategory) &&
+    item.name.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  const addToOrder = (item: any) => {
+    setOrder(prevOrder => {
+      // همیشه یک آیتم جدید اضافه می‌کنیم، حتی اگر همان محصول باشد
+      const newOrderItem: OrderItem = { 
+        id: item._id || item.id || '',
+        name: item.name,
+        price: item.price,
+        quantity: 1,
+        total: item.price,
+        category: item.category,
+        image: item.image,
+        preparationTime: item.preparationTime,
+        uniqueId: `${item._id || item.id}-${Date.now()}-${Math.random()}` // شناسه یکتا برای هر انتخاب
+      }
+      return [...prevOrder, newOrderItem]
+    })
   }
 
-  const updateQuantity = (id: string, quantity: number) => {
-    if (quantity <= 0) {
-      setCart(cart.filter(item => item.id !== id))
-    } else {
-      setCart(cart.map(item =>
-        item.id === id ? { ...item, quantity, total: quantity * item.price } : item
-      ))
-    }
+  const updateQuantity = (uniqueId: string, delta: number) => {
+    setOrder(prevOrder => {
+      const updatedOrder = prevOrder.map(item =>
+        item.uniqueId === uniqueId ? { ...item, quantity: item.quantity + delta, total: (item.quantity + delta) * item.price } : item
+      ).filter(item => item.quantity > 0)
+      return updatedOrder
+    })
   }
 
-  const removeFromCart = (id: string) => {
-    setCart(cart.filter(item => item.id !== id))
+  const removeItem = (uniqueId: string) => {
+    setOrder(prevOrder => prevOrder.filter(item => item.uniqueId !== uniqueId))
   }
 
-  const subtotal = cart.reduce((sum, item) => sum + item.total, 0)
+  const subtotal = order.reduce((sum, item) => sum + item.total, 0)
+  const taxRate = 0.09
   const discountAmount = (subtotal * discount) / 100
-  const tax = (subtotal - discountAmount) * 0.09 // 9% tax
+  const tax = (subtotal - discountAmount) * taxRate
   const total = subtotal - discountAmount + tax
 
   const handleCheckout = async () => {
-    if (cart.length === 0) {
-      setError('سبد خرید خالی است')
+    if (order.length === 0) {
+      alert('سبد خرید خالی است!')
       return
     }
-
+    
+    setLoading(true)
+    
     try {
-      setSaving(true)
-      setError('')
-
       const quickSaleData = {
+        branchId: branchId || undefined,
         customerName,
-        items: cart,
+        items: order.map(item => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          total: item.total
+        })),
         subtotal,
         discount,
         discountAmount,
         tax,
         total,
         paymentMethod,
-        invoiceNumber
+        notes
       }
-
-      console.log('Sending quick sale data:', quickSaleData)
 
       const response = await fetch('/api/quick-sales', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(quickSaleData),
+        body: JSON.stringify(quickSaleData)
       })
 
-      const data = await response.json()
-
-      console.log('Quick sale response:', data)
-
-      if (data.success) {
-        alert('فاکتور با موفقیت ثبت شد!')
-        setCart([])
+      const result = await response.json()
+      
+      if (!response.ok) {
+        console.error('API Error:', result)
+        alert(`خطا در ثبت فاکتور: ${result.message || result.error || 'خطای ناشناخته'}`)
+        setLoading(false)
+        return
+      }
+      
+      if (result.success) {
+        alert(`فاکتور با موفقیت ثبت شد!\nشماره فاکتور: ${result.data.invoiceNumber}\nمبلغ کل: ${total.toLocaleString('fa-IR')} تومان`)
+        
+        // Reset form
+        setOrder([])
         setCustomerName('')
         setDiscount(0)
-        setInvoiceNumber(`QS${Date.now()}`)
+        setNotes('')
+        setPaymentMethod('cash')
       } else {
-        setError(data.message || 'خطا در ثبت فاکتور')
+        alert('خطا در ثبت فاکتور: ' + result.message)
       }
     } catch (error) {
       console.error('Error creating quick sale:', error)
-      setError('خطا در اتصال به سرور')
+      alert('خطا در ثبت فاکتور')
     } finally {
-      setSaving(false)
+      setLoading(false)
     }
   }
 
-  if (loading) {
+  if (menuLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800/80 dark:to-gray-900 flex items-center justify-center">
         <div className="text-center">
@@ -220,30 +205,21 @@ export default function QuickSalePage() {
               </div>
               <div className="flex items-center space-x-4 space-x-reverse">
                 <div className="flex items-center space-x-2 space-x-reverse bg-white dark:bg-gray-800 rounded-xl px-4 py-2">
-                  <Clock className="w-5 h-5 text-primary-600" />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                    {new Date().toLocaleTimeString('fa-IR')}
-                  </span>
-                </div>
-                <div className="flex items-center space-x-2 space-x-reverse bg-white dark:bg-gray-800 rounded-xl px-4 py-2">
                   <Receipt className="w-5 h-5 text-green-600" />
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                    فاکتور #{invoiceNumber}
+                    {new Date().toLocaleDateString('fa-IR')}
                   </span>
                 </div>
+                <button
+                  onClick={reloadMenu}
+                  className="flex items-center space-x-2 space-x-reverse bg-white dark:bg-gray-800 rounded-xl px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <RefreshCw className="w-5 h-5 text-primary-600" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">بروزرسانی منو</span>
+                </button>
               </div>
             </div>
           </div>
-
-          {/* Error Message */}
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
-              <div className="flex items-center space-x-2 space-x-reverse">
-                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-                <span className="text-red-700 dark:text-red-300">{error}</span>
-              </div>
-            </div>
-          )}
 
           {/* Search and Filter */}
           <div className="premium-card p-6 mb-6">
@@ -271,7 +247,7 @@ export default function QuickSalePage() {
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
-                    {category}
+                    {category === 'all' ? 'همه دسته‌ها' : category}
                   </button>
                 ))}
               </div>
@@ -280,7 +256,7 @@ export default function QuickSalePage() {
 
           {/* Menu Items Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredItems.length === 0 ? (
+            {filteredMenuItems.length === 0 ? (
               <div className="col-span-full text-center py-12">
                 <Package className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400 mb-2">
@@ -291,14 +267,27 @@ export default function QuickSalePage() {
                 </p>
               </div>
             ) : (
-              filteredItems.map(item => (
+              filteredMenuItems.map(item => (
                 <div key={item._id || item.id} className="premium-card p-4 hover:shadow-glow transition-all duration-300 group">
-                  <div className="aspect-square bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 rounded-xl mb-4 flex items-center justify-center">
-                    <Package className="w-12 h-12 text-gray-400" />
+                  <div className="aspect-square bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
+                    {item.image ? (
+                      <img 
+                        src={item.image} 
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = `/api/placeholder/200/200`
+                        }}
+                      />
+                    ) : (
+                      <Package className="w-12 h-12 text-gray-400" />
+                    )}
                   </div>
                   <div className="mb-4">
                     <h3 className="font-semibold text-gray-900 dark:text-white mb-1">{item.name}</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">{item.description}</p>
+                    {item.description && (
+                      <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">{item.description}</p>
+                    )}
                     <div className="flex items-center justify-between">
                       <span className="text-lg font-bold text-primary-600 dark:text-primary-400">
                         {item.price.toLocaleString('fa-IR')} تومان
@@ -309,7 +298,7 @@ export default function QuickSalePage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => addToCart(item)}
+                    onClick={() => addToOrder(item)}
                     className="w-full premium-button flex items-center justify-center space-x-2 space-x-reverse group-hover:scale-105 transition-transform duration-300"
                   >
                     <Plus className="w-4 h-4" />
@@ -330,7 +319,7 @@ export default function QuickSalePage() {
               <div className="flex items-center space-x-2 space-x-reverse">
                 <ShoppingCart className="w-6 h-6 text-primary-600" />
                 <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                  {cart.length} آیتم
+                  {order.length} آیتم
                 </span>
               </div>
             </div>
@@ -339,13 +328,13 @@ export default function QuickSalePage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  نام مشتری
+                  نام مشتری (اختیاری)
                 </label>
                 <input
                   type="text"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="نام مشتری (اختیاری)"
+                  placeholder="نام مشتری"
                   className="premium-input w-full"
                 />
               </div>
@@ -354,7 +343,7 @@ export default function QuickSalePage() {
 
           {/* Cart Items */}
           <div className="flex-1 p-6 card-scrollbar smooth-scroll overflow-y-auto">
-            {cart.length === 0 ? (
+            {order.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <ShoppingCart className="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4" />
                 <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400 mb-2">
@@ -366,12 +355,12 @@ export default function QuickSalePage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {cart.map(item => (
-                  <div key={item.id} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
+                {order.map(item => (
+                  <div key={item.uniqueId} className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="font-medium text-gray-900 dark:text-white">{item.name}</h4>
                       <button
-                        onClick={() => removeFromCart(item.id)}
+                        onClick={() => removeItem(item.uniqueId!)}
                         className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -380,7 +369,7 @@ export default function QuickSalePage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2 space-x-reverse">
                         <button
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.uniqueId!, -1)}
                           className="w-8 h-8 bg-gray-200 dark:bg-gray-600 rounded-lg flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
                         >
                           <Minus className="w-4 h-4" />
@@ -389,7 +378,7 @@ export default function QuickSalePage() {
                           {item.quantity}
                         </span>
                         <button
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          onClick={() => updateQuantity(item.uniqueId!, 1)}
                           className="w-8 h-8 bg-gray-200 dark:bg-gray-600 rounded-lg flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
                         >
                           <Plus className="w-4 h-4" />
@@ -449,6 +438,20 @@ export default function QuickSalePage() {
               </div>
             </div>
 
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                یادداشت (اختیاری)
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="یادداشت..."
+                className="premium-input w-full"
+                rows={2}
+              />
+            </div>
+
             {/* Summary */}
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
@@ -478,11 +481,11 @@ export default function QuickSalePage() {
             {/* Checkout Button */}
             <button
               onClick={handleCheckout}
-              disabled={cart.length === 0 || saving}
+              disabled={order.length === 0 || loading}
               className="w-full premium-button bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 space-x-reverse"
             >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
-              <span>{saving ? 'در حال ثبت...' : 'تایید و چاپ فاکتور'}</span>
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+              <span>{loading ? 'در حال ثبت...' : 'تایید و چاپ فاکتور'}</span>
             </button>
           </div>
         </div>
@@ -490,3 +493,4 @@ export default function QuickSalePage() {
     </div>
   )
 }
+

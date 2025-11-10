@@ -294,6 +294,10 @@ export async function PUT(request: NextRequest) {
         orderCollection = db.collection('takeaway_orders')
       } else if (kitchenOrder.orderType === 'delivery') {
         orderCollection = db.collection('delivery_orders')
+      } else if (kitchenOrder.orderType === 'quick-sale') {
+        orderCollection = db.collection('quick_sales')
+      } else if (kitchenOrder.orderType === 'table-order') {
+        orderCollection = db.collection('table_orders')
       }
 
       if (orderCollection) {
@@ -447,6 +451,10 @@ export async function DELETE(request: NextRequest) {
             orderCollection = db.collection('takeaway_orders')
           } else if (kitchenOrder.orderType === 'delivery') {
             orderCollection = db.collection('delivery_orders')
+          } else if (kitchenOrder.orderType === 'quick-sale') {
+            orderCollection = db.collection('quick_sales')
+          } else if (kitchenOrder.orderType === 'table-order') {
+            orderCollection = db.collection('table_orders')
           }
 
           if (orderCollection) {

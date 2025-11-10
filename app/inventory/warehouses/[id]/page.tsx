@@ -53,7 +53,7 @@ interface InventoryItem {
 
 interface StockMovement {
   _id: string
-  itemId: string
+  itemId: string | { toString(): string }
   itemName?: string
   movementType: string
   quantity: number
@@ -63,11 +63,13 @@ interface StockMovement {
   documentType: string
   description: string
   createdAt: string
+  warehouseName?: string
+  warehouse?: string
 }
 
 interface StockAlert {
   _id: string
-  itemId: string
+  itemId: string | { toString(): string }
   itemName: string
   type: 'low_stock' | 'out_of_stock' | 'expiry' | 'overstock'
   severity: 'low' | 'medium' | 'high' | 'critical'
@@ -75,6 +77,9 @@ interface StockAlert {
   minStock: number
   message: string
   status: 'active' | 'resolved' | 'dismissed'
+  warehouse?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 const getMovementTypeLabel = (type: string) => {
@@ -129,49 +134,180 @@ export default function WarehouseDetailsPage() {
     }
   }
 
-  // بارگذاری موجودی انبار
+  // بارگذاری موجودی انبار - از inventory_balance برای دقت بیشتر
   const fetchInventory = async () => {
     try {
+      if (!warehouse) return
+      
+      // روش 1: از API warehouse (برای نمایش)
       const response = await fetch(`/api/warehouses/${warehouseId}`)
       const data = await response.json()
       
       if (data.success) {
-        setInventoryItems(data.data.inventoryItems || [])
+        const itemsFromWarehouse = data.data.inventoryItems || []
+        
+        // روش 2: از inventory_balance برای اطمینان (دقیق‌تر)
+        const balanceResponse = await fetch(`/api/inventory/balance?warehouseName=${encodeURIComponent(warehouse.name)}`)
+        const balanceData = await balanceResponse.json()
+        
+        if (balanceData.success && balanceData.data && balanceData.data.length > 0) {
+          // اگر balance وجود دارد، از آن استفاده کن
+          const balanceItemIds = new Set(balanceData.data.map((b: any) => b.itemId?.toString()).filter(Boolean))
+          
+          // فیلتر items بر اساس balance
+          const filteredItems = itemsFromWarehouse.filter((item: InventoryItem) => {
+            return balanceItemIds.has(item._id?.toString() || '')
+          })
+          
+          setInventoryItems(filteredItems)
+        } else {
+          // اگر balance خالی است، از items استفاده کن
+          setInventoryItems(itemsFromWarehouse)
+        }
       }
     } catch (error) {
       console.error('Error fetching inventory:', error)
     }
   }
 
-  // بارگذاری حرکات کالا
+  // دریافت لیست itemId های موجود در این انبار
+  const getWarehouseItemIds = async (): Promise<Set<string>> => {
+    const itemIds = new Set<string>()
+    try {
+      if (!warehouse) return itemIds
+      
+      // استفاده از inventoryItems که قبلاً بارگذاری شده
+      inventoryItems.forEach(item => {
+        if (item._id) {
+          itemIds.add(item._id.toString())
+        }
+      })
+      
+      // همچنین از API warehouse برای اطمینان
+      const response = await fetch(`/api/warehouses/${warehouseId}`)
+      const data = await response.json()
+      if (data.success && data.data.inventoryItems) {
+        data.data.inventoryItems.forEach((item: InventoryItem) => {
+          if (item._id) {
+            itemIds.add(item._id.toString())
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Error getting warehouse item IDs:', error)
+    }
+    return itemIds
+  }
+
+  // بارگذاری حرکات کالا - فقط حرکاتی که مربوط به این انبار هستند
   const fetchMovements = async () => {
     try {
       if (!warehouse) return
       
-      const response = await fetch(`/api/inventory/stock-movements?warehouseName=${encodeURIComponent(warehouse.name)}&limit=100`)
+      // دریافت حرکات بر اساس نام انبار
+      const response = await fetch(`/api/inventory/stock-movements?warehouseName=${encodeURIComponent(warehouse.name)}&limit=500`)
       const data = await response.json()
       
       if (data.success) {
-        setMovements(data.data || [])
+        let movements = data.data || []
+        
+        // فیلتر اضافی: فقط حرکاتی که واقعاً مربوط به این انبار هستند
+        // (برای اطمینان از تطابق دقیق نام انبار)
+        movements = movements.filter((movement: StockMovement) => {
+          const movementWarehouse = movement.warehouseName || (movement as any).warehouse || ''
+          return movementWarehouse === warehouse.name || 
+                 movementWarehouse.toLowerCase() === warehouse.name.toLowerCase()
+        })
+        
+        // همچنین فقط حرکات کالاهایی که در این انبار موجودی دارند
+        const warehouseItemIds = new Set<string>()
+        inventoryItems.forEach(item => {
+          if (item._id) {
+            warehouseItemIds.add(item._id.toString())
+          }
+        })
+        
+        // اگر inventoryItems خالی است، از balance استفاده کن
+        if (warehouseItemIds.size === 0) {
+          const balanceResponse = await fetch(`/api/inventory/balance?warehouseName=${encodeURIComponent(warehouse.name)}`)
+          const balanceData = await balanceResponse.json()
+          if (balanceData.success && balanceData.data) {
+            balanceData.data.forEach((balance: any) => {
+              if (balance.itemId) {
+                warehouseItemIds.add(balance.itemId.toString())
+              }
+            })
+          }
+        }
+        
+        // فیلتر نهایی: فقط حرکات کالاهای این انبار
+        if (warehouseItemIds.size > 0) {
+          movements = movements.filter((movement: StockMovement) => {
+            const itemId = movement.itemId?.toString() || (movement as any).itemId
+            return warehouseItemIds.has(itemId)
+          })
+        }
+        
+        // مرتب‌سازی بر اساس تاریخ (جدیدترین اول)
+        movements.sort((a: StockMovement, b: StockMovement) => {
+          const dateA = new Date(a.createdAt).getTime()
+          const dateB = new Date(b.createdAt).getTime()
+          return dateB - dateA
+        })
+        
+        setMovements(movements)
       }
     } catch (error) {
       console.error('Error fetching movements:', error)
+      setMovements([])
     }
   }
 
-  // بارگذاری هشدارها
+  // بارگذاری هشدارها - فقط هشدارهایی که واقعاً در این انبار موجودی دارند
   const fetchAlerts = async () => {
     try {
       if (!warehouse) return
       
+      // دریافت هشدارها بر اساس نام انبار
       const response = await fetch(`/api/stock-alerts?warehouse=${encodeURIComponent(warehouse.name)}&status=active&limit=100`)
       const data = await response.json()
       
       if (data.success) {
-        setAlerts(data.data || [])
+        const allAlerts = data.data || []
+        
+        // دریافت لیست itemId های موجود در این انبار از inventoryItems
+        const warehouseItemIds = new Set<string>()
+        inventoryItems.forEach(item => {
+          if (item._id) {
+            warehouseItemIds.add(item._id.toString())
+          }
+        })
+        
+        // اگر inventoryItems خالی است، از API warehouse استفاده کن
+        if (warehouseItemIds.size === 0) {
+          const warehouseResponse = await fetch(`/api/warehouses/${warehouseId}`)
+          const warehouseData = await warehouseResponse.json()
+          if (warehouseData.success && warehouseData.data.inventoryItems) {
+            warehouseData.data.inventoryItems.forEach((item: InventoryItem) => {
+              if (item._id) {
+                warehouseItemIds.add(item._id.toString())
+              }
+            })
+          }
+        }
+        
+        // فیلتر هشدارها: فقط هشدارهایی که آیتم‌شان در این انبار موجودی دارد
+        const filteredAlerts = allAlerts.filter((alert: StockAlert) => {
+          const alertItemId = alert.itemId?.toString() || ''
+          // بررسی اینکه آیا این آیتم در لیست موجودی این انبار است
+          return warehouseItemIds.has(alertItemId)
+        })
+        
+        setAlerts(filteredAlerts)
       }
     } catch (error) {
       console.error('Error fetching alerts:', error)
+      setAlerts([])
     }
   }
 
@@ -183,24 +319,36 @@ export default function WarehouseDetailsPage() {
 
   useEffect(() => {
     if (warehouse) {
-      fetchInventory()
-      fetchMovements()
-      fetchAlerts()
+      fetchInventory().then(() => {
+        // بعد از بارگذاری موجودی، حرکات و هشدارها را بارگذاری کن
+        fetchMovements()
+        fetchAlerts()
+      })
       setLoading(false)
     }
   }, [warehouse])
 
-  // Auto-refresh
+  // وقتی inventoryItems تغییر کرد، حرکات و هشدارها را دوباره فیلتر کن
   useEffect(() => {
-    if (warehouse) {
-      const interval = setInterval(() => {
+    if (warehouse && inventoryItems.length > 0) {
+      fetchMovements()
+      fetchAlerts()
+    }
+  }, [inventoryItems, warehouse])
+
+  // Auto-refresh - بهینه شده: فقط وقتی صفحه visible است و هر 30 ثانیه
+  useEffect(() => {
+    if (!warehouse) return
+    
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
         fetchInventory()
         fetchMovements()
         fetchAlerts()
-      }, 5000)
-      
-      return () => clearInterval(interval)
-    }
+      }
+    }, 30000) // 30 ثانیه به جای 5 ثانیه
+    
+    return () => clearInterval(interval)
   }, [warehouse])
 
   if (loading) {
@@ -488,7 +636,9 @@ export default function WarehouseDetailsPage() {
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{alert.minStock}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{alert.message}</td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                        {new Date(alert._id).toLocaleDateString('fa-IR')}
+                        {alert.createdAt ? new Date(alert.createdAt).toLocaleDateString('fa-IR') : 
+                         (alert as any).updatedAt ? new Date((alert as any).updatedAt).toLocaleDateString('fa-IR') : 
+                         'نامشخص'}
                       </td>
                     </tr>
                   ))

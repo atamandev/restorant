@@ -28,6 +28,26 @@ export async function POST(request: NextRequest) {
 
     // دریافت هشدارهای انتخاب شده
     let alerts = []
+    const balanceCollection = db.collection('inventory_balance')
+    const inventoryItemsCollection = db.collection('inventory_items')
+    
+    // دریافت تمام موجودی‌ها از Balance و inventory_items
+    const balances = await balanceCollection.find({}).toArray()
+    const items = await inventoryItemsCollection.find({}).limit(10000).toArray()
+    
+    // ساخت map برای بررسی سریع موجودی
+    const balanceMap = new Map()
+    balances.forEach(balance => {
+      const key = `${balance.itemId?.toString() || balance.itemId}-${balance.warehouseName || ''}`
+      balanceMap.set(key, balance.quantity || 0)
+    })
+    
+    const itemsMap = new Map()
+    items.forEach(item => {
+      const key = `${item._id?.toString() || item.id}-${item.warehouse || ''}`
+      itemsMap.set(key, item.currentStock || 0)
+    })
+    
     if (alertIds && alertIds.length > 0) {
       const alertObjectIds = alertIds.map((id: string) => {
         try {
@@ -36,21 +56,94 @@ export async function POST(request: NextRequest) {
           return { _id: id }
         }
       })
-      alerts = await stockAlertsCollection.find({
+      const allAlerts = await stockAlertsCollection.find({
         $or: alertObjectIds,
         status: 'active'
       }).toArray()
+      
+      // فیلتر کردن هشدارها: فقط هشدارهایی که کالا در انبار موجود است
+      alerts = allAlerts.filter((alert: any) => {
+        const itemId = alert.itemId?.toString() || alert.itemId
+        const warehouse = alert.warehouse || ''
+        
+        if (!itemId || !warehouse) return false
+        
+        // بررسی در balance
+        const balanceKey = `${itemId}-${warehouse}`
+        const balanceQty = balanceMap.get(balanceKey)
+        
+        if (balanceQty !== undefined && balanceQty > 0) {
+          return true
+        }
+        
+        // بررسی در inventory_items
+        const itemKey = `${itemId}-${warehouse}`
+        const itemStock = itemsMap.get(itemKey)
+        
+        if (itemStock !== undefined && itemStock > 0) {
+          return true
+        }
+        
+        // برای out_of_stock: اگر کالا در این انبار موجودی ندارد، هشدار را نمایش بده
+        if (alert.type === 'out_of_stock') {
+          return true
+        }
+        
+        return false
+      })
     } else {
       // اگر هیچ هشدار انتخاب نشده، همه هشدارهای فعال کم‌موجود را بگیر
-      alerts = await stockAlertsCollection.find({
+      const allAlerts = await stockAlertsCollection.find({
         status: 'active',
         type: { $in: ['low_stock', 'out_of_stock'] }
       }).toArray()
+      
+      // فیلتر کردن هشدارها: فقط هشدارهایی که کالا در انبار موجود است
+      alerts = allAlerts.filter((alert: any) => {
+        const itemId = alert.itemId?.toString() || alert.itemId
+        const warehouse = alert.warehouse || ''
+        
+        if (!itemId || !warehouse) return false
+        
+        // بررسی در balance
+        const balanceKey = `${itemId}-${warehouse}`
+        const balanceQty = balanceMap.get(balanceKey)
+        
+        if (balanceQty !== undefined && balanceQty > 0) {
+          return true
+        }
+        
+        // بررسی در inventory_items
+        const itemKey = `${itemId}-${warehouse}`
+        const itemStock = itemsMap.get(itemKey)
+        
+        if (itemStock !== undefined && itemStock > 0) {
+          return true
+        }
+        
+        // برای out_of_stock: اگر کالا در این انبار موجودی ندارد، هشدار را نمایش بده
+        if (alert.type === 'out_of_stock') {
+          return true
+        }
+        
+        return false
+      })
     }
 
     // اگر هیچ هشدار فعالی وجود ندارد، از آیتم‌های موجودی استفاده کن
     if (alerts.length === 0) {
       const inventoryCollection = db.collection('inventory_items')
+      const balanceCollection = db.collection('inventory_balance')
+      
+      // دریافت تمام موجودی‌ها از Balance
+      const balances = await balanceCollection.find({}).toArray()
+      
+      // ساخت map برای بررسی سریع موجودی
+      const balanceMap = new Map()
+      balances.forEach(balance => {
+        const key = `${balance.itemId?.toString() || balance.itemId}-${balance.warehouseName || ''}`
+        balanceMap.set(key, balance.quantity || 0)
+      })
       
       // دریافت آیتم‌های کم‌موجود از موجودی (بر اساس داده‌های واقعی)
       const lowStockItems = await inventoryCollection.find({
@@ -60,11 +153,24 @@ export async function POST(request: NextRequest) {
         ]
       }).limit(1000).toArray()
       
-      // فیلتر کردن آیتم‌هایی که موجودی آنها کمتر یا مساوی حداقل است
+      // فیلتر کردن آیتم‌هایی که:
+      // 1. موجودی آنها کمتر یا مساوی حداقل است
+      // 2. در انبارها موجودی دارند (از balance یا inventory_items)
       const filteredItems = lowStockItems.filter((item: any) => {
         const currentStock = item.currentStock || 0
         const minStock = item.minStock || 0
-        return currentStock === 0 || currentStock <= minStock
+        
+        // بررسی اینکه آیا کالا در انبار موجودی دارد
+        const itemId = item._id?.toString() || item.id
+        const warehouse = item.warehouse || ''
+        const balanceKey = `${itemId}-${warehouse}`
+        const balanceQty = balanceMap.get(balanceKey)
+        
+        // اگر در balance موجودی دارد یا در inventory_items موجودی دارد
+        const hasStock = (balanceQty !== undefined && balanceQty > 0) || currentStock > 0
+        
+        // فقط کالاهایی که در انبار موجودی دارند و کم‌موجود هستند
+        return hasStock && (currentStock === 0 || currentStock <= minStock)
       })
 
       if (filteredItems.length === 0) {

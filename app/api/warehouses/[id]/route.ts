@@ -38,91 +38,64 @@ export async function GET(
       )
     }
 
-    // دریافت آیتم‌های موجودی در این انبار
-    const inventoryCollection = db.collection('inventory_items')
-    
-    // لاگ برای دیباگ
+    // دریافت آیتم‌های موجودی در این انبار از inventory_balance (دقیق‌تر)
     const warehouseName = warehouse.name
+    const balanceCollection = db.collection('inventory_balance')
+    const inventoryItemsCollection = db.collection('inventory_items')
+    
+    // دریافت موجودی از inventory_balance برای این انبار
+    const balances = await balanceCollection.find({ 
+      warehouseName: warehouseName 
+    }).toArray()
+    
     console.log('=== Fetching inventory for warehouse ===')
     console.log('Warehouse name:', warehouseName)
-    console.log('Warehouse ID:', warehouse._id.toString())
+    console.log('Balances found:', balances.length)
     
-    // ابتدا بررسی کن که چه کالاهایی در دیتابیس هستند
-    const allItems = await inventoryCollection.find({}).toArray()
-    console.log('Total items in database:', allItems.length)
-    
-    // نمایش warehouse همه کالاها
-    const warehouseCounts: { [key: string]: number } = {}
-    allItems.forEach(item => {
-      const wh = item.warehouse || 'بدون انبار'
-      warehouseCounts[wh] = (warehouseCounts[wh] || 0) + 1
-    })
-    console.log('Items by warehouse:', warehouseCounts)
-    
-    // جستجو دقیق بر اساس نام انبار
-    let inventoryItems = await inventoryCollection.find({ warehouse: warehouseName }).toArray()
-    console.log('Found inventory items with exact match:', inventoryItems.length)
-    
-    // اگر محصولی پیدا نشد، با case-insensitive جستجو کن
-    if (inventoryItems.length === 0) {
-      const caseInsensitiveQuery = { 
-        warehouse: { $regex: new RegExp(`^${warehouseName}$`, 'i') } 
-      }
-      inventoryItems = await inventoryCollection.find(caseInsensitiveQuery).toArray()
-      console.log('Found inventory items with case-insensitive:', inventoryItems.length)
-    }
-    
-    // اگر هنوز محصولی پیدا نشد، سعی کن با جستجوی جزئی (partial match) پیدا کن
-    if (inventoryItems.length === 0) {
-      const partialQuery = { 
-        warehouse: { $regex: new RegExp(warehouseName, 'i') } 
-      }
-      inventoryItems = await inventoryCollection.find(partialQuery).toArray()
-      console.log('Found inventory items with partial match:', inventoryItems.length)
-    }
-    
-    // اگر هنوز محصولی پیدا نشد، سعی کن با نام‌های مختلف (مثل "تایماز" و "Taymaz") جستجو کن
-    if (inventoryItems.length === 0) {
-      // اگر انبار "تایماز" است، با نام‌های مختلف جستجو کن
-      if (warehouseName === 'تایماز' || warehouseName.toLowerCase().includes('taymaz') || warehouseName.includes('تایماز')) {
-        const alternativeNames = ['تایماز', 'Taymaz', 'taymaz', 'تایماز (WH-001)', 'تایماز(WH-001)']
-        for (const altName of alternativeNames) {
-          const altItems = await inventoryCollection.find({ warehouse: altName }).toArray()
-          if (altItems.length > 0) {
-            console.log(`Found ${altItems.length} items with alternative name: ${altName}`)
-            inventoryItems = altItems
-            break
-          }
+    // برای هر balance، اطلاعات کامل آیتم را از inventory_items بگیر
+    const inventoryItems = []
+    for (const balance of balances) {
+      if (balance.quantity > 0) { // فقط آیتم‌هایی با موجودی بیشتر از صفر
+        const item = await inventoryItemsCollection.findOne({ 
+          _id: balance.itemId 
+        })
+        
+        if (item) {
+          // استفاده از موجودی از balance (دقیق‌تر)
+          inventoryItems.push({
+            ...item,
+            currentStock: balance.quantity, // موجودی این انبار
+            totalValue: balance.totalValue || (balance.quantity * (item.unitPrice || 0)),
+            unitPrice: balance.quantity > 0 ? (balance.totalValue || 0) / balance.quantity : item.unitPrice || 0,
+            warehouse: warehouseName,
+            isLowStock: (balance.quantity || 0) <= (item.minStock || 0)
+          })
         }
+      }
+    }
+    
+    // اگر balance خالی بود، از inventory_items استفاده کن (fallback)
+    if (inventoryItems.length === 0) {
+      console.log('No balances found, falling back to inventory_items')
+      let items = await inventoryItemsCollection.find({ warehouse: warehouseName }).toArray()
+      
+      // اگر پیدا نشد، با case-insensitive جستجو کن
+      if (items.length === 0) {
+        items = await inventoryItemsCollection.find({ 
+          warehouse: { $regex: new RegExp(`^${warehouseName}$`, 'i') } 
+        }).toArray()
       }
       
-      // اگر هنوز محصولی پیدا نشد، سعی کن با جستجوی معکوس (یعنی اگر نام انبار در warehouse کالاها وجود دارد)
-      if (inventoryItems.length === 0) {
-        // جستجو برای کالاهایی که warehouse آنها شامل نام انبار است
-        const reverseQuery = { 
-          warehouse: { $regex: new RegExp(warehouseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } 
-        }
-        inventoryItems = await inventoryCollection.find(reverseQuery).toArray()
-        console.log('Found inventory items with reverse match:', inventoryItems.length)
-      }
+      inventoryItems.push(...items)
     }
     
     console.log('Final inventory items count:', inventoryItems.length)
-    if (inventoryItems.length > 0) {
-      console.log('Sample items:', inventoryItems.slice(0, 5).map(item => ({
-        name: item.name,
-        warehouse: item.warehouse || 'بدون انبار'
-      })))
-    } else {
-      console.log('No items found for warehouse:', warehouseName)
-      console.log('Available warehouse names in items:', Object.keys(warehouseCounts))
-    }
     
     // محاسبه آمار انبار
     const stats = {
       totalItems: inventoryItems.length,
-      lowStockItems: inventoryItems.filter(item => item.isLowStock).length,
-      outOfStockItems: inventoryItems.filter(item => item.currentStock === 0).length,
+      lowStockItems: inventoryItems.filter(item => item.isLowStock || (item.currentStock || 0) <= (item.minStock || 0)).length,
+      outOfStockItems: inventoryItems.filter(item => (item.currentStock || 0) === 0).length,
       totalValue: inventoryItems.reduce((sum, item) => sum + (item.totalValue || 0), 0),
       usedCapacity: inventoryItems.reduce((sum, item) => sum + (item.currentStock || 0), 0)
     }

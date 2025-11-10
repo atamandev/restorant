@@ -36,10 +36,26 @@ export async function GET(request: NextRequest) {
       filter.countId = countId
     }
     
-    const items = await countItemsCollection.find(filter).toArray()
+    const allItems = await countItemsCollection.find(filter).toArray()
+    
+    // فیلتر آیتم‌ها: فقط آیتم‌هایی که در inventory_balance موجود هستند
+    const balanceCollection = db.collection('inventory_balance')
+    const validItems = []
+    
+    for (const item of allItems) {
+      const balance = await balanceCollection.findOne({
+        itemId: new ObjectId(item.itemId),
+        warehouseName: item.warehouse
+      })
+      
+      // اگر balance وجود دارد یا آیتم قبلاً شمارش شده (برای حفظ تاریخچه)
+      if (balance || (item.countedQuantity !== null && item.countedQuantity !== undefined)) {
+        validItems.push(item)
+      }
+    }
     
     // فیلتر مغایرت‌ها
-    let discrepancies = items.filter((item: any) => {
+    let discrepancies = validItems.filter((item: any) => {
       const disc = (item.countedQuantity || 0) - (item.systemQuantityAtFinalization || item.systemQuantity || 0)
       return disc !== 0
     })

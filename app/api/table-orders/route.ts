@@ -1,16 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
+import { 
+  reserveInventoryForOrder, 
+  consumeReservedInventory, 
+  releaseReservedInventory 
+} from '../inventory-reservations/helpers'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const DB_NAME = 'restoren'
+
+let client: MongoClient
+let db: any
+
+async function connectToDatabase() {
+  if (!client) {
+    client = new MongoClient(MONGO_URI)
+    await client.connect()
+    db = client.db(DB_NAME)
+  }
+  return db
+}
+
+// تابع تولید شماره سفارش
+async function generateOrderNumber(orderType: string = 'table-order'): Promise<string> {
+  try {
+    const db = await connectToDatabase()
+    const collection = db.collection('table_orders')
+    
+    const today = new Date()
+    const year = today.getFullYear()
+    const month = String(today.getMonth() + 1).padStart(2, '0')
+    const day = String(today.getDate()).padStart(2, '0')
+    
+    const startOfDay = new Date(year, today.getMonth(), today.getDate())
+    const endOfDay = new Date(year, today.getMonth(), today.getDate() + 1)
+    
+    const count = await collection.countDocuments({
+      createdAt: {
+        $gte: startOfDay,
+        $lt: endOfDay
+      }
+    })
+    
+    const sequence = String(count + 1).padStart(4, '0')
+    return `TO-${year}${month}${day}-${sequence}`
+  } catch (error) {
+    console.error('Error generating order number:', error)
+    return `TO-${Date.now()}`
+  }
+}
 
 // GET /api/table-orders - دریافت لیست سفارشات میز
 export async function GET(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
+    const db = await connectToDatabase()
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -78,19 +121,15 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
-// POST /api/table-orders - ایجاد سفارش میز جدید
+// POST /api/table-orders - ایجاد سفارش میز جدید (با اتصال به آشپزخانه و موجودی)
 export async function POST(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
+    
     console.log('Received table order body:', body)
     
     const { 
@@ -106,7 +145,8 @@ export async function POST(request: NextRequest) {
       orderTime,
       status,
       notes,
-      paymentMethod
+      paymentMethod,
+      branchId
     } = body
 
     // Validate required fields
@@ -117,44 +157,234 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
+    // اگر branchId ارائه نشده، از اولین شعبه فعال استفاده کن
+    let finalBranchId = branchId
+    if (!finalBranchId) {
+      const defaultBranch = await db.collection('branches').findOne({ isActive: true })
+      if (defaultBranch) {
+        finalBranchId = defaultBranch._id.toString()
+      }
+    }
+
+    // دریافت اطلاعات منو برای هر آیتم
+    const menuItemsCollection = db.collection('menu_items')
+    const inventoryItemsCollection = db.collection('inventory_items')
     
+    interface ProcessedItem {
+      menuItemId: string
+      name: string
+      price: number
+      quantity: number
+      total: number
+      category: string
+      image?: string
+      preparationTime?: number
+      description?: string
+      notes?: string | null
+      inventoryItemId?: string | null
+      recipe?: Array<{
+        ingredientId: string
+        ingredientName?: string
+        quantity: number
+        unit?: string
+      }>
+    }
+    
+    const processedItems: ProcessedItem[] = []
+    let maxPreparationTime = 0
+    
+    for (const item of items) {
+      const itemId = item.id || item.menuItemId
+      if (!itemId) {
+        console.error('Item missing id:', item)
+        continue
+      }
+      
+      let menuItem
+      try {
+        menuItem = await menuItemsCollection.findOne({ 
+          _id: new ObjectId(itemId)
+        })
+      } catch (e) {
+        console.error('Invalid ObjectId:', itemId, e)
+        continue
+      }
+      
+      if (!menuItem) {
+        console.error('Menu item not found:', itemId)
+        continue
+      }
+
+      // بررسی موجودی مواد اولیه بر اساس recipe
+      if (menuItem.recipe && Array.isArray(menuItem.recipe) && menuItem.recipe.length > 0) {
+        const requestedQty = item.quantity || 1
+        
+        for (const ingredient of menuItem.recipe) {
+          if (ingredient.ingredientId) {
+            const inventoryItem = await inventoryItemsCollection.findOne({ 
+              _id: new ObjectId(ingredient.ingredientId)
+            })
+            
+            if (inventoryItem && inventoryItem.currentStock !== undefined) {
+              const requiredQuantity = (ingredient.quantity || 0) * requestedQty
+              
+              if (inventoryItem.currentStock < requiredQuantity) {
+                return NextResponse.json(
+                  { 
+                    success: false, 
+                    message: `موجودی ${ingredient.ingredientName || inventoryItem.name} برای ${menuItem.name} کافی نیست. موجودی: ${inventoryItem.currentStock} ${inventoryItem.unit || 'گرم'}, مورد نیاز: ${requiredQuantity} ${ingredient.unit || inventoryItem.unit || 'گرم'}` 
+                  },
+                  { status: 400 }
+                )
+              }
+            }
+          }
+        }
+      }
+
+      const itemTotal = (menuItem.price || item.price) * (item.quantity || 1)
+      const itemPrepTime = menuItem.preparationTime || item.preparationTime || 0
+      if (itemPrepTime > maxPreparationTime) {
+        maxPreparationTime = itemPrepTime
+      }
+
+      processedItems.push({
+        menuItemId: menuItem._id.toString(),
+        name: menuItem.name,
+        price: menuItem.price || item.price,
+        quantity: item.quantity || 1,
+        total: itemTotal,
+        category: menuItem.category,
+        image: menuItem.image || item.image || '',
+        preparationTime: itemPrepTime,
+        description: menuItem.description || item.description || '',
+        notes: item.notes || null,
+        inventoryItemId: menuItem.inventoryItemId || null,
+        recipe: menuItem.recipe || []
+      })
+    }
+
+    // محاسبه مجدد مقادیر بر اساس قیمت‌های واقعی
+    const calculatedSubtotal = processedItems.reduce((sum, item) => sum + item.total, 0)
+    const calculatedServiceCharge = serviceCharge || (calculatedSubtotal * 0.1) // 10% service charge
+    const calculatedTax = tax || ((calculatedSubtotal + calculatedServiceCharge) * 0.09) // 9% tax
+    const calculatedDiscount = discount || 0
+    const calculatedTotal = calculatedSubtotal + calculatedServiceCharge + calculatedTax - calculatedDiscount
+
+    // تولید شماره سفارش
+    const orderNumber = await generateOrderNumber('table-order')
+    
+    // محاسبه زمان آماده‌سازی
+    const estimatedReady = new Date(Date.now() + maxPreparationTime * 60 * 1000 + 10 * 60 * 1000)
+    
+    // 1. ایجاد سفارش میز (با status: 'pending' برای مدیریت موجودی)
     const tableOrderData = {
+      orderNumber: orderNumber,
       tableNumber: String(tableNumber),
       customerName: customerName ? String(customerName) : null,
       customerPhone: customerPhone ? String(customerPhone) : null,
-      items: items.map((item: any) => ({
-        id: String(item.id),
-        name: String(item.name),
-        price: Number(item.price),
-        category: String(item.category),
-        image: String(item.image || ''),
-        preparationTime: Number(item.preparationTime || 0),
-        quantity: Number(item.quantity),
-        notes: item.notes ? String(item.notes) : null
-      })),
-      subtotal: Number(subtotal || 0),
-      tax: Number(tax || 0),
-      serviceCharge: Number(serviceCharge || 0),
-      discount: Number(discount || 0),
-      total: Number(total || 0),
-      orderTime: orderTime ? String(orderTime) : new Date().toLocaleTimeString('fa-IR'),
-      status: String(status || 'pending'),
+      items: processedItems,
+      subtotal: calculatedSubtotal,
+      tax: calculatedTax,
+      serviceCharge: calculatedServiceCharge,
+      discount: calculatedDiscount,
+      total: calculatedTotal,
+      orderTime: orderTime ? String(orderTime) : new Date().toISOString(),
+      estimatedReadyTime: estimatedReady.toISOString(),
+      status: 'pending', // ابتدا pending، بعد به preparing و سپس completed می‌شود
       notes: notes ? String(notes) : null,
       paymentMethod: String(paymentMethod || 'cash'),
+      branchId: finalBranchId ? new ObjectId(finalBranchId) : null,
       createdAt: new Date(),
       updatedAt: new Date()
     }
 
-    console.log('Creating table order with data:', tableOrderData)
-
     const result = await db.collection('table_orders').insertOne(tableOrderData)
+    const tableOrderId = result.insertedId.toString()
+
+    // 2. ایجاد سفارش آشپزخانه (همیشه، برای همه سفارشات)
+    const kitchenOrder = {
+      orderId: tableOrderId,
+      orderNumber: orderNumber,
+      orderType: 'table-order',
+      tableNumber: String(tableNumber),
+      customerName: customerName || '',
+      customerPhone: customerPhone || null,
+      items: processedItems.map(item => ({
+        id: item.menuItemId,
+        menuItemId: item.menuItemId,
+        name: item.name,
+        quantity: item.quantity,
+        category: item.category,
+        preparationTime: item.preparationTime || 0,
+        image: item.image || '/api/placeholder/60/60',
+        status: 'pending',
+        notes: item.notes || null
+      })),
+      orderTime: new Date().toISOString(),
+      estimatedReadyTime: estimatedReady.toISOString(),
+      status: 'pending',
+      priority: 'normal',
+      notes: notes || null,
+      specialInstructions: notes || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+
+    await db.collection('kitchen_orders').insertOne(kitchenOrder)
+
+    // 3. ثبت در orders عمومی (برای گزارشات)
+    const generalOrder = {
+      orderNumber: orderNumber,
+      orderType: 'table-order',
+      tableNumber: String(tableNumber),
+      customerId: null,
+      customerName: customerName || '',
+      customerPhone: customerPhone || null,
+      items: processedItems.map(item => ({
+        menuItemId: item.menuItemId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        total: item.total
+      })),
+      subtotal: calculatedSubtotal,
+      tax: calculatedTax,
+      serviceCharge: calculatedServiceCharge,
+      discount: calculatedDiscount,
+      total: calculatedTotal,
+      orderTime: new Date(),
+      estimatedTime: estimatedReady,
+      status: 'pending',
+      notes: notes || '',
+      paymentMethod: paymentMethod || 'cash',
+      priority: 'normal',
+      branchId: finalBranchId ? new ObjectId(finalBranchId) : null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+
+    await db.collection('orders').insertOne(generalOrder)
+
+    // 4. رزرو موجودی برای سفارش
+    try {
+      const reserveResult = await reserveInventoryForOrder(
+        db,
+        null, // بدون session (MongoDB standalone)
+        tableOrderId,
+        orderNumber,
+        'table-order' as any,
+        processedItems
+      )
+
+      if (!reserveResult.success) {
+        console.warn('[TABLE_ORDER] Warning: Could not reserve inventory:', reserveResult.message)
+      }
+    } catch (error) {
+      console.error('[TABLE_ORDER] Error reserving inventory:', error)
+    }
     
     const tableOrder = await db.collection('table_orders').findOne({ _id: result.insertedId })
-
-    console.log('Table order created successfully:', tableOrder)
 
     return NextResponse.json({
       success: true,
@@ -171,22 +401,15 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
-// PUT /api/table-orders - به‌روزرسانی سفارش میز
+// PUT /api/table-orders - به‌روزرسانی سفارش میز (با مدیریت وضعیت و موجودی)
 export async function PUT(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
+    const db = await connectToDatabase()
     const body = await request.json()
-    console.log('Received update body:', body)
-    
-    const { id, ...updateData } = body
+    const { id, status: newStatus, ...updateData } = body
 
     if (!id) {
       return NextResponse.json(
@@ -195,84 +418,106 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
+    // دریافت سفارش فعلی
+    const currentTableOrder = await db.collection('table_orders').findOne({ 
+      _id: new ObjectId(id) 
+    })
     
-    const updateFields: any = {
-      ...updateData,
-      updatedAt: new Date()
-    }
-
-    // Convert fields
-    if (updateFields.tableNumber !== undefined) {
-      updateFields.tableNumber = String(updateFields.tableNumber)
-    }
-    if (updateFields.customerName !== undefined) {
-      updateFields.customerName = updateFields.customerName ? String(updateFields.customerName) : null
-    }
-    if (updateFields.customerPhone !== undefined) {
-      updateFields.customerPhone = updateFields.customerPhone ? String(updateFields.customerPhone) : null
-    }
-    if (updateFields.items !== undefined) {
-      updateFields.items = updateFields.items.map((item: any) => ({
-        id: String(item.id),
-        name: String(item.name),
-        price: Number(item.price),
-        category: String(item.category),
-        image: String(item.image || ''),
-        preparationTime: Number(item.preparationTime || 0),
-        quantity: Number(item.quantity),
-        notes: item.notes ? String(item.notes) : null
-      }))
-    }
-    if (updateFields.subtotal !== undefined) {
-      updateFields.subtotal = Number(updateFields.subtotal)
-    }
-    if (updateFields.tax !== undefined) {
-      updateFields.tax = Number(updateFields.tax)
-    }
-    if (updateFields.serviceCharge !== undefined) {
-      updateFields.serviceCharge = Number(updateFields.serviceCharge)
-    }
-    if (updateFields.discount !== undefined) {
-      updateFields.discount = Number(updateFields.discount)
-    }
-    if (updateFields.total !== undefined) {
-      updateFields.total = Number(updateFields.total)
-    }
-    if (updateFields.orderTime !== undefined) {
-      updateFields.orderTime = String(updateFields.orderTime)
-    }
-    if (updateFields.status !== undefined) {
-      updateFields.status = String(updateFields.status)
-    }
-    if (updateFields.notes !== undefined) {
-      updateFields.notes = updateFields.notes ? String(updateFields.notes) : null
-    }
-    if (updateFields.paymentMethod !== undefined) {
-      updateFields.paymentMethod = String(updateFields.paymentMethod)
-    }
-
-    console.log('Updating table order with data:', updateFields)
-
-    const result = await db.collection('table_orders').updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateFields }
-    )
-
-    console.log('Update result:', result)
-
-    if (result.matchedCount === 0) {
+    if (!currentTableOrder) {
       return NextResponse.json(
         { success: false, message: 'سفارش میز مورد نظر یافت نشد' },
         { status: 404 }
       )
     }
 
-    const updatedTableOrder = await db.collection('table_orders').findOne({ _id: new ObjectId(id) })
+    const oldStatus = currentTableOrder.status
+    const finalStatus = newStatus || oldStatus
 
-    console.log('Updated table order:', updatedTableOrder)
+    const updateFields: any = {
+      ...updateData,
+      updatedAt: new Date()
+    }
+
+    if (newStatus) {
+      updateFields.status = finalStatus
+    }
+
+    // اگر وضعیت به 'preparing' تغییر کرد، سفارش آشپزخانه را به‌روزرسانی کن
+    if (oldStatus !== 'preparing' && finalStatus === 'preparing') {
+      await db.collection('kitchen_orders').updateOne(
+        { orderId: id },
+        { 
+          $set: { 
+            status: 'preparing', 
+            updatedAt: new Date() 
+          } 
+        }
+      )
+    }
+
+    // اگر وضعیت به 'ready' تغییر کرد، سفارش آشپزخانه را به‌روزرسانی کن
+    if (oldStatus !== 'ready' && finalStatus === 'ready') {
+      await db.collection('kitchen_orders').updateOne(
+        { orderId: id },
+        { 
+          $set: { 
+            status: 'ready', 
+            updatedAt: new Date() 
+          } 
+        }
+      )
+    }
+
+    // مصرف موجودی رزرو شده در وضعیت 'completed' یا 'paid'
+    if ((oldStatus !== 'completed' && oldStatus !== 'paid') && 
+        (finalStatus === 'completed' || finalStatus === 'paid')) {
+      
+      console.log(`[TABLE_ORDER] Order ${currentTableOrder.orderNumber}: Consuming reserved inventory`)
+      
+      const consumeResult = await consumeReservedInventory(
+        db,
+        null, // بدون session (MongoDB standalone)
+        id,
+        currentTableOrder.orderNumber || `TO-${id}`
+      )
+
+      if (!consumeResult.success) {
+        console.warn(`[TABLE_ORDER] Warning: ${consumeResult.message}`)
+      }
+    }
+
+    // آزاد کردن رزرو در وضعیت 'cancelled'
+    if (oldStatus !== 'cancelled' && finalStatus === 'cancelled') {
+      
+      console.log(`[TABLE_ORDER] Order ${currentTableOrder.orderNumber}: Releasing reserved inventory`)
+      
+      const releaseResult = await releaseReservedInventory(
+        db,
+        null, // بدون session (MongoDB standalone)
+        id,
+        currentTableOrder.orderNumber || `TO-${id}`
+      )
+
+      if (!releaseResult.success) {
+        console.warn(`[TABLE_ORDER] Warning: ${releaseResult.message}`)
+      }
+    }
+
+    // به‌روزرسانی سفارش
+    await db.collection('table_orders').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    )
+
+    // به‌روزرسانی سفارش عمومی
+    if (currentTableOrder.orderNumber) {
+      await db.collection('orders').updateOne(
+        { orderNumber: currentTableOrder.orderNumber },
+        { $set: { status: finalStatus, updatedAt: new Date() } }
+      )
+    }
+
+    const updatedTableOrder = await db.collection('table_orders').findOne({ _id: new ObjectId(id) })
 
     return NextResponse.json({
       success: true,
@@ -289,18 +534,13 @@ export async function PUT(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }
 
 // DELETE /api/table-orders - حذف سفارش میز
 export async function DELETE(request: NextRequest) {
-  let client: MongoClient | null = null
-  
   try {
+    const db = await connectToDatabase()
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -310,10 +550,6 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    const db = client.db('restoren')
     
     const result = await db.collection('table_orders').deleteOne({ _id: new ObjectId(id) })
 
@@ -338,9 +574,5 @@ export async function DELETE(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (client) {
-      await client.close()
-    }
   }
 }

@@ -190,13 +190,15 @@ export default function InitialInventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, filterCategory, filterStatus, filterWarehouse])
 
-  // Auto-refresh برای به‌روزرسانی real-time موجودی
+  // Auto-refresh برای به‌روزرسانی real-time موجودی - بهینه شده
   useEffect(() => {
-    // Refresh هر 5 ثانیه
+    // Refresh هر 30 ثانیه و فقط وقتی صفحه visible است
     const interval = setInterval(() => {
-      fetchItems()
-      fetchBalances()
-    }, 5000) // 5 ثانیه
+      if (document.visibilityState === 'visible') {
+        fetchItems()
+        fetchBalances()
+      }
+    }, 30000) // 30 ثانیه به جای 5 ثانیه
 
     // Cleanup interval وقتی component unmount می‌شود
     return () => clearInterval(interval)
@@ -218,11 +220,17 @@ export default function InitialInventoryPage() {
       fetchItems()
       fetchBalances()
     })
+    
+    const unsubscribeTransfer = inventorySync.subscribe('transfer_completed', () => {
+      fetchItems()
+      fetchBalances()
+    })
 
     return () => {
       unsubscribeStockMovement()
       unsubscribeBalance()
       unsubscribeAlert()
+      unsubscribeTransfer()
     }
   }, [])
 
@@ -369,6 +377,32 @@ export default function InitialInventoryPage() {
       
       if (editingItem) {
         // ویرایش
+        const itemId = editingItem.id || editingItem._id
+        
+        // دریافت موجودی قدیمی از انبار مشخص (نه از همه انبارها)
+        const itemBalances = balances.filter(b => {
+          const balanceItemId = b.itemId?.toString() || String(b.itemId || '')
+          const itemIdStr = itemId?.toString() || String(itemId || '')
+          return balanceItemId === itemIdStr
+        })
+        
+        // فیلتر بر اساس انبار انتخاب شده
+        const warehouseBalances = itemBalances.filter(b => {
+          const warehouseName = b.warehouseName || ''
+          return warehouseName === finalWarehouse || 
+                 warehouseName.toLowerCase() === finalWarehouse.toLowerCase() ||
+                 (finalWarehouse === 'تایماز' && (
+                   warehouseName === 'تایماز' || 
+                   warehouseName.toLowerCase().includes('taymaz') ||
+                   warehouseName.includes('تایماز')
+                 ))
+        })
+        
+        const oldStock = warehouseBalances.reduce((sum, b) => sum + (b.quantity || 0), 0)
+        const newStock = formData.currentStock || 0
+        const stockDifference = newStock - oldStock
+        
+        // به‌روزرسانی اطلاعات کالا
         const response = await patch<{ data: InventoryItem }>(
           `/api/warehouse/items/${editingItem.id}`,
           submitData
@@ -377,10 +411,47 @@ export default function InitialInventoryPage() {
         console.log('Update API response:', response)
         
         if (response.success) {
+          // اگر موجودی تغییر کرده، یک stock movement ایجاد کن
+          if (stockDifference !== 0 && itemId && finalWarehouse) {
+            try {
+              const movementType = stockDifference > 0 ? 'ADJUSTMENT_INCREMENT' : 'ADJUSTMENT_DECREMENT'
+              const movementResponse = await post('/api/inventory/stock-movements', {
+                itemId: itemId,
+                warehouseName: finalWarehouse,
+                movementType: movementType,
+                quantity: Math.abs(stockDifference),
+                unitPrice: formData.unitPrice || editingItem.unitPrice || 0,
+                documentNumber: `ADJ-${Date.now()}`,
+                documentType: 'ADJUSTMENT',
+                description: `اصلاح موجودی: از ${oldStock} به ${newStock}`,
+                createdBy: 'سیستم'
+              })
+              
+              if (movementResponse.success) {
+                // همگام‌سازی موجودی
+                await post('/api/inventory/sync-balance', {
+                  itemId: itemId,
+                  warehouseName: finalWarehouse
+                })
+                
+                // اطلاع‌رسانی به سایر صفحات
+                notifyStockMovement({
+                  itemId,
+                  warehouseName: finalWarehouse,
+                  movementType: movementType,
+                  quantity: Math.abs(stockDifference)
+                })
+              }
+            } catch (error) {
+              console.error('Error creating adjustment movement:', error)
+            }
+          }
+          
           showToast('کالا با موفقیت به‌روزرسانی شد', 'success')
           setShowDrawer(false)
           resetForm()
           await fetchItems()
+          await fetchBalances()
         } else {
           showToast(response.message || 'خطا در به‌روزرسانی کالا', 'error')
         }
@@ -467,17 +538,41 @@ export default function InitialInventoryPage() {
 
   // ویرایش کالا
   const handleEdit = (item: InventoryItem) => {
+    // دریافت موجودی واقعی از inventory_balance برای انبار این آیتم
+    const itemWarehouse = item.warehouse || (warehouses.length > 0 ? warehouses[0].name : '')
+    
+    // دریافت موجودی از انبار مشخص
+    const itemBalances = balances.filter(b => {
+      const balanceItemId = b.itemId?.toString() || String(b.itemId || '')
+      const itemIdStr = (item.id || item._id || '').toString()
+      return balanceItemId === itemIdStr
+    })
+    
+    // فیلتر بر اساس انبار آیتم
+    const warehouseBalances = itemBalances.filter(b => {
+      const warehouseName = b.warehouseName || ''
+      return warehouseName === itemWarehouse || 
+             warehouseName.toLowerCase() === itemWarehouse.toLowerCase() ||
+             (itemWarehouse === 'تایماز' && (
+               warehouseName === 'تایماز' || 
+               warehouseName.toLowerCase().includes('taymaz') ||
+               warehouseName.includes('تایماز')
+             ))
+    })
+    
+    const actualStock = warehouseBalances.reduce((sum, b) => sum + (b.quantity || 0), 0) || item.currentStock || 0
+    
     setFormData({
       name: item.name,
       category: item.category,
       unit: item.unit,
-      currentStock: item.currentStock,
+      currentStock: actualStock, // استفاده از موجودی واقعی از balance برای این انبار
       minStock: item.minStock,
       maxStock: item.maxStock,
       unitPrice: item.unitPrice,
       expiryDate: item.expiryDate || '',
       supplier: item.supplier || '',
-      warehouse: item.warehouse || (warehouses.length > 0 ? warehouses[0].name : '')
+      warehouse: itemWarehouse
     })
     setEditingItem(item)
     setShowDrawer(true)

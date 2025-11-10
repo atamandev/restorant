@@ -20,7 +20,10 @@ async function connectToDatabase() {
 // GET - دریافت آیتم‌های شمارش
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)
@@ -31,16 +34,53 @@ export async function GET(request: NextRequest) {
     const filter: any = {}
     if (countId) filter.countId = countId
 
-    const items = await collection
+    const allItems = await collection
       .find(filter)
       .skip(skip)
       .limit(limit)
       .toArray()
 
+    // فیلتر آیتم‌ها و به‌روزرسانی systemQuantity از inventory_balance
+    const balanceCollection = db.collection('inventory_balance')
+    const validItems = []
+    
+    for (const item of allItems) {
+      const balance = await balanceCollection.findOne({
+        itemId: new ObjectId(item.itemId),
+        warehouseName: item.warehouse
+      })
+      
+      // اگر balance وجود دارد یا آیتم قبلاً شمارش شده (برای حفظ تاریخچه)
+      if (balance || (item.countedQuantity !== null && item.countedQuantity !== undefined)) {
+        // به‌روزرسانی systemQuantity از موجودی واقعی انبار
+        // اگر systemQuantityAtFinalization وجود دارد، از آن استفاده نکن (برای حفظ تاریخچه)
+        let currentSystemQty = item.systemQuantity || 0
+        if (balance && (item.systemQuantityAtFinalization === null || item.systemQuantityAtFinalization === undefined)) {
+          currentSystemQty = balance.quantity || 0
+          // به‌روزرسانی systemQuantity در دیتابیس (فقط اگر approve نشده باشد)
+          await collection.updateOne(
+            { _id: item._id },
+            { $set: { systemQuantity: currentSystemQty } }
+          )
+        } else if (item.systemQuantityAtFinalization !== null && item.systemQuantityAtFinalization !== undefined) {
+          // اگر approve شده، از systemQuantityAtFinalization استفاده کن
+          currentSystemQty = item.systemQuantityAtFinalization
+        }
+        
+        validItems.push({
+          ...item,
+          systemQuantity: currentSystemQty
+        })
+      }
+    }
+
     // محاسبه اختلافات
-    const itemsWithDiscrepancy = items.map((item: any) => {
+    const itemsWithDiscrepancy = validItems.map((item: any) => {
       const countedQty = item.countedQuantity ?? null
-      const systemQty = item.systemQuantity || 0
+      // استفاده از systemQuantityAtFinalization اگر موجود باشد، در غیر این صورت systemQuantity
+      const systemQty = item.systemQuantityAtFinalization !== null && item.systemQuantityAtFinalization !== undefined
+        ? item.systemQuantityAtFinalization
+        : item.systemQuantity || 0
       const discrepancy = countedQty !== null ? countedQty - systemQty : 0
       const discrepancyValue = discrepancy * (item.unitPrice || 0)
 
@@ -48,6 +88,7 @@ export async function GET(request: NextRequest) {
         ...item,
         _id: item._id.toString(),
         id: item._id.toString(),
+        systemQuantity: systemQty, // استفاده از مقدار به‌روزرسانی شده
         discrepancy,
         discrepancyValue
       }
@@ -59,7 +100,7 @@ export async function GET(request: NextRequest) {
       pagination: {
         limit,
         skip,
-        total: await collection.countDocuments(filter)
+        total: validItems.length
       }
     })
   } catch (error) {
@@ -74,7 +115,10 @@ export async function GET(request: NextRequest) {
 // POST - ایجاد/به‌روزرسانی آیتم شمارش
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     const countsCollection = db.collection('inventory_counts')
     
@@ -90,9 +134,17 @@ export async function POST(request: NextRequest) {
       roundNumber // شماره نوبت شمارش
     } = body
 
-    if (!countId || !itemId || countedQuantity === null || countedQuantity === undefined) {
+    if (!countId || !itemId) {
       return NextResponse.json(
-        { success: false, message: 'شناسه شمارش، شناسه آیتم و مقدار شمارش اجباری است' },
+        { success: false, message: 'شناسه شمارش و شناسه آیتم اجباری است' },
+        { status: 400 }
+      )
+    }
+
+    // مقدار 0 هم معتبر است، فقط null و undefined غیرمجاز هستند
+    if (countedQuantity === null || countedQuantity === undefined) {
+      return NextResponse.json(
+        { success: false, message: 'مقدار شمارش اجباری است' },
         { status: 400 }
       )
     }
@@ -191,7 +243,10 @@ export async function POST(request: NextRequest) {
 // PUT - به‌روزرسانی آیتم شمارش
 export async function PUT(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     const countsCollection = db.collection('inventory_counts')
     
@@ -259,7 +314,10 @@ export async function PUT(request: NextRequest) {
 // DELETE - حذف آیتم شمارش
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     const countsCollection = db.collection('inventory_counts')
     

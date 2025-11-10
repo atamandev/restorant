@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
+import { 
+  reserveInventoryForOrder, 
+  consumeReservedInventory, 
+  releaseReservedInventory 
+} from '../inventory-reservations/helpers'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 const DB_NAME = 'restoren'
@@ -248,6 +253,10 @@ export async function POST(request: NextRequest) {
       quantity: number
       total: number
       category: string
+      image?: string
+      preparationTime?: number
+      description?: string
+      notes?: string | null
       inventoryItemId: string | null
       recipe?: Array<{
         ingredientId: string
@@ -316,13 +325,20 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const itemTotal = (menuItem.price || item.price) * (item.quantity || 1)
+      const itemPrepTime = menuItem.preparationTime || item.preparationTime || 0
+
       processedItems.push({
         menuItemId: menuItem._id.toString(),
         name: menuItem.name,
         price: menuItem.price || item.price, // قیمت همیشه از menu-item گرفته می‌شود
         quantity: item.quantity || 1,
-        total: (menuItem.price || item.price) * (item.quantity || 1),
+        total: itemTotal,
         category: menuItem.category,
+        image: menuItem.image || item.image || '',
+        preparationTime: itemPrepTime,
+        description: menuItem.description || item.description || '',
+        notes: item.notes || null,
         inventoryItemId: menuItem.inventoryItemId || null,
         recipe: menuItem.recipe || [] // اضافه کردن recipe برای کاهش موجودی مواد اولیه
       })
@@ -334,314 +350,238 @@ export async function POST(request: NextRequest) {
     const calculatedTax = tax || ((calculatedSubtotal - calculatedDiscountAmount) * taxRate / 100)
     const calculatedTotal = calculatedSubtotal - calculatedDiscountAmount + calculatedTax
 
-    // تولید شماره فاکتور
+    // تولید شماره سفارش و فاکتور
+    const orderNumber = `QS-${Date.now()}`
     const finalInvoiceNumber = invoiceNumber || await generateInvoiceNumber('sales')
-
-    // شروع تراکنش (استفاده از session برای atomicity)
-    const session = client.startSession()
     
+    // محاسبه زمان آماده‌سازی
+    const maxPreparationTime = Math.max(...processedItems.map(item => item.preparationTime || 0), 0)
+    const estimatedReady = new Date(Date.now() + maxPreparationTime * 60 * 1000 + 10 * 60 * 1000)
+
+    // 1. ایجاد فاکتور فروش
+    const invoice = {
+      invoiceNumber: finalInvoiceNumber,
+      type: 'sales',
+      customerId: customerId || null,
+      customerName: customerName || '',
+      customerPhone: null,
+      customerAddress: null,
+      date: new Date(),
+      dueDate: null,
+      items: processedItems.map(item => ({
+        itemId: item.menuItemId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        total: item.total,
+        category: item.category
+      })),
+      subtotal: calculatedSubtotal,
+      taxAmount: calculatedTax,
+      discountAmount: calculatedDiscountAmount,
+      totalAmount: calculatedTotal,
+      paidAmount: calculatedTotal, // فروش سریع معمولاً فوری پرداخت می‌شود
+      status: 'paid',
+      paymentMethod: paymentMethod || 'cash',
+      notes: notes || '',
+      branchId: new ObjectId(finalBranchId),
+      cashRegisterId: cashRegisterId ? new ObjectId(cashRegisterId) : null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+
+    const invoiceResult = await db.collection('invoices').insertOne(invoice)
+    const invoiceId = invoiceResult.insertedId
+
+    // 2. ایجاد تراکنش دریافت (receipt)
+    const transactionNumber = await generateTransactionNumber('receipt')
+    const receipt = {
+      transactionNumber,
+      type: 'receipt',
+      amount: calculatedTotal,
+      method: paymentMethod || 'cash',
+      status: 'completed',
+      personId: customerId || null,
+      personName: customerName || '',
+      personType: customerId ? 'customer' : null,
+      reference: 'invoice',
+      referenceId: invoiceId.toString(),
+      description: `دریافت بابت فاکتور ${finalInvoiceNumber}`,
+      date: new Date(),
+      bankAccountId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+
+    await db.collection('receipts_payments').insertOne(receipt)
+
+    // 3. ایجاد سفارش سریع (با status: 'pending' برای مدیریت موجودی)
+    const quickSaleData = {
+      orderNumber: orderNumber,
+      invoiceId: invoiceId.toString(),
+      branchId: finalBranchId,
+      cashRegisterId: cashRegisterId || null,
+      cashierSessionId: cashierSessionId || null,
+      customerId: customerId || null,
+      customerName: customerName || null,
+      items: processedItems,
+      subtotal: calculatedSubtotal,
+      discount: discount || 0,
+      discountAmount: calculatedDiscountAmount,
+      tax: calculatedTax,
+      total: calculatedTotal,
+      paymentMethod: paymentMethod || 'cash',
+      invoiceNumber: finalInvoiceNumber,
+      status: 'pending', // ابتدا pending، بعد به preparing و سپس completed می‌شود
+      estimatedReadyTime: estimatedReady.toISOString(),
+      notes: notes || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+
+    const quickSaleResult = await db.collection('quick_sales').insertOne(quickSaleData)
+    const quickSaleId = quickSaleResult.insertedId.toString()
+
+    // 4. ایجاد سفارش آشپزخانه (همیشه، برای همه سفارشات)
+    const kitchenOrder = {
+      orderId: quickSaleId,
+      orderNumber: orderNumber,
+      orderType: 'quick-sale',
+      customerName: customerName || '',
+      customerPhone: null,
+      items: processedItems.map(item => ({
+        id: item.menuItemId,
+        menuItemId: item.menuItemId,
+        name: item.name,
+        quantity: item.quantity,
+        category: item.category,
+        preparationTime: item.preparationTime || 0,
+        image: item.image || '/api/placeholder/60/60',
+        status: 'pending',
+        notes: item.notes || null
+      })),
+      orderTime: new Date().toISOString(),
+      estimatedReadyTime: estimatedReady.toISOString(),
+      status: 'pending',
+      priority: 'normal',
+      notes: notes || null,
+      specialInstructions: notes || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+
+    await db.collection('kitchen_orders').insertOne(kitchenOrder)
+
+    // 5. ثبت در orders عمومی (برای گزارشات)
+    const generalOrder = {
+      orderNumber: orderNumber,
+      orderType: 'quick-sale',
+      customerId: customerId || null,
+      customerName: customerName || '',
+      customerPhone: null,
+      items: processedItems.map(item => ({
+        menuItemId: item.menuItemId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        total: item.total
+      })),
+      subtotal: calculatedSubtotal,
+      tax: calculatedTax,
+      discount: calculatedDiscountAmount,
+      total: calculatedTotal,
+      orderTime: new Date(),
+      estimatedTime: estimatedReady,
+      status: 'pending',
+      notes: notes || '',
+      paymentMethod: paymentMethod || 'cash',
+      priority: 'normal',
+      branchId: new ObjectId(finalBranchId),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+
+    await db.collection('orders').insertOne(generalOrder)
+
+    // 6. رزرو موجودی برای سفارش
     try {
-      await session.withTransaction(async () => {
-        // 1. ایجاد فاکتور فروش
-        const invoice = {
-          invoiceNumber: finalInvoiceNumber,
-          type: 'sales',
-          customerId: customerId || null,
-          customerName: customerName || '',
-          customerPhone: null,
-          customerAddress: null,
-          date: new Date(),
-          dueDate: null,
-          items: processedItems.map(item => ({
-            itemId: item.menuItemId,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity,
-            total: item.total,
-            category: item.category
-          })),
-          subtotal: calculatedSubtotal,
-          taxAmount: calculatedTax,
-          discountAmount: calculatedDiscountAmount,
-          totalAmount: calculatedTotal,
-          paidAmount: calculatedTotal, // فروش سریع معمولاً فوری پرداخت می‌شود
-          status: 'paid',
-          paymentMethod: paymentMethod || 'cash',
-          notes: notes || '',
-          branchId: new ObjectId(finalBranchId),
-          cashRegisterId: cashRegisterId ? new ObjectId(cashRegisterId) : null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
+      const reserveResult = await reserveInventoryForOrder(
+        db,
+        null, // بدون session (MongoDB standalone)
+        quickSaleId,
+        orderNumber,
+        'quick-sale' as any,
+        processedItems
+      )
 
-        const invoiceResult = await db.collection('invoices').insertOne(invoice, { session })
-        const invoiceId = invoiceResult.insertedId
+      if (!reserveResult.success) {
+        console.warn('[QUICK_SALE] Warning: Could not reserve inventory:', reserveResult.message)
+        // ادامه می‌دهیم حتی اگر رزرو با خطا مواجه شد
+      }
+    } catch (error) {
+      console.error('[QUICK_SALE] Error reserving inventory:', error)
+      // ادامه می‌دهیم حتی اگر رزرو با خطا مواجه شد
+    }
 
-        // 2. ایجاد تراکنش دریافت (receipt)
-        const transactionNumber = await generateTransactionNumber('receipt')
-        const receipt = {
-          transactionNumber,
-          type: 'receipt',
-          amount: calculatedTotal,
-          method: paymentMethod || 'cash',
-          status: 'completed',
-          personId: customerId || null,
-          personName: customerName || '',
-          personType: customerId ? 'customer' : null,
-          reference: 'invoice',
-          referenceId: invoiceId.toString(),
-          description: `دریافت بابت فاکتور ${finalInvoiceNumber}`,
-          date: new Date(),
-          bankAccountId: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-
-        await db.collection('receipts_payments').insertOne(receipt, { session })
-
-        // 3. کاهش موجودی انبار بر اساس recipe (مواد اولیه)
-        const ledgerCollection = db.collection('item_ledger')
-        
-        for (const item of processedItems) {
-          const menuItemQuantity = item.quantity || 1
-          
-          // اگر recipe وجود دارد، از مواد اولیه موجودی کم کن
-          if (item.recipe && Array.isArray(item.recipe) && item.recipe.length > 0) {
-            for (const ingredient of item.recipe) {
-              if (ingredient.ingredientId) {
-                const ingredientId = ingredient.ingredientId
-                const requiredQuantity = (ingredient.quantity || 0) * menuItemQuantity // مقدار مورد نیاز × تعداد سفارش
-                
-                // دریافت اطلاعات موجودی ماده اولیه
-                const inventoryItem = await inventoryItemsCollection.findOne({ 
-                  _id: new ObjectId(ingredientId)
-                }, { session })
-                
-                if (inventoryItem) {
-                  // بررسی موجودی کافی
-                  const lastEntry = await ledgerCollection
-                    .findOne(
-                      { itemId: ingredientId },
-                      { sort: { date: -1, createdAt: -1 }, session }
-                    )
-
-                  const lastBalance = lastEntry?.runningBalance || inventoryItem.currentStock || 0
-                  
-                  if (lastBalance < requiredQuantity) {
-                    throw new Error(
-                      `موجودی ${inventoryItem.name} برای ${item.name} کافی نیست. موجودی: ${lastBalance}, مورد نیاز: ${requiredQuantity}`
-                    )
-                  }
-
-                  const lastValue = lastEntry?.runningValue || (inventoryItem.totalValue || 0)
-                  const unitPrice = inventoryItem.unitPrice || 0
-                  const newBalance = lastBalance - requiredQuantity
-                  
-                  // محاسبه ارزش جدید (Weighted Average)
-                  const avgPrice = lastBalance > 0 ? lastValue / lastBalance : unitPrice
-                  const newValue = lastValue - (requiredQuantity * avgPrice)
-
-                  // ایجاد ورودی دفتر کل
-                  const docNumber = `SALE-${finalInvoiceNumber.substring(finalInvoiceNumber.length - 4)}`
-                  const ledgerEntry = {
-                    itemId: ingredientId,
-                    itemName: inventoryItem.name,
-                    itemCode: inventoryItem.code || '',
-                    date: new Date(),
-                    documentNumber: docNumber,
-                    documentType: 'sale',
-                    description: `فروش ${item.name} (${menuItemQuantity} عدد) - فاکتور ${finalInvoiceNumber}`,
-                    warehouse: inventoryItem.warehouse || 'انبار اصلی',
-                    quantityIn: 0,
-                    quantityOut: requiredQuantity,
-                    unitPrice: unitPrice,
-                    totalValue: -(requiredQuantity * avgPrice),
-                    runningBalance: newBalance,
-                    runningValue: newValue,
-                    averagePrice: newBalance > 0 ? newValue / newBalance : avgPrice,
-                    reference: finalInvoiceNumber,
-                    notes: `مواد اولیه ${item.name}: ${ingredient.ingredientName || inventoryItem.name} (${requiredQuantity} ${ingredient.unit || inventoryItem.unit || 'گرم'})`,
-                    userId: 'سیستم',
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString()
-                  }
-
-                  await ledgerCollection.insertOne(ledgerEntry, { session })
-
-                  // به‌روزرسانی موجودی
-                  await inventoryItemsCollection.updateOne(
-                    { _id: new ObjectId(ingredientId) },
-                    {
-                      $set: {
-                        currentStock: newBalance,
-                        totalValue: newValue,
-                        unitPrice: newBalance > 0 ? newValue / newBalance : unitPrice,
-                        isLowStock: newBalance <= (inventoryItem.minStock || 0),
-                        lastUpdated: new Date().toISOString(),
-                        updatedAt: new Date()
-                      }
-                    },
-                    { session }
-                  )
-                }
-              }
-            }
-          } 
-          // اگر recipe وجود ندارد اما inventoryItemId مستقیم وجود دارد (برای سازگاری با کد قبلی)
-          else if (item.inventoryItemId) {
-            const inventoryItem = await inventoryItemsCollection.findOne({ 
-              _id: new ObjectId(item.inventoryItemId)
-            }, { session })
-            
-            if (inventoryItem) {
-              const lastEntry = await ledgerCollection
-                .findOne(
-                  { itemId: item.inventoryItemId },
-                  { sort: { date: -1, createdAt: -1 }, session }
-                )
-
-              const lastBalance = lastEntry?.runningBalance || inventoryItem.currentStock || 0
-              const lastValue = lastEntry?.runningValue || (inventoryItem.totalValue || 0)
-              
-              const qtyOut = menuItemQuantity
-              const unitPrice = inventoryItem.unitPrice || item.price
-              const newBalance = lastBalance - qtyOut
-              
-              const avgPrice = lastBalance > 0 ? lastValue / lastBalance : unitPrice
-              const newValue = lastValue - (qtyOut * avgPrice)
-
-              const docNumber = `SALE-${finalInvoiceNumber.substring(finalInvoiceNumber.length - 4)}`
-              const ledgerEntry = {
-                itemId: item.inventoryItemId,
-                itemName: inventoryItem.name,
-                itemCode: inventoryItem.code || '',
-                date: new Date(),
-                documentNumber: docNumber,
-                documentType: 'sale',
-                description: `فروش ${item.name} - فاکتور ${finalInvoiceNumber}`,
-                warehouse: inventoryItem.warehouse || 'انبار اصلی',
-                quantityIn: 0,
-                quantityOut: qtyOut,
-                unitPrice: unitPrice,
-                totalValue: -(qtyOut * unitPrice),
-                runningBalance: newBalance,
-                runningValue: newValue,
-                averagePrice: newBalance > 0 ? newValue / newBalance : unitPrice,
-                reference: finalInvoiceNumber,
-                notes: `فروش سریع - ${item.name}`,
-                userId: 'سیستم',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              }
-
-              await ledgerCollection.insertOne(ledgerEntry, { session })
-
-              await inventoryItemsCollection.updateOne(
-                { _id: new ObjectId(item.inventoryItemId) },
-                {
-                  $set: {
-                    currentStock: newBalance,
-                    totalValue: newValue,
-                    unitPrice: newBalance > 0 ? newValue / newBalance : unitPrice,
-                    isLowStock: newBalance <= (inventoryItem.minStock || 0),
-                    lastUpdated: new Date().toISOString(),
-                    updatedAt: new Date()
-                  }
-                },
-                { session }
-              )
-            }
-          }
-        }
-
-        // 4. به‌روزرسانی باشگاه مشتریان (اگر customerId وجود دارد)
-        if (customerId) {
-          const loyaltiesCollection = db.collection('customer_loyalties')
-          const loyalty = await loyaltiesCollection.findOne({ 
-            customerId: customerId 
-          }, { session })
-
-          if (loyalty) {
-            // محاسبه امتیاز (مثلاً 1 امتیاز برای هر 1000 تومان)
-            const pointsToAdd = Math.floor(calculatedTotal / 1000)
-            const newTotalPoints = (loyalty.totalPoints || 0) + pointsToAdd
-            const newPointsEarned = (loyalty.pointsEarned || 0) + pointsToAdd
-            const newTotalOrders = (loyalty.totalOrders || 0) + 1
-            const newTotalSpent = (loyalty.totalSpent || 0) + calculatedTotal
-
-            // تعیین tier جدید (Bronze < 100, Silver < 500, Gold < 1000, Platinum >= 1000)
-            let newTier = 'Bronze'
-            if (newTotalPoints >= 1000) newTier = 'Platinum'
-            else if (newTotalPoints >= 500) newTier = 'Gold'
-            else if (newTotalPoints >= 100) newTier = 'Silver'
-
-            await loyaltiesCollection.updateOne(
-              { customerId: customerId },
-              {
-                $set: {
-                  totalPoints: newTotalPoints,
-                  pointsEarned: newPointsEarned,
-                  totalOrders: newTotalOrders,
-                  totalSpent: newTotalSpent,
-                  currentTier: newTier,
-                  lastOrderDate: new Date().toISOString(),
-                  updatedAt: new Date().toISOString()
-                }
-              },
-              { session }
-            )
-          }
-        }
-
-        // 5. به‌روزرسانی جلسه صندوق (اگر cashierSessionId وجود دارد)
-        if (cashierSessionId) {
-          const sessionsCollection = db.collection('cashier_sessions')
-          await sessionsCollection.updateOne(
-            { _id: new ObjectId(cashierSessionId), status: 'open' },
-            {
-              $inc: {
-                totalSales: calculatedTotal,
-                totalTransactions: 1,
-                [paymentMethod === 'cash' ? 'cashSales' : 
-                 paymentMethod === 'card' ? 'cardSales' : 'creditSales']: calculatedTotal,
-                discounts: calculatedDiscountAmount,
-                taxes: calculatedTax
-              }
-            },
-            { session }
-          )
-        }
-
-        // 6. ذخیره فروش سریع
-        const quickSaleData = {
-          invoiceId: invoiceId.toString(),
-          branchId: finalBranchId,
-          cashRegisterId: cashRegisterId || null,
-          cashierSessionId: cashierSessionId || null,
-          customerId: customerId || null,
-          customerName: customerName || null,
-          items: processedItems,
-          subtotal: calculatedSubtotal,
-          discount: discount || 0,
-          discountAmount: calculatedDiscountAmount,
-          tax: calculatedTax,
-          total: calculatedTotal,
-          paymentMethod: paymentMethod || 'cash',
-          invoiceNumber: finalInvoiceNumber,
-          status: 'completed',
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-
-        await db.collection('quick_sales').insertOne(quickSaleData, { session })
+    // 7. به‌روزرسانی باشگاه مشتریان (اگر customerId وجود دارد)
+    if (customerId) {
+      const loyaltiesCollection = db.collection('customer_loyalties')
+      const loyalty = await loyaltiesCollection.findOne({ 
+        customerId: customerId 
       })
-    } finally {
-      await session.endSession()
+
+      if (loyalty) {
+        // محاسبه امتیاز (مثلاً 1 امتیاز برای هر 1000 تومان)
+        const pointsToAdd = Math.floor(calculatedTotal / 1000)
+        const newTotalPoints = (loyalty.totalPoints || 0) + pointsToAdd
+        const newPointsEarned = (loyalty.pointsEarned || 0) + pointsToAdd
+        const newTotalOrders = (loyalty.totalOrders || 0) + 1
+        const newTotalSpent = (loyalty.totalSpent || 0) + calculatedTotal
+
+        // تعیین tier جدید (Bronze < 100, Silver < 500, Gold < 1000, Platinum >= 1000)
+        let newTier = 'Bronze'
+        if (newTotalPoints >= 1000) newTier = 'Platinum'
+        else if (newTotalPoints >= 500) newTier = 'Gold'
+        else if (newTotalPoints >= 100) newTier = 'Silver'
+
+        await loyaltiesCollection.updateOne(
+          { customerId: customerId },
+          {
+            $set: {
+              totalPoints: newTotalPoints,
+              pointsEarned: newPointsEarned,
+              totalOrders: newTotalOrders,
+              totalSpent: newTotalSpent,
+              currentTier: newTier,
+              lastOrderDate: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }
+          }
+        )
+      }
+    }
+
+    // 8. به‌روزرسانی جلسه صندوق (اگر cashierSessionId وجود دارد)
+    if (cashierSessionId) {
+      const sessionsCollection = db.collection('cashier_sessions')
+      await sessionsCollection.updateOne(
+        { _id: new ObjectId(cashierSessionId), status: 'open' },
+        {
+          $inc: {
+            totalSales: calculatedTotal,
+            totalTransactions: 1,
+            [paymentMethod === 'cash' ? 'cashSales' : 
+             paymentMethod === 'card' ? 'cardSales' : 'creditSales']: calculatedTotal,
+            discounts: calculatedDiscountAmount,
+            taxes: calculatedTax
+          }
+        }
+      )
     }
 
     // دریافت فروش ثبت شده
     const quickSale = await db.collection('quick_sales').findOne({ 
-      invoiceNumber: finalInvoiceNumber 
+      _id: quickSaleResult.insertedId
     })
 
     return NextResponse.json({
@@ -662,12 +602,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT - به‌روزرسانی فروش سریع
+// PUT - به‌روزرسانی فروش سریع (با مدیریت وضعیت و موجودی)
 export async function PUT(request: NextRequest) {
   try {
     const db = await connectToDatabase()
     const body = await request.json()
-    const { id, ...updateData } = body
+    const { id, status: newStatus, ...updateData } = body
 
     if (!id) {
       return NextResponse.json(
@@ -675,47 +615,104 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // دریافت سفارش فعلی
+    const currentQuickSale = await db.collection('quick_sales').findOne({ 
+      _id: new ObjectId(id) 
+    })
     
+    if (!currentQuickSale) {
+      return NextResponse.json(
+        { success: false, message: 'فروش سریع مورد نظر یافت نشد' },
+        { status: 404 }
+      )
+    }
+
+    const oldStatus = currentQuickSale.status
+    const finalStatus = newStatus || oldStatus
+
     const updateFields: any = {
       ...updateData,
       updatedAt: new Date()
     }
 
-    // Convert fields
-    if (updateFields.items !== undefined) {
-      updateFields.items = updateFields.items.map((item: any) => ({
-        id: String(item.id),
-        name: String(item.name),
-        price: Number(item.price),
-        quantity: Number(item.quantity),
-        total: Number(item.total)
-      }))
-    }
-    if (updateFields.subtotal !== undefined) {
-      updateFields.subtotal = Number(updateFields.subtotal)
-    }
-    if (updateFields.discount !== undefined) {
-      updateFields.discount = Number(updateFields.discount)
-    }
-    if (updateFields.discountAmount !== undefined) {
-      updateFields.discountAmount = Number(updateFields.discountAmount)
-    }
-    if (updateFields.tax !== undefined) {
-      updateFields.tax = Number(updateFields.tax)
-    }
-    if (updateFields.total !== undefined) {
-      updateFields.total = Number(updateFields.total)
+    if (newStatus) {
+      updateFields.status = finalStatus
     }
 
-    const result = await db.collection('quick_sales').updateOne(
+    // اگر وضعیت به 'preparing' تغییر کرد، سفارش آشپزخانه را به‌روزرسانی کن
+    if (oldStatus !== 'preparing' && finalStatus === 'preparing') {
+      await db.collection('kitchen_orders').updateOne(
+        { orderId: id },
+        { 
+          $set: { 
+            status: 'preparing', 
+            updatedAt: new Date() 
+          } 
+        }
+      )
+    }
+
+    // اگر وضعیت به 'ready' تغییر کرد، سفارش آشپزخانه را به‌روزرسانی کن
+    if (oldStatus !== 'ready' && finalStatus === 'ready') {
+      await db.collection('kitchen_orders').updateOne(
+        { orderId: id },
+        { 
+          $set: { 
+            status: 'ready', 
+            updatedAt: new Date() 
+          } 
+        }
+      )
+    }
+
+    // مصرف موجودی رزرو شده در وضعیت 'completed' یا 'paid'
+    if ((oldStatus !== 'completed' && oldStatus !== 'paid') && 
+        (finalStatus === 'completed' || finalStatus === 'paid')) {
+      
+      console.log(`[QUICK_SALE] Order ${currentQuickSale.orderNumber}: Consuming reserved inventory`)
+      
+      const consumeResult = await consumeReservedInventory(
+        db,
+        null, // بدون session (MongoDB standalone)
+        id,
+        currentQuickSale.orderNumber || `QS-${id}`
+      )
+
+      if (!consumeResult.success) {
+        console.warn(`[QUICK_SALE] Warning: ${consumeResult.message}`)
+        // ادامه می‌دهیم حتی اگر مصرف موجودی با خطا مواجه شد
+      }
+    }
+
+    // آزاد کردن رزرو در وضعیت 'cancelled'
+    if (oldStatus !== 'cancelled' && finalStatus === 'cancelled') {
+      
+      console.log(`[QUICK_SALE] Order ${currentQuickSale.orderNumber}: Releasing reserved inventory`)
+      
+      const releaseResult = await releaseReservedInventory(
+        db,
+        null, // بدون session (MongoDB standalone)
+        id,
+        currentQuickSale.orderNumber || `QS-${id}`
+      )
+
+      if (!releaseResult.success) {
+        console.warn(`[QUICK_SALE] Warning: ${releaseResult.message}`)
+      }
+    }
+
+    // به‌روزرسانی سفارش
+    await db.collection('quick_sales').updateOne(
       { _id: new ObjectId(id) },
       { $set: updateFields }
     )
 
-    if (result.matchedCount === 0) {
-      return NextResponse.json(
-        { success: false, message: 'فروش سریع مورد نظر یافت نشد' },
-        { status: 404 }
+    // به‌روزرسانی سفارش عمومی
+    if (currentQuickSale.orderNumber) {
+      await db.collection('orders').updateOne(
+        { orderNumber: currentQuickSale.orderNumber },
+        { $set: { status: finalStatus, updatedAt: new Date() } }
       )
     }
 

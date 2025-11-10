@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, memo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, memo, useCallback, useMemo } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import Link from 'next/link'
 import { 
   Home,
   Menu as MenuIcon,
@@ -259,21 +260,67 @@ function Sidebar() {
   const [isOpen, setIsOpen] = useState(true)
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const router = useRouter()
+  const pathname = usePathname()
 
-  const toggleSidebar = () => {
-    setIsOpen(!isOpen)
-  }
+  const toggleSidebar = useCallback(() => {
+    setIsOpen(prev => !prev)
+  }, [])
 
-  const handleMenuClick = (item: MenuItem) => {
-    if (item.subItems) {
-      setActiveMenu(activeMenu === item.id ? null : item.id)
-    } else if (item.href) {
+  const handleMenuClick = useCallback((e: React.MouseEvent, item: MenuItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // اگر subItems دارد و href هم دارد، اول href را navigate کن
+    if (item.href && !item.subItems) {
       router.push(item.href)
       if (window.innerWidth < 1024) {
-        setIsOpen(false) // Close sidebar on mobile after navigation
+        setIsOpen(false)
+      }
+      return
+    }
+    
+    // اگر فقط subItems دارد، منو را باز/بسته کن
+    if (item.subItems && !item.href) {
+      setActiveMenu(prev => prev === item.id ? null : item.id)
+      return
+    }
+    
+    // اگر هم subItems دارد هم href، منو را باز کن و navigate نکن
+    if (item.subItems && item.href) {
+      setActiveMenu(prev => prev === item.id ? null : item.id)
+    }
+  }, [router])
+
+  const handleSubItemClick = useCallback((e: React.MouseEvent, subItem: MenuItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    if (subItem.href) {
+      router.push(subItem.href)
+      if (window.innerWidth < 1024) {
+        setIsOpen(false)
       }
     }
-  }
+  }, [router])
+
+  // تشخیص active menu بر اساس pathname
+  const activeMenuFromPath = useMemo(() => {
+    for (const item of menuItems) {
+      if (item.subItems) {
+        const activeSubItem = item.subItems.find(sub => sub.href === pathname)
+        if (activeSubItem) {
+          return item.id
+        }
+      }
+      if (item.href === pathname) {
+        return item.id
+      }
+    }
+    return null
+  }, [pathname])
+
+  // استفاده از activeMenuFromPath برای auto-expand
+  const currentActiveMenu = activeMenu || activeMenuFromPath
 
   return (
       <aside
@@ -292,34 +339,77 @@ function Sidebar() {
 
       <nav className="flex-1">
         <ul className="space-y-2">
-          {menuItems.map(item => (
-            <li key={item.id}>
-              <button
-                onClick={() => handleMenuClick(item)}
-                className={`flex items-center w-full p-3 rounded-xl text-gray-700 dark:text-white hover:bg-primary-500/10 dark:hover:bg-primary-400/20 hover:text-primary-600 dark:hover:text-primary-300 transition-all duration-200 ${
-                  activeMenu === item.id ? 'bg-primary-500/10 dark:bg-primary-400/20 text-primary-600 dark:text-primary-300' : ''
-                }`}
-              >
-                <item.icon className={`w-5 h-5 ${isOpen ? 'ml-3' : ''}`} />
-                {isOpen && <span className="font-medium">{item.name}</span>}
-              </button>
-              {isOpen && item.subItems && activeMenu === item.id && (
-                <ul className="mt-2 space-y-1 pr-4 border-r border-gray-200 dark:border-gray-700">
-                  {item.subItems.map(subItem => (
-                    <li key={subItem.id}>
-                      <button
-                        onClick={() => handleMenuClick(subItem)}
-                        className="flex items-center w-full p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-primary-500/5 dark:hover:bg-primary-400/10 hover:text-primary-500 dark:hover:text-primary-400 transition-colors text-sm"
-                      >
-                        <subItem.icon className="w-4 h-4 ml-2" />
-                        <span>{subItem.name}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
+          {menuItems.map(item => {
+            const isActive = currentActiveMenu === item.id
+            const hasActiveSubItem = item.subItems?.some(sub => sub.href === pathname)
+            const isItemActive = item.href === pathname
+            
+            return (
+              <li key={item.id}>
+                {item.href && !item.subItems ? (
+                  <Link
+                    href={item.href}
+                    onClick={(e) => {
+                      if (window.innerWidth < 1024) {
+                        setIsOpen(false)
+                      }
+                    }}
+                    className={`flex items-center w-full p-3 rounded-xl text-gray-700 dark:text-white hover:bg-primary-500/10 dark:hover:bg-primary-400/20 hover:text-primary-600 dark:hover:text-primary-300 transition-all duration-200 ${
+                      isItemActive ? 'bg-primary-500/10 dark:bg-primary-400/20 text-primary-600 dark:text-primary-300' : ''
+                    }`}
+                  >
+                    <item.icon className={`w-5 h-5 ${isOpen ? 'ml-3' : ''}`} />
+                    {isOpen && <span className="font-medium">{item.name}</span>}
+                  </Link>
+                ) : (
+                  <button
+                    onClick={(e) => handleMenuClick(e, item)}
+                    className={`flex items-center w-full p-3 rounded-xl text-gray-700 dark:text-white hover:bg-primary-500/10 dark:hover:bg-primary-400/20 hover:text-primary-600 dark:hover:text-primary-300 transition-all duration-200 ${
+                      (isActive || hasActiveSubItem) ? 'bg-primary-500/10 dark:bg-primary-400/20 text-primary-600 dark:text-primary-300' : ''
+                    }`}
+                  >
+                    <item.icon className={`w-5 h-5 ${isOpen ? 'ml-3' : ''}`} />
+                    {isOpen && <span className="font-medium">{item.name}</span>}
+                  </button>
+                )}
+                {isOpen && item.subItems && (isActive || hasActiveSubItem) && (
+                  <ul className="mt-2 space-y-1 pr-4 border-r border-gray-200 dark:border-gray-700">
+                    {item.subItems.map(subItem => {
+                      const isSubItemActive = subItem.href === pathname
+                      return (
+                        <li key={subItem.id}>
+                          {subItem.href ? (
+                            <Link
+                              href={subItem.href}
+                              onClick={(e) => {
+                                if (window.innerWidth < 1024) {
+                                  setIsOpen(false)
+                                }
+                              }}
+                              className={`flex items-center w-full p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-primary-500/5 dark:hover:bg-primary-400/10 hover:text-primary-500 dark:hover:text-primary-400 transition-colors text-sm ${
+                                isSubItemActive ? 'bg-primary-500/10 dark:bg-primary-400/20 text-primary-500 dark:text-primary-400 font-medium' : ''
+                              }`}
+                            >
+                              <subItem.icon className="w-4 h-4 ml-2" />
+                              <span>{subItem.name}</span>
+                            </Link>
+                          ) : (
+                            <button
+                              onClick={(e) => handleSubItemClick(e, subItem)}
+                              className="flex items-center w-full p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-primary-500/5 dark:hover:bg-primary-400/10 hover:text-primary-500 dark:hover:text-primary-400 transition-colors text-sm"
+                            >
+                              <subItem.icon className="w-4 h-4 ml-2" />
+                              <span>{subItem.name}</span>
+                            </button>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
         </ul>
       </nav>
 
@@ -329,17 +419,37 @@ function Sidebar() {
         </h2>
         {isOpen && (
           <ul className="space-y-2">
-            {settingsItems.map(item => (
-              <li key={item.id}>
-                <button
-                  onClick={() => handleMenuClick(item)}
-                  className="flex items-center w-full p-3 rounded-xl text-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <item.icon className="w-5 h-5 ml-3" />
-                  <span className="font-medium">{item.name}</span>
-                </button>
-              </li>
-            ))}
+            {settingsItems.map(item => {
+              const isItemActive = item.href === pathname
+              return (
+                <li key={item.id}>
+                  {item.href ? (
+                    <Link
+                      href={item.href}
+                      onClick={(e) => {
+                        if (window.innerWidth < 1024) {
+                          setIsOpen(false)
+                        }
+                      }}
+                      className={`flex items-center w-full p-3 rounded-xl text-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                        isItemActive ? 'bg-primary-500/10 dark:bg-primary-400/20 text-primary-600 dark:text-primary-300' : ''
+                      }`}
+                    >
+                      <item.icon className="w-5 h-5 ml-3" />
+                      <span className="font-medium">{item.name}</span>
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={(e) => handleMenuClick(e, item)}
+                      className="flex items-center w-full p-3 rounded-xl text-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <item.icon className="w-5 h-5 ml-3" />
+                      <span className="font-medium">{item.name}</span>
+                    </button>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

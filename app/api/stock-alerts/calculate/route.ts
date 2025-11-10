@@ -32,10 +32,22 @@ export async function POST(request: NextRequest) {
     const categoriesCollection = db.collection('categories') // اگر وجود دارد
     
     // دریافت تمام موجودی‌ها از Balance
-    const balances = await balanceCollection.find({}).toArray()
+    let balances = await balanceCollection.find({}).toArray()
     
     // دریافت تمام آیتم‌ها
     const items = await inventoryItemsCollection.find({}).limit(10000).toArray()
+    
+    // اگر inventory_balance خالی است، از inventory_items استفاده کن
+    if (balances.length === 0 && items.length > 0) {
+      console.log('inventory_balance خالی است، استفاده از inventory_items برای محاسبه هشدارها')
+      // ساخت balance از inventory_items
+      balances = items.map(item => ({
+        itemId: item._id.toString(),
+        warehouseName: item.warehouse || 'تایماز',
+        quantity: item.currentStock || 0,
+        _id: item._id
+      }))
+    }
     
     // ایجاد map برای دسترسی سریع
     const itemsMap = new Map()

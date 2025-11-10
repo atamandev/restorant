@@ -192,22 +192,46 @@ export default function TransfersPage() {
     items: [] as TransferItem[]
   })
 
-  // بارگذاری انبارها
+  // بارگذاری انبارها - همه انبارها (فعال و غیرفعال)
   const fetchWarehouses = async () => {
     try {
-      const response = await fetch('/api/warehouses?status=active&limit=100')
+      console.log('📦 Fetching warehouses...')
+      // ابتدا همه انبارها را بگیر (بدون فیلتر status)
+      const response = await fetch('/api/warehouses?limit=100')
       const data = await response.json()
+      
+      console.log('📦 Warehouses API response:', data)
       
       if (data.success && data.data) {
         const warehousesList = Array.isArray(data.data) ? data.data : []
-        setWarehouses(warehousesList)
+        console.log('✅ Loaded warehouses:', warehousesList.length, warehousesList)
+        
+        // اگر لیست خالی است، دوباره با status=active امتحان کن
+        if (warehousesList.length === 0) {
+          console.log('⚠️ No warehouses found, trying with status=active...')
+          const activeResponse = await fetch('/api/warehouses?status=active&limit=100')
+          const activeData = await activeResponse.json()
+          if (activeData.success && activeData.data) {
+            const activeWarehouses = Array.isArray(activeData.data) ? activeData.data : []
+            console.log('✅ Loaded active warehouses:', activeWarehouses.length, activeWarehouses)
+            setWarehouses(activeWarehouses)
+          } else {
+            setWarehouses([])
+          }
+        } else {
+          setWarehouses(warehousesList)
+        }
+      } else {
+        console.warn('⚠️ API error:', data)
+        setWarehouses([])
       }
     } catch (error) {
-      console.error('Error fetching warehouses:', error)
+      console.error('❌ Error fetching warehouses:', error)
+      setWarehouses([])
     }
   }
 
-  // بارگذاری کالاها از انبار انتخاب شده
+  // بارگذاری کالاها از انبار انتخاب شده - فقط کالاهایی که واقعاً در این انبار موجودی دارند
   const fetchInventoryItems = async (warehouseName: string) => {
     try {
       if (!warehouseName) {
@@ -215,24 +239,87 @@ export default function TransfersPage() {
         return
       }
       
-      // دریافت کالاها از API
-      const response = await fetch(`/api/warehouse/items?limit=1000`)
-      const data = await response.json()
+      console.log('🔍 Fetching items for warehouse:', warehouseName)
       
-      if (data.success && data.data) {
-        // فیلتر کردن کالاهای این انبار
-        const items = Array.isArray(data.data) ? data.data : []
-        const filteredItems = items.filter((item: InventoryItem) => {
-          const itemWarehouse = item.warehouse || ''
-          return itemWarehouse === warehouseName || 
-                 itemWarehouse.toLowerCase() === warehouseName.toLowerCase() ||
-                 (warehouseName === 'تایماز' && (
-                   itemWarehouse === 'تایماز' || 
-                   itemWarehouse.toLowerCase().includes('taymaz') ||
-                   itemWarehouse.includes('تایماز')
-                 ))
-        })
-        setInventoryItems(filteredItems)
+      // روش 1: از inventory_balance برای دریافت کالاهای واقعی این انبار
+      const balanceResponse = await fetch(`/api/inventory/balance?warehouseName=${encodeURIComponent(warehouseName)}`)
+      const balanceData = await balanceResponse.json()
+      
+      console.log('📦 Balance response:', balanceData)
+      
+      if (balanceData.success && balanceData.data && balanceData.data.length > 0) {
+        // دریافت itemId های موجود در این انبار
+        const itemIds = balanceData.data
+          .map((b: any) => b.itemId?.toString())
+          .filter(Boolean)
+        
+        if (itemIds.length === 0) {
+          setInventoryItems([])
+          return
+        }
+        
+        // دریافت اطلاعات کامل کالاها
+        const itemsResponse = await fetch(`/api/warehouse/items?limit=1000`)
+        const itemsData = await itemsResponse.json()
+        
+        if (itemsData.success && itemsData.data) {
+          const allItems = Array.isArray(itemsData.data) ? itemsData.data : []
+          
+          // فیلتر کالاها بر اساس itemId و موجودی از balance
+          const filteredItems = allItems
+            .filter((item: InventoryItem) => {
+              const itemId = item._id?.toString() || item.id
+              return itemIds.includes(itemId)
+            })
+            .map((item: InventoryItem) => {
+              // پیدا کردن موجودی از balance
+              const balance = balanceData.data.find((b: any) => {
+                const balanceItemId = b.itemId?.toString() || b.itemId
+                const itemId = item._id?.toString() || item.id
+                return balanceItemId === itemId
+              })
+              
+              // اگر balance وجود داشت، از آن استفاده کن، وگرنه از currentStock در item
+              const stockFromBalance = balance?.quantity || 0
+              const stockFromItem = item.currentStock || 0
+              const finalStock = stockFromBalance > 0 ? stockFromBalance : stockFromItem
+              
+              return {
+                ...item,
+                currentStock: finalStock,
+                unitPrice: balance?.totalValue && balance?.quantity ? 
+                  balance.totalValue / balance.quantity : 
+                  item.unitPrice || 0
+              }
+            })
+            .filter((item: InventoryItem) => item.currentStock > 0) // فقط کالاهایی با موجودی بیشتر از صفر
+        
+          console.log('✅ Filtered items:', filteredItems.length, filteredItems)
+          setInventoryItems(filteredItems)
+        } else {
+          setInventoryItems([])
+        }
+      } else {
+        // اگر balance خالی است، از inventory_items استفاده کن
+        console.log('⚠️ Balance is empty, using inventory_items...')
+        const response = await fetch(`/api/warehouse/items?limit=1000`)
+        const data = await response.json()
+        
+        if (data.success && data.data) {
+          const items = Array.isArray(data.data) ? data.data : []
+          const filteredItems = items
+            .filter((item: InventoryItem) => {
+              const itemWarehouse = item.warehouse || ''
+              return itemWarehouse === warehouseName || 
+                     itemWarehouse.toLowerCase() === warehouseName.toLowerCase()
+            })
+            .filter((item: InventoryItem) => (item.currentStock || 0) > 0) // فقط کالاهایی با موجودی بیشتر از صفر
+          
+          console.log('✅ Filtered items from inventory_items:', filteredItems.length, filteredItems)
+          setInventoryItems(filteredItems)
+        } else {
+          setInventoryItems([])
+        }
       }
     } catch (error) {
       console.error('Error fetching inventory items:', error)
@@ -261,15 +348,69 @@ export default function TransfersPage() {
   // ایجاد انتقال جدید
   const handleCreateTransfer = async () => {
     try {
+      // اعتبارسنجی اولیه
+      if (!formData.fromWarehouse) {
+        alert('لطفاً انبار مبدا را انتخاب کنید')
+        return
+      }
+      
+      if (!formData.toWarehouse) {
+        alert('لطفاً انبار مقصد را انتخاب کنید')
+        return
+      }
+      
+      if (formData.fromWarehouse === formData.toWarehouse) {
+        alert('انبار مبدا و مقصد نمی‌توانند یکسان باشند')
+        return
+      }
+      
+      if (!formData.items || formData.items.length === 0) {
+        alert('لطفاً حداقل یک کالا اضافه کنید')
+        return
+      }
+      
+      if (!formData.requestedBy || formData.requestedBy.trim() === '') {
+        alert('لطفاً نام درخواست‌کننده را وارد کنید')
+        return
+      }
+      
+      // آماده‌سازی داده‌ها برای ارسال
+      const transferData = {
+        type: formData.type || 'internal',
+        fromWarehouse: formData.fromWarehouse,
+        toWarehouse: formData.toWarehouse,
+        items: formData.items.map(item => ({
+          itemId: item.itemId, // باید string یا ObjectId باشد
+          itemName: item.itemName,
+          itemCode: item.itemCode || '',
+          category: item.category || '',
+          quantity: item.quantity,
+          unit: item.unit || '',
+          unitPrice: item.unitPrice || 0,
+          totalValue: item.totalValue || (item.quantity * item.unitPrice)
+        })),
+        requestedBy: formData.requestedBy.trim(),
+        priority: formData.priority || 'normal',
+        scheduledDate: formData.scheduledDate || null,
+        notes: formData.notes || '',
+        reason: formData.reason || '',
+        status: formData.status || 'draft',
+        transferMode: formData.transferMode || 'simple'
+      }
+      
+      console.log('📤 Sending transfer data:', transferData)
+      
       const response = await fetch('/api/transfers', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(transferData),
       })
       
       const data = await response.json()
+      
+      console.log('📥 Transfer API response:', data)
       
       if (data.success) {
         alert('انتقال با موفقیت ایجاد شد')
@@ -277,11 +418,12 @@ export default function TransfersPage() {
         resetForm()
         fetchTransfers()
       } else {
-        alert('خطا در ایجاد انتقال: ' + data.message)
+        alert('خطا در ایجاد انتقال: ' + (data.message || 'خطای نامشخص'))
+        console.error('Transfer creation error:', data)
       }
     } catch (error) {
       console.error('Error creating transfer:', error)
-      alert('خطا در ایجاد انتقال')
+      alert('خطا در ایجاد انتقال: ' + (error instanceof Error ? error.message : 'خطای نامشخص'))
     }
   }
 
@@ -454,50 +596,56 @@ export default function TransfersPage() {
     }
   }
 
-  // اضافه کردن داده‌های نمونه
-  const handleAddSampleData = async () => {
-    try {
-      const response = await fetch('/api/add-sample-transfers', {
-        method: 'POST',
-      })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        alert('داده‌های نمونه با موفقیت اضافه شد')
-        fetchTransfers()
-      } else {
-        alert('خطا در اضافه کردن داده‌های نمونه: ' + data.message)
-      }
-    } catch (error) {
-      console.error('Error adding sample data:', error)
-      alert('خطا در اضافه کردن داده‌های نمونه')
-    }
-  }
 
   // بازنشانی فرم
   // اضافه کردن کالا به لیست انتقال
   const handleAddItem = (item: InventoryItem) => {
-    const existingItemIndex = formData.items.findIndex(i => i.itemId === (item._id || item.id))
+    // دریافت itemId - اول _id را چک کن، سپس id
+    const itemId = item._id ? (typeof item._id === 'string' ? item._id : item._id.toString()) : (item.id || '')
+    
+    if (!itemId) {
+      console.error('❌ Item ID is missing:', item)
+      alert('خطا: شناسه کالا یافت نشد')
+      return
+    }
+    
+    console.log('➕ Adding item:', { itemId, itemName: item.name, currentStock: item.currentStock })
+    
+    const existingItemIndex = formData.items.findIndex(i => i.itemId === itemId)
+    const availableStock = item.currentStock || 0
     
     if (existingItemIndex >= 0) {
-      // اگر کالا قبلاً اضافه شده، فقط تعداد را افزایش بده
+      // اگر کالا قبلاً اضافه شده، فقط تعداد را افزایش بده (تا حداکثر موجودی)
       const updatedItems = [...formData.items]
+      const currentQuantity = updatedItems[existingItemIndex].quantity
+      
+      if (currentQuantity >= availableStock) {
+        alert(`موجودی کافی نیست. موجودی فعلی: ${availableStock}`)
+        return
+      }
+      
       updatedItems[existingItemIndex].quantity += 1
       updatedItems[existingItemIndex].totalValue = updatedItems[existingItemIndex].quantity * updatedItems[existingItemIndex].unitPrice
       setFormData({ ...formData, items: updatedItems })
     } else {
       // اضافه کردن کالای جدید
+      if (availableStock <= 0) {
+        alert('این کالا موجودی ندارد')
+        return
+      }
+      
       const newItem: TransferItem = {
-        itemId: item._id || item.id,
-        itemName: item.name,
+        itemId: itemId, // باید string باشد
+        itemName: item.name || '',
         itemCode: item.code || '',
-        category: item.category,
+        category: item.category || '',
         quantity: 1,
-        unit: item.unit,
+        unit: item.unit || '',
         unitPrice: item.unitPrice || 0,
         totalValue: item.unitPrice || 0
       }
+      
+      console.log('➕ Adding item to transfer:', newItem)
       setFormData({ ...formData, items: [...formData.items, newItem] })
     }
     setShowItemSelector(false)
@@ -509,10 +657,27 @@ export default function TransfersPage() {
     setFormData({ ...formData, items: updatedItems })
   }
 
-  // به‌روزرسانی تعداد کالا
+  // به‌روزرسانی تعداد کالا - با بررسی موجودی
   const handleUpdateItemQuantity = (index: number, quantity: number) => {
+    if (quantity <= 0) return
+    
     const updatedItems = [...formData.items]
-    updatedItems[index].quantity = Math.max(1, quantity)
+    const item = updatedItems[index]
+    
+    // پیدا کردن موجودی واقعی این کالا در انبار مبدا
+    const inventoryItem = inventoryItems.find(i => 
+      (i._id?.toString() || i.id) === item.itemId
+    )
+    
+    const availableStock = inventoryItem?.currentStock || 0
+    
+    if (quantity > availableStock) {
+      alert(`موجودی کافی نیست. موجودی فعلی: ${availableStock}`)
+      updatedItems[index].quantity = Math.min(updatedItems[index].quantity, availableStock)
+    } else {
+      updatedItems[index].quantity = quantity
+    }
+    
     updatedItems[index].totalValue = updatedItems[index].quantity * updatedItems[index].unitPrice
     setFormData({ ...formData, items: updatedItems })
   }
@@ -719,11 +884,15 @@ export default function TransfersPage() {
             onChange={(e) => setFilterWarehouse(e.target.value)}
           >
             <option value="all">همه انبارها</option>
-            {warehouses.map(warehouse => (
-              <option key={warehouse._id} value={warehouse.name}>
-                {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
-              </option>
-            ))}
+            {warehouses.length === 0 ? (
+              <option value="" disabled>در حال بارگذاری...</option>
+            ) : (
+              warehouses.map(warehouse => (
+                <option key={warehouse._id} value={warehouse.name}>
+                  {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+                </option>
+              ))
+            )}
           </select>
           <button 
             onClick={fetchTransfers}
@@ -1034,20 +1203,37 @@ export default function TransfersPage() {
                     value={formData.fromWarehouse}
                     onChange={(e) => {
                       const warehouse = e.target.value
-                      setFormData({ ...formData, fromWarehouse: warehouse })
+                      setFormData({ 
+                        ...formData, 
+                        fromWarehouse: warehouse,
+                        items: [] // پاک کردن آیتم‌های قبلی وقتی انبار تغییر می‌کند
+                      })
                       setSelectedWarehouseForItems(warehouse)
-                      fetchInventoryItems(warehouse)
+                      if (warehouse) {
+                        fetchInventoryItems(warehouse)
+                      } else {
+                        setInventoryItems([])
+                      }
                     }}
                     className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     required
                   >
                     <option value="">انتخاب انبار مبدا</option>
-                    {warehouses.map(warehouse => (
-                      <option key={warehouse._id} value={warehouse.name}>
-                        {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
-                      </option>
-                    ))}
+                    {warehouses.length === 0 ? (
+                      <option value="" disabled>در حال بارگذاری انبارها...</option>
+                    ) : (
+                      warehouses.map(warehouse => (
+                        <option key={warehouse._id} value={warehouse.name}>
+                          {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+                        </option>
+                      ))
+                    )}
                   </select>
+                  {warehouses.length === 0 && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                      در حال بارگذاری انبارها... اگر انباری نمایش داده نمی‌شود، لطفاً صفحه را refresh کنید.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1060,12 +1246,28 @@ export default function TransfersPage() {
                     required
                   >
                     <option value="">انتخاب انبار مقصد</option>
-                    {warehouses.map(warehouse => (
-                      <option key={warehouse._id} value={warehouse.name}>
-                        {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
-                      </option>
-                    ))}
+                    {warehouses.length === 0 ? (
+                      <option value="" disabled>در حال بارگذاری انبارها...</option>
+                    ) : (
+                      warehouses
+                        .filter(warehouse => warehouse.name !== formData.fromWarehouse) // فیلتر انبار مبدا
+                        .map(warehouse => (
+                          <option key={warehouse._id} value={warehouse.name}>
+                            {warehouse.name} {warehouse.code ? `(${warehouse.code})` : ''}
+                          </option>
+                        ))
+                    )}
                   </select>
+                  {warehouses.length === 0 && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                      در حال بارگذاری انبارها...
+                    </p>
+                  )}
+                  {formData.fromWarehouse === formData.toWarehouse && formData.toWarehouse && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      انبار مقصد نمی‌تواند همان انبار مبدا باشد
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1169,7 +1371,11 @@ export default function TransfersPage() {
                   {formData.fromWarehouse && (
                     <button
                       type="button"
-                      onClick={() => setShowItemSelector(true)}
+                      onClick={async () => {
+                        setSelectedWarehouseForItems(formData.fromWarehouse)
+                        await fetchInventoryItems(formData.fromWarehouse)
+                        setShowItemSelector(true)
+                      }}
                       className="premium-button flex items-center space-x-2 space-x-reverse"
                     >
                       <Plus className="w-4 h-4" />
@@ -1263,7 +1469,7 @@ export default function TransfersPage() {
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-3xl max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                انتخاب کالا از انبار {selectedWarehouseForItems}
+                انتخاب کالا از انبار {formData.fromWarehouse || selectedWarehouseForItems}
               </h2>
               <button
                 onClick={() => setShowItemSelector(false)}
@@ -1274,9 +1480,13 @@ export default function TransfersPage() {
             </div>
 
             <div className="space-y-4">
-              {inventoryItems.length === 0 ? (
+              {!formData.fromWarehouse ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                  کالایی در این انبار موجود نیست
+                  لطفاً ابتدا انبار مبدا را انتخاب کنید
+                </div>
+              ) : inventoryItems.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  کالایی در این انبار موجود نیست. لطفاً مطمئن شوید که کالاها در انبار "{formData.fromWarehouse}" موجودی دارند.
                 </div>
               ) : (
                 <div className="overflow-x-auto">

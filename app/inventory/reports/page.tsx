@@ -35,7 +35,6 @@ import {
   Bell,
   Settings,
   Zap,
-  Database,
   FileSpreadsheet,
   BookOpen,
   Trash2,
@@ -87,27 +86,9 @@ const getReportTypeColor = (type: string) => {
   }
 }
 
-const getReportTypeIcon = (type: string) => {
-  switch (type) {
-    case 'stock_level': return <Package className="w-5 h-5" />
-    case 'movement': return <Activity className="w-5 h-5" />
-    case 'valuation': return <DollarSign className="w-5 h-5" />
-    case 'turnover': return <TrendingUp className="w-5 h-5" />
-    case 'aging': return <Clock className="w-5 h-5" />
-    default: return <FileText className="w-5 h-5" />
-  }
-}
-
-const getStatusBadge = (status: string) => {
-  switch (status) {
-    case 'ready': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">آماده</span>
-    case 'generating': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">در حال تولید</span>
-    case 'error': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">خطا</span>
-    default: return null
-  }
-}
 
 export default function InventoryReportsPage() {
+  const [mounted, setMounted] = useState(false)
   const [reports, setReports] = useState<InventoryReport[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
@@ -361,11 +342,39 @@ export default function InventoryReportsPage() {
   }, [reportFilters])
 
   useEffect(() => {
-    fetchReports()
-    fetchWarehouses()
-    fetchCategories()
-    fetchSavedFilters()
-  }, [fetchReports, fetchWarehouses, fetchCategories, fetchSavedFilters])
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (mounted) {
+      fetchReports()
+      fetchWarehouses()
+      fetchCategories()
+      fetchSavedFilters()
+    }
+  }, [mounted, fetchReports, fetchWarehouses, fetchCategories, fetchSavedFilters])
+
+  const getReportTypeIcon = (type: string) => {
+    if (!mounted) return <FileText className="w-5 h-5" />
+    switch (type) {
+      case 'stock_level': return <Package className="w-5 h-5" />
+      case 'movement': return <Activity className="w-5 h-5" />
+      case 'valuation': return <DollarSign className="w-5 h-5" />
+      case 'turnover': return <TrendingUp className="w-5 h-5" />
+      case 'aging': return <Clock className="w-5 h-5" />
+      default: return <FileText className="w-5 h-5" />
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    if (!mounted) return null
+    switch (status) {
+      case 'ready': return <span className="status-badge bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">آماده</span>
+      case 'generating': return <span className="status-badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">در حال تولید</span>
+      case 'error': return <span className="status-badge bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">خطا</span>
+      default: return null
+    }
+  }
 
   useEffect(() => {
     if (activeTab === 'analytics') {
@@ -445,30 +454,6 @@ export default function InventoryReportsPage() {
     }
   }
 
-  const handleAddSampleData = async () => {
-    if (!confirm('آیا می‌خواهید داده‌های نمونه اضافه شوند؟')) {
-      return
-    }
-
-    try {
-      setLoading(true)
-      const response = await fetch('/api/add-sample-inventory-reports', {
-        method: 'POST'
-      })
-      const data = await response.json()
-      if (data.success) {
-        await fetchReports()
-        alert(`داده‌های نمونه با موفقیت اضافه شد:\n- ${data.data.reports} گزارش`)
-      } else {
-        alert('خطا: ' + data.message)
-      }
-    } catch (error) {
-      console.error('Error adding sample data:', error)
-      alert('خطا در اضافه کردن داده‌های نمونه')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleDeleteReport = async (reportId: string) => {
     if (!confirm('آیا مطمئن هستید که می‌خواهید این گزارش را حذف کنید؟')) {
@@ -564,13 +549,6 @@ export default function InventoryReportsPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
-          <button
-            onClick={handleAddSampleData}
-            className="premium-button flex items-center space-x-2 space-x-reverse"
-          >
-            <Database className="w-5 h-5" />
-            <span>داده نمونه</span>
-          </button>
           <button
             onClick={handlePrint}
             className="premium-button p-3"

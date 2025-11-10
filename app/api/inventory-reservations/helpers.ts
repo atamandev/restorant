@@ -12,7 +12,7 @@ export async function reserveInventoryForOrder(
   session: ClientSession | null,
   orderId: string,
   orderNumber: string,
-  orderType: 'dine-in' | 'takeaway' | 'delivery',
+  orderType: 'dine-in' | 'takeaway' | 'delivery' | 'table-order' | 'quick-sale',
   items: any[]
 ): Promise<{ success: boolean; message?: string; reservations?: any[] }> {
   try {
@@ -166,7 +166,7 @@ export async function consumeReservedInventory(
       console.warn(`[CONSUME] No reservations found for order ${orderNumber}, consuming directly from order`)
       
       // جستجو در همه collection ها برای پیدا کردن سفارش
-      const collections = ['dine_in_orders', 'takeaway_orders', 'delivery_orders']
+      const collections = ['dine_in_orders', 'takeaway_orders', 'delivery_orders', 'table_orders', 'quick_sales']
       let foundOrder = null
       
       for (const collName of collections) {

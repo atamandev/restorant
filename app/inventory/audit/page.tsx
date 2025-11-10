@@ -15,7 +15,6 @@ import {
   RefreshCw,
   Eye,
   FileText,
-  Calculator,
   DollarSign,
   ArrowUpRight,
   ArrowDownLeft,
@@ -35,7 +34,6 @@ import {
   Settings,
   Bell,
   Zap,
-  Database,
   FileSpreadsheet,
   BookOpen,
   ClipboardList,
@@ -105,30 +103,6 @@ interface CountItem {
   notes: string
 }
 
-interface Adjustment {
-  _id?: string
-  id: string
-  adjustmentNumber: string
-  countId: string
-  warehouse: string
-  type: 'increase' | 'decrease'
-  totalItems: number
-  totalValue: number
-  createdBy: string
-  createdDate: string
-  status: 'draft' | 'approved' | 'posted'
-  items: AdjustmentItem[]
-}
-
-interface AdjustmentItem {
-  itemId: string
-  itemName: string
-  itemCode: string
-  quantity: number
-  unitPrice: number
-  totalValue: number
-  reason: string
-}
 
 const getCountTypeColor = (type: string) => {
   switch (type) {
@@ -185,6 +159,7 @@ const formatDate = (dateString: string | null) => {
 // کامپوننت گزارش مغایرت
 function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[], warehouses: any[] }) {
   const [selectedCountId, setSelectedCountId] = useState<string>('all')
+  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('all')
   const [groupBy, setGroupBy] = useState<'category' | 'section' | 'warehouse' | 'countedBy'>('category')
   const [reportData, setReportData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
@@ -194,6 +169,7 @@ function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[]
       setLoading(true)
       const params = new URLSearchParams()
       if (selectedCountId !== 'all') params.append('countId', selectedCountId)
+      if (selectedWarehouse !== 'all') params.append('warehouse', selectedWarehouse)
       params.append('groupBy', groupBy)
 
       const response = await fetch(`/api/inventory-counts/discrepancy-report?${params.toString()}`)
@@ -210,14 +186,14 @@ function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[]
   }
 
   useEffect(() => {
-    if (selectedCountId) {
+    if (selectedCountId || selectedWarehouse !== 'all') {
       fetchReport()
     }
-  }, [selectedCountId, groupBy])
+  }, [selectedCountId, selectedWarehouse, groupBy])
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <select
           className="premium-input"
           value={selectedCountId}
@@ -226,6 +202,18 @@ function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[]
           <option value="all">همه برگه‌های شمارش</option>
           {counts.map(count => (
             <option key={count.id} value={count.id}>{count.countNumber}</option>
+          ))}
+        </select>
+        <select
+          className="premium-input"
+          value={selectedWarehouse}
+          onChange={(e) => setSelectedWarehouse(e.target.value)}
+        >
+          <option value="all">همه انبارها</option>
+          {warehouses && Array.isArray(warehouses) && warehouses.map((wh: any) => (
+            <option key={typeof wh === 'string' ? wh : wh.name} value={typeof wh === 'string' ? wh : wh.name}>
+              {typeof wh === 'string' ? wh : wh.name}
+            </option>
           ))}
         </select>
         <select
@@ -259,25 +247,25 @@ function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[]
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">کل مغایرت‌ها</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {reportData.summary.totalDiscrepancies}
+                  {reportData.summary?.totalDiscrepancies || 0}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">ارزش کل مغایرت</p>
                 <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                  {reportData.summary.totalDiscrepancyValue.toLocaleString('fa-IR')} تومان
+                  {(reportData.summary?.totalDiscrepancyValue || 0).toLocaleString('fa-IR')} تومان
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">اضافی</p>
                 <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                  {reportData.summary.positiveCount}
+                  {reportData.summary?.positiveCount || 0}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">کسری</p>
                 <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                  {reportData.summary.negativeCount}
+                  {reportData.summary?.negativeCount || 0}
                 </p>
               </div>
             </div>
@@ -300,20 +288,28 @@ function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[]
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {reportData.report.map((group: any, index: number) => (
-                    <tr key={index} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{group.key}</td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{group.itemsCount}</td>
-                      <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(group.totalDiscrepancy)}`}>
-                        {group.totalDiscrepancy > 0 ? `+${group.totalDiscrepancy.toLocaleString('fa-IR')}` : group.totalDiscrepancy.toLocaleString('fa-IR')}
+                  {reportData.report && Array.isArray(reportData.report) && reportData.report.length > 0 ? (
+                    reportData.report.map((group: any, index: number) => (
+                      <tr key={index} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{group.key}</td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{group.itemsCount}</td>
+                        <td className={`px-4 py-3 font-medium ${getDiscrepancyColor(group.totalDiscrepancy)}`}>
+                          {group.totalDiscrepancy > 0 ? `+${group.totalDiscrepancy.toLocaleString('fa-IR')}` : group.totalDiscrepancy.toLocaleString('fa-IR')}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                          {group.totalDiscrepancyValue.toLocaleString('fa-IR')} تومان
+                        </td>
+                        <td className="px-4 py-3 text-green-600 dark:text-green-400">{group.positiveDiscrepancies}</td>
+                        <td className="px-4 py-3 text-red-600 dark:text-red-400">{group.negativeDiscrepancies}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                        هیچ داده‌ای برای نمایش وجود ندارد
                       </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
-                        {group.totalDiscrepancyValue.toLocaleString('fa-IR')} تومان
-                      </td>
-                      <td className="px-4 py-3 text-green-600 dark:text-green-400">{group.positiveDiscrepancies}</td>
-                      <td className="px-4 py-3 text-red-600 dark:text-red-400">{group.negativeDiscrepancies}</td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -327,7 +323,6 @@ function DiscrepancyReportTab({ counts, warehouses }: { counts: InventoryCount[]
 export default function InventoryAuditPage() {
   const [inventoryCounts, setInventoryCounts] = useState<InventoryCount[]>([])
   const [countItems, setCountItems] = useState<CountItem[]>([])
-  const [adjustments, setAdjustments] = useState<Adjustment[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
@@ -335,7 +330,7 @@ export default function InventoryAuditPage() {
   const [selectedCount, setSelectedCount] = useState<InventoryCount | null>(null)
   const [showCountModal, setShowCountModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [activeTab, setActiveTab] = useState<'counts' | 'adjustments' | 'reports'>('counts')
+  const [activeTab, setActiveTab] = useState<'counts' | 'reports'>('counts')
   const [loading, setLoading] = useState(false)
   const [warehouses, setWarehouses] = useState<string[]>([])
   const [allWarehouses, setAllWarehouses] = useState<any[]>([])
@@ -347,22 +342,34 @@ export default function InventoryAuditPage() {
   })
   const [createLoading, setCreateLoading] = useState(false)
 
-  // بارگذاری انبارها
+  // بارگذاری انبارها - همه انبارهای واقعی
   const fetchWarehouses = useCallback(async () => {
     try {
-      const response = await fetch('/api/warehouses?status=active&limit=100')
+      console.log('[audit-page] Fetching warehouses...')
+      const response = await fetch('/api/warehouses?limit=100')
       const data = await response.json()
-      if (data.success) {
-        setAllWarehouses(data.data)
-        const warehouseNames = data.data.map((w: any) => w.name)
+      console.log('[audit-page] Warehouses response:', data)
+      
+      if (data.success && data.data) {
+        // استفاده از همه انبارها (بدون فیلتر بر اساس inventory_balance)
+        const allWarehousesData = Array.isArray(data.data) ? data.data : []
+        setAllWarehouses(allWarehousesData)
+        const warehouseNames = allWarehousesData.map((w: any) => w.name).filter(Boolean)
         setWarehouses(warehouseNames)
+        console.log('[audit-page] Set warehouses:', warehouseNames)
+      } else {
+        console.error('[audit-page] Failed to fetch warehouses:', data)
+        setAllWarehouses([])
+        setWarehouses([])
       }
     } catch (error) {
-      console.error('Error fetching warehouses:', error)
+      console.error('[audit-page] Error fetching warehouses:', error)
+      setAllWarehouses([])
+      setWarehouses([])
     }
   }, [])
 
-  // بارگذاری شمارش‌ها
+  // بارگذاری شمارش‌ها - فقط برای انبارهایی که کالا دارند
   const fetchCounts = useCallback(async () => {
     try {
       setLoading(true)
@@ -372,33 +379,44 @@ export default function InventoryAuditPage() {
       if (filterType !== 'all') params.append('type', filterType)
       if (filterWarehouse !== 'all') params.append('warehouse', filterWarehouse)
 
+      console.log('[audit-page] Fetching counts with params:', params.toString())
       const response = await fetch(`/api/inventory-counts?${params.toString()}`)
       const data = await response.json()
-      if (data.success) {
-        setInventoryCounts(data.data)
-        // استخراج لیست انبارها
-        const uniqueWarehouses = [...new Set(data.data.map((c: InventoryCount) => c.warehouse))]
-        setWarehouses(uniqueWarehouses)
+      console.log('[audit-page] Counts response:', data)
+      
+      if (data.success && data.data) {
+        // فیلتر شمارش‌ها: فقط شمارش‌هایی که برای انبارهای معتبر هستند
+        // (API قبلاً فیلتر کرده، اما اینجا هم بررسی می‌کنیم)
+        const counts = Array.isArray(data.data) ? data.data : []
+        console.log('[audit-page] Setting counts:', counts.length)
+        setInventoryCounts(counts)
+        
+        // استخراج لیست انبارها از شمارش‌های معتبر
+        const uniqueWarehouses = counts && Array.isArray(counts) 
+          ? [...new Set(counts.map((c: InventoryCount) => c.warehouse).filter(Boolean))]
+          : []
+        console.log('[audit-page] Unique warehouses from counts:', uniqueWarehouses)
+        
+        // اگر انبارهایی از شمارش‌ها استخراج شد، آن‌ها را به لیست انبارها اضافه کن
+        if (uniqueWarehouses && uniqueWarehouses.length > 0 && allWarehouses && Array.isArray(allWarehouses) && allWarehouses.length > 0) {
+          const allWarehouseNames = allWarehouses.map((aw: any) => aw.name).filter(Boolean)
+          const combinedWarehouses = [...new Set([...allWarehouseNames, ...uniqueWarehouses])]
+          setWarehouses(combinedWarehouses)
+        } else if (uniqueWarehouses && uniqueWarehouses.length > 0) {
+          setWarehouses(uniqueWarehouses)
+        }
+        // اگر allWarehouses وجود دارد، از آن استفاده کن (نه uniqueWarehouses)
+      } else {
+        console.log('[audit-page] No counts found or error:', data)
+        setInventoryCounts([])
       }
     } catch (error) {
       console.error('Error fetching counts:', error)
     } finally {
       setLoading(false)
     }
-  }, [searchTerm, filterStatus, filterType, filterWarehouse])
+  }, [searchTerm, filterStatus, filterType, filterWarehouse, allWarehouses])
 
-  // بارگذاری تعدیلات
-  const fetchAdjustments = useCallback(async () => {
-    try {
-      const response = await fetch('/api/adjustments')
-      const data = await response.json()
-      if (data.success) {
-        setAdjustments(data.data)
-      }
-    } catch (error) {
-      console.error('Error fetching adjustments:', error)
-    }
-  }, [])
 
   // بارگذاری آیتم‌های شمارش
   const fetchCountItems = useCallback(async (countId: string) => {
@@ -413,10 +431,8 @@ export default function InventoryAuditPage() {
     }
   }, [])
 
-  useEffect(() => {
-    fetchAdjustments()
-  }, [fetchAdjustments])
 
+  // بارگذاری اولیه انبارها
   useEffect(() => {
     fetchWarehouses()
   }, [fetchWarehouses])
@@ -434,19 +450,29 @@ export default function InventoryAuditPage() {
     }
   }, [selectedCount?.id, fetchCountItems])
 
-  const totalCounts = inventoryCounts.length
-  const completedCounts = inventoryCounts.filter(c => c.status === 'approved' || c.status === 'closed').length
-  const inProgressCounts = inventoryCounts.filter(c => c.status === 'counting' || c.status === 'ready_for_approval').length
-  const draftCounts = inventoryCounts.filter(c => c.status === 'draft').length
-  const totalDiscrepancies = inventoryCounts.reduce((sum, c) => sum + c.discrepancies, 0)
-  const totalDiscrepancyValue = inventoryCounts.reduce((sum, c) => sum + c.discrepancyValue, 0)
+  const totalCounts = inventoryCounts && Array.isArray(inventoryCounts) ? inventoryCounts.length : 0
+  const completedCounts = inventoryCounts && Array.isArray(inventoryCounts) 
+    ? inventoryCounts.filter(c => c.status === 'approved' || c.status === 'closed').length 
+    : 0
+  const inProgressCounts = inventoryCounts && Array.isArray(inventoryCounts)
+    ? inventoryCounts.filter(c => c.status === 'counting' || c.status === 'ready_for_approval').length
+    : 0
+  const draftCounts = inventoryCounts && Array.isArray(inventoryCounts)
+    ? inventoryCounts.filter(c => c.status === 'draft').length
+    : 0
+  const totalDiscrepancies = inventoryCounts && Array.isArray(inventoryCounts)
+    ? inventoryCounts.reduce((sum, c) => sum + (c.discrepancies || 0), 0)
+    : 0
+  const totalDiscrepancyValue = inventoryCounts && Array.isArray(inventoryCounts)
+    ? inventoryCounts.reduce((sum, c) => sum + (c.discrepancyValue || 0), 0)
+    : 0
 
   const handleCreateCount = () => {
     setShowCreateModal(true)
   }
 
   const handleSubmitCreateCount = async () => {
-    if ((!createForm.warehouse && (!createForm.warehouses || createForm.warehouses.length === 0)) || !createForm.createdBy) {
+    if ((!createForm.warehouse && (!createForm.warehouses || !Array.isArray(createForm.warehouses) || createForm.warehouses.length === 0)) || !createForm.createdBy) {
       alert('لطفاً حداقل یک انبار و ایجادکننده را انتخاب کنید')
       return
     }
@@ -461,7 +487,7 @@ export default function InventoryAuditPage() {
         autoAddItems: createForm.autoAddItems
       }
       
-      if (createForm.warehouses && createForm.warehouses.length > 0) {
+      if (createForm.warehouses && Array.isArray(createForm.warehouses) && createForm.warehouses.length > 0) {
         requestBody.warehouses = createForm.warehouses
       } else {
         requestBody.warehouse = createForm.warehouse
@@ -615,54 +641,7 @@ export default function InventoryAuditPage() {
     }
   }
 
-  const handleCreateAdjustment = async (countId: string) => {
-    try {
-      const response = await fetch('/api/adjustments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          countId,
-          createdBy: 'کاربر سیستم' // باید از context کاربر بگیرید
-        })
-      })
-      const data = await response.json()
-      if (data.success) {
-        await fetchAdjustments()
-        alert('سند تعدیل ایجاد شد.')
-      } else {
-        alert('خطا: ' + data.message)
-      }
-    } catch (error) {
-      console.error('Error creating adjustment:', error)
-      alert('خطا در ایجاد تعدیل')
-    }
-  }
 
-  const handleAddSampleData = async () => {
-    if (!confirm('آیا می‌خواهید داده‌های نمونه اضافه شوند؟')) {
-      return
-    }
-
-    try {
-      setLoading(true)
-      const response = await fetch('/api/add-sample-audit-data', {
-        method: 'POST'
-      })
-      const data = await response.json()
-      if (data.success) {
-        await fetchCounts()
-        await fetchAdjustments()
-        alert(`داده‌های نمونه با موفقیت اضافه شد:\n- ${data.data.counts} شمارش\n- ${data.data.items} آیتم شمارش\n- ${data.data.adjustments} تعدیل`)
-      } else {
-        alert('خطا: ' + data.message)
-      }
-    } catch (error) {
-      console.error('Error adding sample data:', error)
-      alert('خطا در اضافه کردن داده‌های نمونه')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleExport = () => {
     alert('گزارش انبارگردانی به صورت Excel صادر شد.')
@@ -682,13 +661,6 @@ export default function InventoryAuditPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
-          <button
-            onClick={handleAddSampleData}
-            className="premium-button flex items-center space-x-2 space-x-reverse"
-          >
-            <Database className="w-5 h-5" />
-            <span>داده نمونه</span>
-          </button>
           <button
             onClick={handleCreateCount}
             className="premium-button flex items-center space-x-2 space-x-reverse"
@@ -765,17 +737,6 @@ export default function InventoryAuditPage() {
             <span>شمارش‌ها</span>
           </button>
           <button
-            onClick={() => setActiveTab('adjustments')}
-            className={`flex-1 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
-              activeTab === 'adjustments'
-                ? 'bg-white dark:bg-gray-700 text-primary-600 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-            }`}
-          >
-            <Calculator className="w-5 h-5" />
-            <span>تعدیلات</span>
-          </button>
-          <button
             onClick={() => setActiveTab('reports')}
             className={`flex-1 flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 rounded-md transition-all duration-200 ${
               activeTab === 'reports'
@@ -832,7 +793,7 @@ export default function InventoryAuditPage() {
                 onChange={(e) => setFilterWarehouse(e.target.value)}
               >
                 <option value="all">همه انبارها</option>
-                {warehouses.map(wh => (
+                {warehouses && Array.isArray(warehouses) && warehouses.map(wh => (
                   <option key={wh} value={wh}>{wh}</option>
                 ))}
               </select>
@@ -862,14 +823,14 @@ export default function InventoryAuditPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {inventoryCounts.length === 0 ? (
+                  {!inventoryCounts || !Array.isArray(inventoryCounts) || inventoryCounts.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                         هیچ شمارشی یافت نشد. برای شروع، داده‌های نمونه اضافه کنید.
                       </td>
                     </tr>
                   ) : (
-                    inventoryCounts.map(count => (
+                    inventoryCounts && Array.isArray(inventoryCounts) && inventoryCounts.map(count => (
                     <tr key={count.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-3 space-x-reverse">
@@ -957,67 +918,6 @@ export default function InventoryAuditPage() {
           </>
         )}
 
-        {/* Adjustments Tab */}
-        {activeTab === 'adjustments' && (
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-right whitespace-nowrap">
-              <thead>
-                <tr className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-800/50">
-                  <th className="px-4 py-3 rounded-r-lg">شماره تعدیل</th>
-                  <th className="px-4 py-3">شماره شمارش</th>
-                  <th className="px-4 py-3">انبار</th>
-                  <th className="px-4 py-3">نوع</th>
-                  <th className="px-4 py-3">تعداد آیتم‌ها</th>
-                  <th className="px-4 py-3">ارزش کل</th>
-                  <th className="px-4 py-3">ایجادکننده</th>
-                  <th className="px-4 py-3">تاریخ ایجاد</th>
-                  <th className="px-4 py-3">وضعیت</th>
-                  <th className="px-4 py-3 rounded-l-lg">عملیات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {adjustments.map(adjustment => (
-                  <tr key={adjustment.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center space-x-3 space-x-reverse">
-                        <Calculator className="w-5 h-5 text-primary-600" />
-                        <span className="font-medium text-gray-900 dark:text-white">{adjustment.adjustmentNumber}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.countId}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.warehouse}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        adjustment.type === 'increase' 
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                          : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                      }`}>
-                        {adjustment.type === 'increase' ? 'افزایش' : 'کاهش'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.totalItems}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.totalValue.toLocaleString('fa-IR')} تومان</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{adjustment.createdBy}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-200">{formatDate(adjustment.createdDate)}</td>
-                    <td className="px-4 py-3">
-                      {getStatusBadge(adjustment.status)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center space-x-2 space-x-reverse">
-                        <button className="p-1 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button className="p-1 rounded-full text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
-                          <Printer className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
 
         {/* Reports Tab */}
         {activeTab === 'reports' && (
@@ -1275,7 +1175,7 @@ export default function InventoryAuditPage() {
                   className="premium-input w-full"
                   multiple
                   size={4}
-                  value={createForm.warehouses.length > 0 ? createForm.warehouses : (createForm.warehouse ? [createForm.warehouse] : [])}
+                  value={createForm.warehouses && Array.isArray(createForm.warehouses) && createForm.warehouses.length > 0 ? createForm.warehouses : (createForm.warehouse ? [createForm.warehouse] : [])}
                   onChange={(e) => {
                     const selected = Array.from(e.target.selectedOptions, option => option.value)
                     setCreateForm({ 

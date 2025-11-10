@@ -57,55 +57,114 @@ export async function GET(request: NextRequest) {
     const sort: any = {}
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1
 
-    const counts = await collection
+    const allCounts = await collection
       .find(filter)
       .sort(sort)
       .skip(skip)
       .limit(limit)
       .toArray()
 
-    // برای هر شمارش، آمار آیتم‌ها را محاسبه کن
+    // دریافت لیست انبارهای واقعی از warehouses collection
+    const warehousesCollection = db.collection('warehouses')
+    const realWarehouses = await warehousesCollection.find({}).toArray()
+    const realWarehouseNames = new Set(realWarehouses.map((w: any) => w.name))
+    // همچنین یک map برای case-insensitive matching
+    const realWarehouseNamesLower = new Map(
+      realWarehouses.map((w: any) => [w.name.toLowerCase().trim(), w.name])
+    )
+    
+    // فیلتر شمارش‌ها: فقط شمارش‌هایی که برای انبارهای واقعی هستند
+    const validCounts = allCounts.filter((count: any) => {
+      const countWarehouse = (count.warehouse || '').trim()
+      // بررسی دقیق
+      if (realWarehouseNames.has(countWarehouse)) {
+        return true
+      }
+      // بررسی case-insensitive
+      if (realWarehouseNamesLower.has(countWarehouse.toLowerCase())) {
+        return true
+      }
+      return false
+    })
+
+    // فیلتر شمارش‌ها بر اساس آیتم‌هایی که واقعاً در انبارها موجود هستند
+    const balanceCollection = db.collection('inventory_balance')
     const countsWithStats = await Promise.all(
-      counts.map(async (count: any) => {
+      validCounts.map(async (count: any) => {
         try {
           const countId = count._id.toString()
-          const items = await countItemsCollection.find({ countId }).toArray()
+          const allItems = await countItemsCollection.find({ countId }).toArray()
           
-          const countedItems = items.filter((item: any) => item.countedQuantity !== null && item.countedQuantity !== undefined).length
-          const discrepancies = items.filter((item: any) => {
+          // بررسی اینکه آیا این انبار در inventory_balance کالا دارد
+          const warehouseBalances = await balanceCollection.find({
+            warehouseName: count.warehouse
+          }).toArray()
+          
+          // totalItems: تعداد کل آیتم‌های موجود در شمارش (از count_items)
+          const totalItems = allItems.length
+          
+          // countedItems: تعداد آیتم‌هایی که شمارش شده‌اند (countedQuantity دارند)
+          const countedItems = allItems.filter((item: any) => 
+            item.countedQuantity !== null && item.countedQuantity !== undefined
+          ).length
+          
+          // discrepancies: تعداد آیتم‌هایی که اختلاف دارند
+          // استفاده از systemQuantityAtFinalization اگر موجود باشد، در غیر این صورت systemQuantity
+          const discrepancies = allItems.filter((item: any) => {
+            // فقط آیتم‌هایی که شمارش شده‌اند را بررسی کن
             if (item.countedQuantity === null || item.countedQuantity === undefined) return false
-            const disc = (item.countedQuantity || 0) - (item.systemQuantity || 0)
+            
+            // تعیین موجودی سیستم: اول systemQuantityAtFinalization، سپس systemQuantity
+            let systemQty = 0
+            if (item.systemQuantityAtFinalization !== null && item.systemQuantityAtFinalization !== undefined) {
+              systemQty = item.systemQuantityAtFinalization
+            } else if (item.systemQuantity !== null && item.systemQuantity !== undefined) {
+              systemQty = item.systemQuantity
+            }
+            
+            const countedQty = item.countedQuantity || 0
+            const disc = countedQty - systemQty
             return disc !== 0
           }).length
           
-          const discrepancyValue = items.reduce((sum: number, item: any) => {
-            const disc = (item.countedQuantity || 0) - (item.systemQuantity || 0)
-            return sum + (disc * (item.unitPrice || 0))
+          // discrepancyValue: ارزش کل اختلافات
+          const discrepancyValue = allItems.reduce((sum: number, item: any) => {
+            // فقط آیتم‌هایی که شمارش شده‌اند را محاسبه کن
+            if (item.countedQuantity === null || item.countedQuantity === undefined) return sum
+            
+            // تعیین موجودی سیستم: اول systemQuantityAtFinalization، سپس systemQuantity
+            let systemQty = 0
+            if (item.systemQuantityAtFinalization !== null && item.systemQuantityAtFinalization !== undefined) {
+              systemQty = item.systemQuantityAtFinalization
+            } else if (item.systemQuantity !== null && item.systemQuantity !== undefined) {
+              systemQty = item.systemQuantity
+            }
+            
+            const countedQty = item.countedQuantity || 0
+            const disc = countedQty - systemQty
+            const unitPrice = item.unitPrice || 0
+            return sum + (disc * unitPrice)
           }, 0)
 
           return {
             ...count,
             _id: count._id.toString(),
             id: count._id.toString(),
-            totalItems: items.length,
-            countedItems,
-            discrepancies,
-            discrepancyValue: Math.abs(discrepancyValue)
+            totalItems, // تعداد کل آیتم‌های شمارش
+            countedItems, // تعداد آیتم‌های شمارش شده
+            discrepancies, // تعداد آیتم‌های با اختلاف
+            discrepancyValue: Math.abs(discrepancyValue) // ارزش کل اختلافات
           }
         } catch (error) {
           console.error(`Error processing count ${count._id}:`, error)
-          return {
-            ...count,
-            _id: count._id.toString(),
-            id: count._id.toString(),
-            totalItems: 0,
-            countedItems: 0,
-            discrepancies: 0,
-            discrepancyValue: 0
-          }
+          return null
         }
       })
     )
+    
+    // فیلتر شمارش‌هایی که معتبر هستند (null نیستند)
+    // نمایش همه شمارش‌های انبارهای واقعی، حتی اگر totalItems = 0 باشد
+    const filteredCounts = countsWithStats.filter((count: any) => count !== null)
 
     // آمار کلی
     let stats: any = {
@@ -138,11 +197,11 @@ export async function GET(request: NextRequest) {
       console.error('Error calculating stats:', error)
     }
 
-    const total = await collection.countDocuments(filter)
+    const total = filteredCounts.length
 
     return NextResponse.json({
       success: true,
-      data: countsWithStats,
+      data: filteredCounts,
       stats,
       pagination: {
         limit,
@@ -299,14 +358,15 @@ export async function POST(request: NextRequest) {
     for (const item of items) {
       // برای هر انبار، یک آیتم شمارش ایجاد کن
       for (const wh of targetWarehouses) {
-        // دریافت موجودی از Balance
+        // دریافت موجودی از Balance برای انبار خاص
         const balance = await balanceCollection.findOne({
           itemId: item._id,
           warehouseName: wh
         })
         
-        const systemQty = balance?.quantity || item.currentStock || 0
-        const unitPrice = item.unitPrice || 0
+        // فقط از موجودی انبار خاص استفاده کن، نه از currentStock کل
+        const systemQty = balance?.quantity || 0
+        const unitPrice = balance?.unitPrice || item.unitPrice || 0
         
         countItems.push({
           countId,

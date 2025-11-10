@@ -9,12 +9,39 @@ let client: MongoClient
 let db: any
 
 async function connectToDatabase() {
-  if (!client) {
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    db = client.db(DB_NAME)
+  try {
+    if (!client) {
+      client = new MongoClient(MONGO_URI)
+      await client.connect()
+      db = client.db(DB_NAME)
+    } else if (!db) {
+      db = client.db(DB_NAME)
+    }
+    
+    if (db) {
+      try {
+        await db.admin().ping()
+      } catch (pingError) {
+        console.warn('MongoDB ping failed, but continuing:', pingError)
+      }
+    }
+    
+    if (!db) {
+      throw new Error('Database connection failed: db is null')
+    }
+    
+    return db
+  } catch (error) {
+    console.error('Database connection error:', error)
+    if (client) {
+      try {
+        await client.close()
+      } catch (e) {}
+      client = null as any
+    }
+    db = null
+    throw error
   }
-  return db
 }
 
 // GET - دریافت تمام هشدارهای موجودی با فیلتر و مرتب‌سازی
@@ -27,6 +54,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') // active, resolved, dismissed
     const severity = searchParams.get('severity') // low, medium, high, critical
     const type = searchParams.get('type') // low_stock, out_of_stock, expiry, overstock
+    const warehouse = searchParams.get('warehouse') // فیلتر بر اساس نام انبار
     const sortBy = searchParams.get('sortBy') || 'createdAt'
     const sortOrder = searchParams.get('sortOrder') || 'desc'
     const limit = parseInt(searchParams.get('limit') || '100')
@@ -38,6 +66,10 @@ export async function GET(request: NextRequest) {
     if (status && status !== 'all') filter.status = status
     if (severity && severity !== 'all') filter.severity = severity
     if (type && type !== 'all') filter.type = type
+    if (warehouse && warehouse !== 'all') {
+      // فیلتر دقیق بر اساس نام انبار
+      filter.warehouse = warehouse
+    }
     if (search) {
       filter.$or = [
         { itemName: { $regex: search, $options: 'i' } },
@@ -52,15 +84,86 @@ export async function GET(request: NextRequest) {
     const sort: any = {}
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1
 
-    const alerts = await collection
+    // دریافت تمام هشدارها
+    let alerts = await collection
       .find(filter)
       .sort(sort)
       .skip(skip)
-      .limit(limit)
+      .limit(limit * 2) // بیشتر بگیر تا بعد از فیلتر کردن کافی باشد
       .toArray()
 
-    // آمار کلی
-    const stats = await collection.aggregate([
+    // فیلتر کردن هشدارها بر اساس کالاهای واقعاً موجود در انبارها
+    const balanceCollection = db.collection('inventory_balance')
+    const inventoryItemsCollection = db.collection('inventory_items')
+    
+    // دریافت تمام موجودی‌ها از Balance
+    const balances = await balanceCollection.find({}).toArray()
+    
+    // دریافت تمام آیتم‌ها
+    const items = await inventoryItemsCollection.find({}).limit(10000).toArray()
+    
+    // ساخت map برای بررسی سریع موجودی
+    const balanceMap = new Map()
+    balances.forEach(balance => {
+      const key = `${balance.itemId?.toString() || balance.itemId}-${balance.warehouseName || ''}`
+      balanceMap.set(key, balance.quantity || 0)
+    })
+    
+    // ساخت map برای بررسی سریع آیتم‌ها
+    const itemsMap = new Map()
+    items.forEach(item => {
+      const key = `${item._id?.toString() || item.id}-${item.warehouse || ''}`
+      itemsMap.set(key, item.currentStock || 0)
+    })
+    
+    // فیلتر کردن هشدارها: فقط هشدارهایی که کالا در انبار مشخص شده موجود است
+    alerts = alerts.filter(alert => {
+      const itemId = alert.itemId?.toString() || alert.itemId
+      const warehouse = alert.warehouse || ''
+      
+      if (!itemId || !warehouse) {
+        return false // اگر itemId یا warehouse نداریم، هشدار را نمایش نده
+      }
+      
+      // بررسی در balance برای انبار مشخص شده
+      const balanceKey = `${itemId}-${warehouse}`
+      const balanceQty = balanceMap.get(balanceKey)
+      
+      if (balanceQty !== undefined && balanceQty > 0) {
+        return true // کالا در balance این انبار موجود است
+      }
+      
+      // بررسی در inventory_items برای انبار مشخص شده
+      const itemKey = `${itemId}-${warehouse}`
+      const itemStock = itemsMap.get(itemKey)
+      
+      if (itemStock !== undefined && itemStock > 0) {
+        return true // کالا در inventory_items این انبار موجود است
+      }
+      
+      // برای هشدار out_of_stock: اگر کالا در این انبار موجودی ندارد، هشدار را نمایش بده
+      if (alert.type === 'out_of_stock') {
+        // بررسی کن که آیا کالا در این انبار واقعاً موجودی ندارد
+        const hasStockInThisWarehouse = (balanceQty !== undefined && balanceQty > 0) || 
+                                        (itemStock !== undefined && itemStock > 0)
+        return !hasStockInThisWarehouse // اگر موجودی ندارد، هشدار را نمایش بده
+      }
+      
+      // برای سایر هشدارها: فقط اگر کالا در این انبار موجودی دارد، هشدار را نمایش بده
+      return false
+    })
+    
+    // محدود کردن به limit
+    alerts = alerts.slice(0, limit)
+
+    // آمار کلی - محاسبه بر اساس هشدارهای فیلتر شده
+    const alertIds = alerts.map(a => new ObjectId(a._id))
+    const stats = alertIds.length > 0 ? await collection.aggregate([
+      {
+        $match: {
+          _id: { $in: alertIds }
+        }
+      },
       {
         $group: {
           _id: null,
@@ -114,7 +217,7 @@ export async function GET(request: NextRequest) {
           overstockAlerts: { $sum: { $cond: [{ $eq: ['$type', 'overstock'] }, 1, 0] } }
         }
       }
-    ]).toArray()
+    ]).toArray() : []
 
     return NextResponse.json({
       success: true,
@@ -137,7 +240,7 @@ export async function GET(request: NextRequest) {
       pagination: {
         limit,
         skip,
-        total: await collection.countDocuments(filter)
+        total: alerts.length // تعداد هشدارهای فیلتر شده
       }
     })
   } catch (error) {

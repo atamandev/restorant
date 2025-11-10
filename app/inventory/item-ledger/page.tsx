@@ -253,26 +253,6 @@ export default function ItemLedgerPage() {
     }
   }
 
-  // اضافه کردن داده‌های نمونه
-  const handleAddSampleData = async () => {
-    try {
-      const response = await fetch('/api/add-sample-item-ledger', {
-        method: 'POST',
-      })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        alert('داده‌های نمونه با موفقیت اضافه شد')
-        fetchItems()
-      } else {
-        alert('خطا در اضافه کردن داده‌های نمونه: ' + data.message)
-      }
-    } catch (error) {
-      console.error('Error adding sample data:', error)
-      alert('خطا در اضافه کردن داده‌های نمونه')
-    }
-  }
 
   const filteredItems = items.filter(item =>
     searchTerm === '' || 
@@ -433,13 +413,6 @@ export default function ItemLedgerPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
-          <button
-            onClick={handleAddSampleData}
-            className="premium-button flex items-center space-x-2 space-x-reverse"
-          >
-            <Plus className="w-5 h-5" />
-            <span>داده نمونه</span>
-          </button>
           <button
             onClick={handleRefresh}
             className="premium-button flex items-center space-x-2 space-x-reverse"

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { MongoClient } from 'mongodb'
+import { MongoClient, ObjectId } from 'mongodb'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 const DB_NAME = 'restoren'
@@ -178,48 +178,7 @@ export async function GET(request: NextRequest) {
       }
     ]).toArray()
 
-    // آمار موجودی کلی (بر اساس داده‌های واقعی)
-    const inventoryStats = await inventoryCollection.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalItems: { $sum: 1 },
-          lowStockItems: { 
-            $sum: { 
-              $cond: [
-                { 
-                  $or: [
-                    { $lte: ['$currentStock', { $ifNull: ['$minStock', 0] }] },
-                    { $expr: { $lte: ['$currentStock', '$minStock'] } }
-                  ]
-                }, 
-                1, 
-                0
-              ] 
-            } 
-          },
-          outOfStockItems: { 
-            $sum: { 
-              $cond: [
-                { 
-                  $or: [
-                    { $eq: ['$currentStock', 0] },
-                    { $eq: [{ $ifNull: ['$currentStock', 0] }, 0] }
-                  ]
-                }, 
-                1, 
-                0
-              ] 
-            } 
-          },
-          totalValue: { 
-            $sum: { 
-              $ifNull: ['$totalValue', { $multiply: [{ $ifNull: ['$currentStock', 0] }, { $ifNull: ['$unitPrice', 0] }] }]
-            } 
-          }
-        }
-      }
-    ]).toArray()
+    // بخش inventoryStats حذف شد - فقط آمار هشدارها نمایش داده می‌شود
 
     return NextResponse.json({
       success: true,
@@ -234,12 +193,6 @@ export async function GET(request: NextRequest) {
         topAlertedItems,
         alertsTrend,
         alertsByWarehouse,
-        inventoryStats: inventoryStats[0] || {
-          totalItems: 0,
-          lowStockItems: 0,
-          outOfStockItems: 0,
-          totalValue: 0
-        },
         period: parseInt(period),
         generatedAt: new Date().toISOString()
       }

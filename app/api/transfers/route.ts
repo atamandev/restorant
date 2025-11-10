@@ -163,13 +163,64 @@ export async function POST(request: NextRequest) {
     }
     
     // بررسی موجودی در انبار مبدا
+    const inventoryItemsCollection = db.collection('inventory_items')
+    
     for (const item of items) {
-      const balance = await balanceCollection.findOne({
-        itemId: new ObjectId(item.itemId),
+      if (!item.itemId) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            message: `شناسه آیتم "${item.itemName}" نامعتبر است` 
+          },
+          { status: 400 }
+        )
+      }
+      
+      // تبدیل itemId به ObjectId (اگر string است)
+      let itemObjectId: ObjectId
+      try {
+        itemObjectId = item.itemId instanceof ObjectId ? item.itemId : new ObjectId(item.itemId)
+      } catch (error) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            message: `شناسه آیتم "${item.itemName}" نامعتبر است: ${item.itemId}` 
+          },
+          { status: 400 }
+        )
+      }
+      
+      // روش 1: بررسی از inventory_balance
+      let balance = await balanceCollection.findOne({
+        itemId: itemObjectId,
         warehouseName: fromWarehouse
       })
       
-      const availableQuantity = balance?.quantity || 0
+      let availableQuantity = balance?.quantity || 0
+      
+      // روش 2: اگر balance وجود نداشت، از inventory_items استفاده کن
+      if (!balance || availableQuantity === 0) {
+        console.log(`⚠️ Balance not found for item ${item.itemName} in warehouse ${fromWarehouse}, checking inventory_items...`)
+        
+        const inventoryItem = await inventoryItemsCollection.findOne({
+          _id: itemObjectId
+        })
+        
+        if (inventoryItem) {
+          // بررسی اینکه آیا این کالا در انبار مبدا است
+          const itemWarehouse = inventoryItem.warehouse || ''
+          if (itemWarehouse === fromWarehouse || 
+              itemWarehouse.toLowerCase() === fromWarehouse.toLowerCase()) {
+            availableQuantity = inventoryItem.currentStock || 0
+            console.log(`✅ Found stock in inventory_items: ${availableQuantity}`)
+          } else {
+            console.log(`⚠️ Item warehouse (${itemWarehouse}) doesn't match fromWarehouse (${fromWarehouse})`)
+          }
+        } else {
+          console.log(`❌ Inventory item not found for ID: ${item.itemId}`)
+        }
+      }
+      
       if (availableQuantity < item.quantity) {
         return NextResponse.json(
           { 

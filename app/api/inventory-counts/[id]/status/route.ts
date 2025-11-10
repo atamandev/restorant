@@ -48,6 +48,11 @@ export async function PUT(
       )
     }
     
+    // ذخیره وضعیت قبل از تغییر برای لاگ
+    const beforeState = {
+      status: count.status
+    }
+    
     // بررسی انتقال‌های مجاز
     const currentStatus = count.status
     const updateData: any = {

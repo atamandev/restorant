@@ -20,7 +20,10 @@ async function connectToDatabase() {
 // GET - دریافت تعدیلات
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)
@@ -40,16 +43,42 @@ export async function GET(request: NextRequest) {
     const sort: any = {}
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1
 
-    const adjustments = await collection
+    const allAdjustments = await collection
       .find(filter)
       .sort(sort)
       .skip(skip)
       .limit(limit)
       .toArray()
 
+    // دریافت لیست انبارهای واقعی از warehouses collection
+    const warehousesCollection = db.collection('warehouses')
+    const realWarehouses = await warehousesCollection.find({}).toArray()
+    const realWarehouseNames = new Set(realWarehouses.map((w: any) => w.name))
+    
+    // فیلتر تعدیلات: فقط تعدیلات انبارهای واقعی که در inventory_balance کالا دارند
+    const balanceCollection = db.collection('inventory_balance')
+    const validAdjustments = []
+    
+    for (const adj of allAdjustments) {
+      // بررسی اینکه آیا این انبار واقعی است
+      if (!realWarehouseNames.has(adj.warehouse)) {
+        continue
+      }
+      
+      // بررسی اینکه آیا این انبار در inventory_balance آیتم دارد
+      const warehouseBalances = await balanceCollection.find({
+        warehouseName: adj.warehouse
+      }).toArray()
+      
+      // اگر انبار کالا دارد یا تعدیل قبلاً ثبت شده (برای حفظ تاریخچه)
+      if (warehouseBalances.length > 0 || adj.status === 'posted' || adj.status === 'approved') {
+        validAdjustments.push(adj)
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      data: adjustments.map((adj: any) => ({
+      data: validAdjustments.map((adj: any) => ({
         ...adj,
         _id: adj._id.toString(),
         id: adj._id.toString()
@@ -57,7 +86,7 @@ export async function GET(request: NextRequest) {
       pagination: {
         limit,
         skip,
-        total: await collection.countDocuments(filter)
+        total: validAdjustments.length
       }
     })
   } catch (error) {
@@ -72,7 +101,10 @@ export async function GET(request: NextRequest) {
 // POST - ایجاد تعدیل از شمارش
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     const countsCollection = db.collection('inventory_counts')
     const countItemsCollection = db.collection('count_items')
@@ -228,7 +260,10 @@ export async function PUT(request: NextRequest) {
 // DELETE - حذف تعدیل
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      throw new Error('Database connection failed')
+    }
     const collection = db.collection(COLLECTION_NAME)
     
     const { searchParams } = new URL(request.url)

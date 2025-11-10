@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 import { logTransfer } from '@/lib/audit-logger'
+import { inventorySync } from '@/lib/inventory-sync'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 const DB_NAME = 'restoren'
@@ -55,8 +56,6 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = client.startSession()
-  
   try {
     const db = await connectToDatabase()
     const transferCollection = db.collection('transfers')
@@ -84,7 +83,8 @@ export async function PUT(
       inTransit: transfer.inTransit || {}
     }
     
-    await session.withTransaction(async () => {
+    // انجام عملیات بدون transaction (MongoDB standalone از transaction پشتیبانی نمی‌کند)
+    {
       if (action === 'approve') {
         // تأیید انتقال
         if (transfer.status !== 'draft' && transfer.status !== 'pending') {
@@ -123,7 +123,6 @@ export async function PUT(
               await fifoLayerCollection.updateOne(
                 { _id: layer._id },
                 { $inc: { remainingQuantity: -transferQty } },
-                { session }
               )
               
               // ایجاد لایه جدید در مقصد
@@ -139,7 +138,7 @@ export async function PUT(
                 sourceMovementId: transferRef,
                 createdAt: new Date(),
                 updatedAt: new Date()
-              }, { session })
+              })
               
               transferLayers.push({
                 fromLayerId: layer._id,
@@ -174,7 +173,7 @@ export async function PUT(
                 sourceMovementId: transferRef,
                 createdAt: new Date(),
                 updatedAt: new Date()
-              }, { session })
+              })
             }
             
             // ثبت TRANSFER_OUT
@@ -192,7 +191,7 @@ export async function PUT(
               transferRef,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString()
-            }, { session })
+            })
             
             // ثبت TRANSFER_IN
             await movementCollection.insertOne({
@@ -209,7 +208,7 @@ export async function PUT(
               transferRef,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString()
-            }, { session })
+            })
             
             // به‌روزرسانی Balance مبدا
             await balanceCollection.updateOne(
@@ -224,7 +223,7 @@ export async function PUT(
                   updatedAt: new Date()
                 }
               },
-              { session, upsert: false }
+              { upsert: false }
             )
             
             // به‌روزرسانی Balance مقصد
@@ -240,8 +239,42 @@ export async function PUT(
                   updatedAt: new Date()
                 }
               },
-              { session, upsert: true }
+              { upsert: true }
             )
+            
+            // به‌روزرسانی inventory_items: محاسبه currentStock از inventory_balance
+            // توجه: در inventory_items هر آیتم یک _id دارد و نمی‌توان دو رکورد با _id یکسان داشت
+            // موجودی از balance محاسبه می‌شود و در inventory_items ذخیره می‌شود
+            const inventoryItemsCollection = db.collection('inventory_items')
+            const existingItem = await inventoryItemsCollection.findOne({
+              _id: itemId
+            })
+            
+            if (existingItem) {
+              // محاسبه موجودی کل از تمام انبارها
+              const allBalances = await balanceCollection.find({
+                itemId: itemId
+              }).toArray()
+              
+              const totalStock = allBalances.reduce((sum: number, b: any) => sum + (b.quantity || 0), 0)
+              const totalValue = allBalances.reduce((sum: number, b: any) => sum + (b.totalValue || 0), 0)
+              
+              // به‌روزرسانی currentStock و totalValue در inventory_items
+              await inventoryItemsCollection.updateOne(
+                { 
+                  _id: itemId
+                },
+                {
+                  $set: {
+                    currentStock: totalStock,
+                    totalValue: totalValue,
+                    unitPrice: totalStock > 0 ? totalValue / totalStock : existingItem.unitPrice || 0,
+                    lastUpdated: new Date().toISOString(),
+                    updatedAt: new Date()
+                  }
+                }
+              )
+            }
           }
           
           // به‌روزرسانی وضعیت انتقال
@@ -257,7 +290,6 @@ export async function PUT(
                 updatedAt: new Date().toISOString()
               }
             },
-            { session }
           )
           
           // محاسبه مجدد هشدارها بعد از انتقال
@@ -285,7 +317,7 @@ export async function PUT(
               transferRef,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString()
-            }, { session })
+            })
             
             // به‌روزرسانی Balance مبدا
             await balanceCollection.updateOne(
@@ -300,8 +332,40 @@ export async function PUT(
                   updatedAt: new Date()
                 }
               },
-              { session, upsert: false }
+              { upsert: false }
             )
+            
+            // به‌روزرسانی inventory_items: محاسبه currentStock از inventory_balance
+            const inventoryItemsCollection = db.collection('inventory_items')
+            const existingItem = await inventoryItemsCollection.findOne({
+              _id: itemId
+            })
+            
+            if (existingItem) {
+              // محاسبه موجودی کل از تمام انبارها
+              const allBalances = await balanceCollection.find({
+                itemId: itemId
+              }).toArray()
+              
+              const totalStock = allBalances.reduce((sum: number, b: any) => sum + (b.quantity || 0), 0)
+              const totalValue = allBalances.reduce((sum: number, b: any) => sum + (b.totalValue || 0), 0)
+              
+              // به‌روزرسانی currentStock و totalValue در inventory_items
+              await inventoryItemsCollection.updateOne(
+                { 
+                  _id: itemId
+                },
+                {
+                  $set: {
+                    currentStock: totalStock,
+                    totalValue: totalValue,
+                    unitPrice: totalStock > 0 ? totalValue / totalStock : existingItem.unitPrice || 0,
+                    lastUpdated: new Date().toISOString(),
+                    updatedAt: new Date()
+                  }
+                }
+              )
+            }
             
             // ثبت inTransit برای مقصد
             inTransit[item.itemId] = item.quantity
@@ -319,7 +383,6 @@ export async function PUT(
                 updatedAt: new Date().toISOString()
               }
             },
-            { session }
           )
         }
       } else if (action === 'receive') {
@@ -353,7 +416,7 @@ export async function PUT(
             transferRef,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
-          }, { session })
+          })
           
           // به‌روزرسانی Balance مقصد
           await balanceCollection.updateOne(
@@ -368,8 +431,41 @@ export async function PUT(
                 updatedAt: new Date()
               }
             },
-            { session, upsert: true }
+            { upsert: true }
           )
+          
+          // به‌روزرسانی inventory_items: محاسبه currentStock از inventory_balance
+          // توجه: در inventory_items هر آیتم یک _id دارد و نمی‌توان دو رکورد با _id یکسان داشت
+          const inventoryItemsCollection = db.collection('inventory_items')
+          const existingItem = await inventoryItemsCollection.findOne({
+            _id: itemId
+          })
+          
+          if (existingItem) {
+            // محاسبه موجودی کل از تمام انبارها
+            const allBalances = await balanceCollection.find({
+              itemId: itemId
+            }).toArray()
+            
+            const totalStock = allBalances.reduce((sum: number, b: any) => sum + (b.quantity || 0), 0)
+            const totalValue = allBalances.reduce((sum: number, b: any) => sum + (b.totalValue || 0), 0)
+            
+            // به‌روزرسانی currentStock و totalValue در inventory_items
+            await inventoryItemsCollection.updateOne(
+              { 
+                _id: itemId
+              },
+              {
+                $set: {
+                  currentStock: totalStock,
+                  totalValue: totalValue,
+                  unitPrice: totalStock > 0 ? totalValue / totalStock : existingItem.unitPrice || 0,
+                  lastUpdated: new Date().toISOString(),
+                  updatedAt: new Date()
+                }
+              }
+            )
+          }
         }
         
         await transferCollection.updateOne(
@@ -382,7 +478,6 @@ export async function PUT(
               updatedAt: new Date().toISOString()
             }
           },
-          { session }
         )
       } else if (action === 'cancel') {
         // لغو انتقال
@@ -399,7 +494,6 @@ export async function PUT(
               updatedAt: new Date().toISOString()
             }
           },
-          { session }
         )
       } else {
         // به‌روزرسانی عادی
@@ -413,10 +507,9 @@ export async function PUT(
         await transferCollection.updateOne(
           { _id: transfer._id },
           { $set: updateData },
-          { session }
         )
       }
-    })
+    }
     
     const updatedTransfer = await transferCollection.findOne({ _id: transfer._id })
     
@@ -449,6 +542,22 @@ export async function PUT(
     // محاسبه مجدد هشدارها بعد از انتقال (بعد از commit transaction)
     if (action === 'approve' || action === 'receive') {
       try {
+        // Emit events برای به‌روزرسانی UI
+        inventorySync.emit('transfer_completed', {
+          transferId: transfer._id.toString(),
+          fromWarehouse: transfer.fromWarehouse,
+          toWarehouse: transfer.toWarehouse,
+          items: transfer.items
+        })
+        inventorySync.emit('balance_updated', {
+          transferId: transfer._id.toString(),
+          fromWarehouse: transfer.fromWarehouse,
+          toWarehouse: transfer.toWarehouse
+        })
+        inventorySync.emit('stock_movement_created', {
+          transferId: transfer._id.toString()
+        })
+        
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
         await fetch(`${baseUrl}/api/stock-alerts/calculate`, {
           method: 'POST',
@@ -474,7 +583,5 @@ export async function PUT(
       { success: false, message: error.message || 'خطا در به‌روزرسانی انتقال' },
       { status: 500 }
     )
-  } finally {
-    await session.endSession()
   }
 }

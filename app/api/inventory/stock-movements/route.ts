@@ -267,178 +267,168 @@ export async function POST(request: NextRequest) {
       totalValue: balance.totalValue
     } : null
     
-    const session = client.startSession()
+    // به‌روزرسانی Balance
+    const newValue = currentValue + valueChange
     
-    try {
-      await session.withTransaction(async () => {
-        // به‌روزرسانی Balance
-        const newValue = currentValue + valueChange
-        
-        if (balance) {
-          await balanceCollection.updateOne(
-            { _id: balance._id },
-            {
-              $set: {
-                quantity: newQuantity,
-                totalValue: newValue,
-                lastUpdated: new Date().toISOString(),
-                updatedAt: new Date()
-              }
-            },
-            { session }
-          )
-        } else {
-          await balanceCollection.insertOne({
-            itemId: new ObjectId(itemId),
-            warehouseId: warehouseId || null,
-            warehouseName: warehouseName,
+    if (balance) {
+      await balanceCollection.updateOne(
+        { _id: balance._id },
+        {
+          $set: {
             quantity: newQuantity,
             totalValue: newValue,
             lastUpdated: new Date().toISOString(),
-            createdAt: new Date(),
             updatedAt: new Date()
-          }, { session })
-        }
-        
-        // ایجاد Stock Movement
-        const movement = {
-          itemId: new ObjectId(itemId),
-          warehouseId: warehouseId || null,
-          warehouseName: warehouseName,
-          movementType: movementType,
-          quantity: quantityChange,
-          unitPrice: unitPrice || 0,
-          totalValue: valueChange,
-          lotNumber: lotNumber || null,
-          expirationDate: expirationDate || null,
-          documentNumber: documentNumber || `MOV-${Date.now()}`,
-          documentType: documentType || movementType,
-          description: description || '',
-          referenceId: referenceId || null,
-          createdBy: createdBy,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-        
-        const movementResult = await movementCollection.insertOne(movement, { session })
-        const movementId = movementResult.insertedId
-        
-        // مدیریت FIFO Layers (فقط برای ورود)
-        if (movementType === 'PURCHASE_IN' || movementType === 'INITIAL' || movementType === 'TRANSFER_IN') {
-          await fifoLayerCollection.insertOne({
-            itemId: new ObjectId(itemId),
-            warehouseId: warehouseId || null,
-            warehouseName: warehouseName,
-            movementId: movementId,
-            quantity: quantity,
-            remainingQuantity: quantity,
-            unitPrice: unitPrice || 0,
-            lotNumber: lotNumber || null,
-            expirationDate: expirationDate || null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }, { session })
-        }
-        
-        // به‌روزرسانی FIFO Layers برای خروج
-        if (movementType === 'SALE_CONSUMPTION' || movementType === 'TRANSFER_OUT') {
-          const fifoLayers = await fifoLayerCollection
-            .find({
-              itemId: new ObjectId(itemId),
-              warehouseName: warehouseName,
-              remainingQuantity: { $gt: 0 }
-            })
-            .sort({ createdAt: 1 })
-            .toArray()
-          
-          let remainingQty = quantity
-          
-          for (const layer of fifoLayers) {
-            if (remainingQty <= 0) break
-            
-            const consumedQty = Math.min(remainingQty, layer.remainingQuantity)
-            const newRemainingQty = layer.remainingQuantity - consumedQty
-            
-            await fifoLayerCollection.updateOne(
-              { _id: layer._id },
-              {
-                $set: {
-                  remainingQuantity: newRemainingQty,
-                  updatedAt: new Date()
-                }
-              },
-              { session }
-            )
-            
-            remainingQty -= consumedQty
           }
         }
+      )
+    } else {
+      await balanceCollection.insertOne({
+        itemId: new ObjectId(itemId),
+        warehouseId: warehouseId || null,
+        warehouseName: warehouseName,
+        quantity: newQuantity,
+        totalValue: newValue,
+        lastUpdated: new Date().toISOString(),
+        createdAt: new Date(),
+        updatedAt: new Date()
       })
-      
-      // ثبت لاگ ممیزی
-      try {
-        const afterState = {
-          quantity: newQuantity,
-          totalValue: newValue
-        }
-        
-        const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
-        const userAgent = request.headers.get('user-agent') || 'unknown'
-        
-        await logStockMovement(
-          movementType,
-          itemId,
-          warehouseName,
-          quantityChange,
-          beforeState,
-          afterState,
-          createdBy,
-          description || undefined,
-          clientIp,
-          userAgent
-        )
-      } catch (error) {
-        console.warn('Warning: Error logging audit event:', error)
-        // این خطا نباید باعث شکست کل عملیات شود
-      }
-      
-      // تریگر event برای به‌روزرسانی کش‌های قدیمی
-      try {
-        notifyStockMovement({
-          itemId: itemId.toString(),
-          warehouseName: warehouseName,
-          quantity: quantityChange,
-          movementType: movementType
-        })
-      } catch (error) {
-        console.warn('Warning: Error notifying stock movement:', error)
-      }
-      
-      // محاسبه مجدد هشدارها بعد از ثبت حرکت
-      try {
-        // استفاده از fetch داخلی برای محاسبه هشدارها
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
-        await fetch(`${baseUrl}/api/stock-alerts/calculate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }).catch((err) => {
-          console.warn('Warning: Could not recalculate alerts:', err)
-          // این خطا نباید باعث شکست کل عملیات شود
-        })
-      } catch (error) {
-        console.warn('Warning: Error recalculating alerts after stock movement:', error)
-        // این خطا نباید باعث شکست کل عملیات شود
-      }
-      
-      return NextResponse.json({
-        success: true,
-        message: 'حرکت کالا با موفقیت ثبت شد'
-      })
-    } finally {
-      await session.endSession()
     }
+    
+    // ایجاد Stock Movement
+    const movement = {
+      itemId: new ObjectId(itemId),
+      warehouseId: warehouseId || null,
+      warehouseName: warehouseName,
+      movementType: movementType,
+      quantity: quantityChange,
+      unitPrice: unitPrice || 0,
+      totalValue: valueChange,
+      lotNumber: lotNumber || null,
+      expirationDate: expirationDate || null,
+      documentNumber: documentNumber || `MOV-${Date.now()}`,
+      documentType: documentType || movementType,
+      description: description || '',
+      referenceId: referenceId || null,
+      createdBy: createdBy,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    
+    const movementResult = await movementCollection.insertOne(movement)
+    const movementId = movementResult.insertedId
+    
+    // مدیریت FIFO Layers (فقط برای ورود)
+    if (movementType === 'PURCHASE_IN' || movementType === 'INITIAL' || movementType === 'TRANSFER_IN') {
+      await fifoLayerCollection.insertOne({
+        itemId: new ObjectId(itemId),
+        warehouseId: warehouseId || null,
+        warehouseName: warehouseName,
+        movementId: movementId,
+        quantity: quantity,
+        remainingQuantity: quantity,
+        unitPrice: unitPrice || 0,
+        lotNumber: lotNumber || null,
+        expirationDate: expirationDate || null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+    }
+    
+    // به‌روزرسانی FIFO Layers برای خروج
+    if (movementType === 'SALE_CONSUMPTION' || movementType === 'TRANSFER_OUT') {
+      const fifoLayers = await fifoLayerCollection
+        .find({
+          itemId: new ObjectId(itemId),
+          warehouseName: warehouseName,
+          remainingQuantity: { $gt: 0 }
+        })
+        .sort({ createdAt: 1 })
+        .toArray()
+      
+      let remainingQty = quantity
+      
+      for (const layer of fifoLayers) {
+        if (remainingQty <= 0) break
+        
+        const consumedQty = Math.min(remainingQty, layer.remainingQuantity)
+        const newRemainingQty = layer.remainingQuantity - consumedQty
+        
+        await fifoLayerCollection.updateOne(
+          { _id: layer._id },
+          {
+            $set: {
+              remainingQuantity: newRemainingQty,
+              updatedAt: new Date()
+            }
+          }
+        )
+        
+        remainingQty -= consumedQty
+      }
+    }
+    
+    // ثبت لاگ ممیزی
+    try {
+      const afterState = {
+        quantity: newQuantity,
+        totalValue: newValue
+      }
+      
+      const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+      const userAgent = request.headers.get('user-agent') || 'unknown'
+      
+      await logStockMovement(
+        movementType,
+        itemId,
+        warehouseName,
+        quantityChange,
+        beforeState,
+        afterState,
+        createdBy,
+        description || undefined,
+        clientIp,
+        userAgent
+      )
+    } catch (error) {
+      console.warn('Warning: Error logging audit event:', error)
+      // این خطا نباید باعث شکست کل عملیات شود
+    }
+    
+    // تریگر event برای به‌روزرسانی کش‌های قدیمی
+    try {
+      notifyStockMovement({
+        itemId: itemId.toString(),
+        warehouseName: warehouseName,
+        quantity: quantityChange,
+        movementType: movementType
+      })
+    } catch (error) {
+      console.warn('Warning: Error notifying stock movement:', error)
+    }
+    
+    // محاسبه مجدد هشدارها بعد از ثبت حرکت
+    try {
+      // استفاده از fetch داخلی برای محاسبه هشدارها
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+      await fetch(`${baseUrl}/api/stock-alerts/calculate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }).catch((err) => {
+        console.warn('Warning: Could not recalculate alerts:', err)
+        // این خطا نباید باعث شکست کل عملیات شود
+      })
+    } catch (error) {
+      console.warn('Warning: Error recalculating alerts after stock movement:', error)
+      // این خطا نباید باعث شکست کل عملیات شود
+    }
+    
+    return NextResponse.json({
+      success: true,
+      message: 'حرکت کالا با موفقیت ثبت شد'
+    })
   } catch (error) {
     console.error('Error creating stock movement:', error)
     return NextResponse.json(
