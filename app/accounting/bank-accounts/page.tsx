@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   Building, 
   Search, 
@@ -160,7 +160,7 @@ const mockBankAccounts: BankAccount[] = [
 ]
 
 export default function BankAccountsPage() {
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(mockBankAccounts)
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
@@ -169,6 +169,8 @@ export default function BankAccountsPage() {
   const [selectedAccount, setSelectedAccount] = useState<BankAccount | null>(null)
   const [showTransactionForm, setShowTransactionForm] = useState(false)
   const [showReconcileModal, setShowReconcileModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   const [formData, setFormData] = useState({
     accountNumber: '',
@@ -192,6 +194,61 @@ export default function BankAccountsPage() {
     category: ''
   })
 
+  // تبدیل داده‌های API به فرمت مورد نیاز
+  const convertApiDataToAccount = useCallback((item: any): BankAccount => {
+    return {
+      id: item._id?.toString() || item.id || '',
+      accountNumber: item.accountNumber || '',
+      bankName: item.bankName || '',
+      branchName: item.branchName || '',
+      accountType: item.accountType || 'current',
+      currency: item.currency || 'IRR',
+      initialBalance: item.initialBalance || 0,
+      currentBalance: item.currentBalance || item.initialBalance || 0,
+      status: item.status || 'active',
+      ownerName: item.accountHolder || item.ownerName || '',
+      iban: item.iban || '',
+      swiftCode: item.swiftCode || '',
+      description: item.notes || item.description || '',
+      createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+      lastReconciled: item.lastReconciled || '',
+      transactions: item.transactions || []
+    }
+  }, [])
+
+  // دریافت داده از API
+  const fetchBankAccounts = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (filterStatus !== 'all') params.append('status', filterStatus)
+      if (filterType !== 'all') params.append('accountType', filterType)
+      params.append('sortBy', 'createdAt')
+      params.append('sortOrder', 'desc')
+      params.append('limit', '1000')
+
+      const response = await fetch(`/api/bank-accounts?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        const accounts = (data.data || []).map(convertApiDataToAccount)
+        setBankAccounts(accounts)
+      } else {
+        console.error('Error fetching bank accounts:', data.message)
+        setBankAccounts([])
+      }
+    } catch (error) {
+      console.error('Error fetching bank accounts:', error)
+      setBankAccounts([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterStatus, filterType, convertApiDataToAccount])
+
+  useEffect(() => {
+    fetchBankAccounts()
+  }, [fetchBankAccounts])
+
   const filteredAccounts = bankAccounts.filter(account =>
     (filterStatus === 'all' || account.status === filterStatus) &&
     (filterType === 'all' || account.accountType === filterType) &&
@@ -200,51 +257,77 @@ export default function BankAccountsPage() {
       account.ownerName.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
-  const handleSave = () => {
-    if (editingAccount) {
-      // Update existing account
-      const updatedAccount = {
-        ...editingAccount,
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const accountData = {
         accountNumber: formData.accountNumber,
         bankName: formData.bankName,
         branchName: formData.branchName,
         accountType: formData.accountType,
         currency: formData.currency,
         initialBalance: formData.initialBalance,
-        ownerName: formData.ownerName,
+        accountHolder: formData.ownerName,
         iban: formData.iban,
         swiftCode: formData.swiftCode,
-        description: formData.description
+        notes: formData.description
       }
-      setBankAccounts(bankAccounts.map(account => 
-        account.id === editingAccount.id ? updatedAccount : account
-      ))
-    } else {
-      // Create new account
-      const newAccount: BankAccount = {
-        id: Date.now().toString(),
-        accountNumber: formData.accountNumber,
-        bankName: formData.bankName,
-        branchName: formData.branchName,
-        accountType: formData.accountType,
-        currency: formData.currency,
-        initialBalance: formData.initialBalance,
-        currentBalance: formData.initialBalance,
-        status: 'active',
-        ownerName: formData.ownerName,
-        iban: formData.iban,
-        swiftCode: formData.swiftCode,
-        description: formData.description,
-        createdAt: new Date().toLocaleString('fa-IR'),
-        lastReconciled: '',
-        transactions: []
+
+      let response
+      if (editingAccount) {
+        // Update existing account
+        response = await fetch(`/api/bank-accounts/${editingAccount.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(accountData)
+        })
+      } else {
+        // Create new account
+        response = await fetch('/api/bank-accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(accountData)
+        })
       }
-      setBankAccounts([newAccount, ...bankAccounts])
+
+      const data = await response.json()
+      if (data.success) {
+        await fetchBankAccounts()
+        setShowForm(false)
+        setEditingAccount(null)
+        resetForm()
+        alert(editingAccount ? 'حساب بانکی با موفقیت به‌روزرسانی شد' : 'حساب بانکی با موفقیت ایجاد شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error saving bank account:', error)
+      alert('خطا در ذخیره حساب بانکی')
+    } finally {
+      setSaving(false)
     }
-    setShowForm(false)
-    setEditingAccount(null)
-    resetForm()
   }
+
+  const handleDelete = async (accountId: string) => {
+    if (!confirm('آیا از حذف این حساب بانکی اطمینان دارید؟')) return
+
+    try {
+      const response = await fetch(`/api/bank-accounts/${accountId}`, {
+        method: 'DELETE'
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchBankAccounts()
+        alert('حساب بانکی با موفقیت حذف شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting bank account:', error)
+      alert('خطا در حذف حساب بانکی')
+    }
+  }
+
 
   const handleTransactionSave = () => {
     if (selectedAccount) {
@@ -300,11 +383,6 @@ export default function BankAccountsPage() {
     setShowForm(true)
   }
 
-  const deleteAccount = (id: string) => {
-    if (confirm('آیا از حذف این حساب بانکی مطمئن هستید؟')) {
-      setBankAccounts(bankAccounts.filter(account => account.id !== id))
-    }
-  }
 
   const resetForm = () => {
     setFormData({
@@ -411,9 +489,26 @@ export default function BankAccountsPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold gradient-text mb-2">مدیریت بانک‌ها و حساب‌های بانکی</h1>
-          <p className="text-gray-600 dark:text-gray-300">مدیریت حساب‌های بانکی و تراکنش‌های مالی</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold gradient-text mb-2">مدیریت بانک‌ها و حساب‌های بانکی</h1>
+              <p className="text-gray-600 dark:text-gray-300">مدیریت حساب‌های بانکی و تراکنش‌های مالی</p>
+            </div>
+            <button
+              onClick={fetchBankAccounts}
+              disabled={loading}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'در حال بارگذاری...' : 'به‌روزرسانی'}
+            </button>
+          </div>
         </div>
+
+        {loading && (
+          <div className="text-center py-8">
+            <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری داده‌ها...</p>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -596,7 +691,7 @@ export default function BankAccountsPage() {
                       <span>ویرایش</span>
                     </button>
                     <button
-                      onClick={() => deleteAccount(account.id)}
+                      onClick={() => handleDelete(account.id)}
                       className="flex-1 flex items-center justify-center space-x-2 space-x-reverse px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
                     >
                       <Trash2 className="w-4 h-4" />

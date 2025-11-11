@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { usePrinterConfig } from '@/hooks/usePrinterConfig'
 import { 
   Clock, 
   User, 
@@ -60,6 +61,7 @@ interface Order {
 }
 
 export default function OrdersManagementClient() {
+  const { config: printerConfig } = usePrinterConfig()
   const [mounted, setMounted] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -308,13 +310,31 @@ export default function OrdersManagementClient() {
   const getCompletedOrders = () => orders.filter(order => order.status === 'completed').length
   const getTotalRevenue = () => orders.reduce((sum, order) => sum + order.total, 0)
 
-  // تابع چاپ پرینتر
+  // تابع چاپ پرینتر (با استفاده از تنظیمات)
   const printOrder = (order: Order, printType: 'printer' | 'laser' = 'printer') => {
+    // بررسی فعال بودن نوع چاپگر
+    const config = printType === 'printer' ? printerConfig?.printer : printerConfig?.laser
+    if (!config || !config.enabled) {
+      alert(`چاپگر ${printType === 'printer' ? 'حرارتی' : 'لیزری'} غیرفعال است. لطفاً از تنظیمات چاپگر آن را فعال کنید.`)
+      return
+    }
+
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
       alert('لطفاً popup blocker را غیرفعال کنید')
       return
     }
+
+    // استفاده از تنظیمات یا مقادیر پیش‌فرض
+    const paperSize = config.paperSize || (printType === 'laser' ? 'A4' : '80mm')
+    const fontSize = config.fontSize || (printType === 'laser' ? 12 : 10)
+    const fontFamily = config.fontFamily || 'Tahoma, Arial, sans-serif'
+    const margin = config.margin || (printType === 'laser' ? 10 : 5)
+    const headerConfig = config.header || { show: true, title: 'فاکتور سفارش', showDate: true, showTime: true, showLogo: false, logoUrl: '' }
+    const footerConfig = config.footer || { show: true, text: 'با تشکر از انتخاب شما', showDate: true }
+    const itemsConfig = config.items || { showNotes: true, showImage: false, columns: ['name', 'quantity', 'price', 'total'] }
+    const summaryConfig = config.summary || { showSubtotal: true, showTax: true, showServiceCharge: true, showDiscount: true, showTotal: true }
+    const generalConfig = printerConfig?.general || { autoPrint: false, showPrintDialog: true, copies: 1, orientation: 'portrait' }
 
     const printContent = `
       <!DOCTYPE html>
@@ -324,8 +344,8 @@ export default function OrdersManagementClient() {
         <title>چاپ سفارش ${order.orderNumber}</title>
         <style>
           @page {
-            size: ${printType === 'laser' ? 'A4' : '80mm'};
-            margin: ${printType === 'laser' ? '10mm' : '5mm'};
+            size: ${paperSize};
+            margin: ${margin}mm;
           }
           * {
             margin: 0;
@@ -333,67 +353,69 @@ export default function OrdersManagementClient() {
             box-sizing: border-box;
           }
           body {
-            font-family: 'Tahoma', 'Arial', sans-serif;
-            font-size: ${printType === 'laser' ? '12px' : '10px'};
+            font-family: ${fontFamily};
+            font-size: ${fontSize}px;
             line-height: 1.6;
             color: #000;
             background: #fff;
-            padding: ${printType === 'laser' ? '20px' : '10px'};
+            padding: ${margin}px;
           }
+          ${headerConfig.show ? `
           .header {
             text-align: center;
             border-bottom: 2px solid #000;
-            padding-bottom: ${printType === 'laser' ? '15px' : '10px'};
-            margin-bottom: ${printType === 'laser' ? '20px' : '15px'};
+            padding-bottom: ${margin * 2}px;
+            margin-bottom: ${margin * 2}px;
           }
           .header h1 {
-            font-size: ${printType === 'laser' ? '24px' : '16px'};
+            font-size: ${fontSize * 1.6}px;
             font-weight: bold;
             margin-bottom: 5px;
           }
           .header p {
-            font-size: ${printType === 'laser' ? '14px' : '10px'};
+            font-size: ${fontSize * 0.85}px;
             color: #666;
           }
+          ` : '.header { display: none; }'}
           .order-info {
-            margin-bottom: ${printType === 'laser' ? '15px' : '10px'};
+            margin-bottom: ${margin * 2}px;
           }
           .order-info-row {
             display: flex;
             justify-content: space-between;
             margin-bottom: 5px;
-            font-size: ${printType === 'laser' ? '11px' : '9px'};
+            font-size: ${fontSize * 0.9}px;
           }
           .order-info-label {
             font-weight: bold;
           }
           .customer-info {
             background: #f5f5f5;
-            padding: ${printType === 'laser' ? '12px' : '8px'};
+            padding: ${margin * 1.5}px;
             border-radius: 5px;
-            margin-bottom: ${printType === 'laser' ? '15px' : '10px'};
+            margin-bottom: ${margin * 2}px;
           }
           .customer-info h3 {
-            font-size: ${printType === 'laser' ? '14px' : '11px'};
+            font-size: ${fontSize * 1.15}px;
             margin-bottom: 8px;
             border-bottom: 1px solid #ddd;
             padding-bottom: 5px;
           }
           .customer-info p {
-            font-size: ${printType === 'laser' ? '11px' : '9px'};
+            font-size: ${fontSize * 0.9}px;
             margin-bottom: 3px;
           }
           .items-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: ${printType === 'laser' ? '15px' : '10px'};
+            margin-bottom: ${margin * 2}px;
           }
           .items-table th,
           .items-table td {
             border: 1px solid #ddd;
-            padding: ${printType === 'laser' ? '8px' : '5px'};
+            padding: ${margin}px;
             text-align: right;
-            font-size: ${printType === 'laser' ? '11px' : '9px'};
+            font-size: ${fontSize * 0.9}px;
           }
           .items-table th {
             background: #f5f5f5;
@@ -403,36 +425,38 @@ export default function OrdersManagementClient() {
             background: #fff;
           }
           .summary {
-            margin-top: ${printType === 'laser' ? '15px' : '10px'};
+            margin-top: ${margin * 2}px;
             border-top: 2px solid #000;
-            padding-top: ${printType === 'laser' ? '15px' : '10px'};
+            padding-top: ${margin * 2}px;
           }
           .summary-row {
             display: flex;
             justify-content: space-between;
             margin-bottom: 5px;
-            font-size: ${printType === 'laser' ? '12px' : '10px'};
+            font-size: ${fontSize}px;
           }
           .summary-total {
-            font-size: ${printType === 'laser' ? '18px' : '14px'};
+            font-size: ${fontSize * 1.5}px;
             font-weight: bold;
             border-top: 2px solid #000;
             padding-top: 8px;
             margin-top: 8px;
           }
+          ${footerConfig.show ? `
           .footer {
             text-align: center;
-            margin-top: ${printType === 'laser' ? '20px' : '15px'};
-            padding-top: ${printType === 'laser' ? '15px' : '10px'};
+            margin-top: ${margin * 2}px;
+            padding-top: ${margin * 2}px;
             border-top: 1px solid #ddd;
-            font-size: ${printType === 'laser' ? '10px' : '8px'};
+            font-size: ${fontSize * 0.85}px;
             color: #666;
           }
+          ` : '.footer { display: none; }'}
           .status-badge {
             display: inline-block;
             padding: 3px 8px;
             border-radius: 3px;
-            font-size: ${printType === 'laser' ? '10px' : '8px'};
+            font-size: ${fontSize * 0.85}px;
             font-weight: bold;
           }
           .status-pending { background: #fef3c7; color: #92400e; }
@@ -452,11 +476,20 @@ export default function OrdersManagementClient() {
         </style>
       </head>
       <body>
+        ${headerConfig.show ? `
         <div class="header">
-          <h1>فاکتور سفارش</h1>
+          ${headerConfig.showLogo && headerConfig.logoUrl ? `<img src="${headerConfig.logoUrl}" alt="Logo" style="max-width: 100px; margin-bottom: 10px;" />` : ''}
+          <h1>${headerConfig.title}</h1>
           <p>شماره سفارش: ${order.orderNumber}</p>
-          <p>تاریخ: ${new Date(order.orderTime).toLocaleDateString('fa-IR')} - ${new Date(order.orderTime).toLocaleTimeString('fa-IR')}</p>
+          ${headerConfig.showDate || headerConfig.showTime ? `
+          <p>
+            ${headerConfig.showDate ? `تاریخ: ${new Date(order.orderTime).toLocaleDateString('fa-IR')}` : ''}
+            ${headerConfig.showDate && headerConfig.showTime ? ' - ' : ''}
+            ${headerConfig.showTime ? `زمان: ${new Date(order.orderTime).toLocaleTimeString('fa-IR')}` : ''}
+          </p>
+          ` : ''}
         </div>
+        ` : ''}
 
         <div class="order-info">
           <div class="order-info-row">
@@ -492,52 +525,56 @@ export default function OrdersManagementClient() {
           <thead>
             <tr>
               <th>ردیف</th>
-              <th>نام آیتم</th>
-              <th>تعداد</th>
-              <th>قیمت واحد</th>
-              <th>جمع</th>
+              ${itemsConfig.columns.includes('name') ? '<th>نام آیتم</th>' : ''}
+              ${itemsConfig.columns.includes('quantity') ? '<th>تعداد</th>' : ''}
+              ${itemsConfig.columns.includes('price') ? '<th>قیمت واحد</th>' : ''}
+              ${itemsConfig.columns.includes('total') ? '<th>جمع</th>' : ''}
             </tr>
           </thead>
           <tbody>
             ${order.items && Array.isArray(order.items) ? order.items.map((item: any, index: number) => `
               <tr>
                 <td>${index + 1}</td>
-                <td>${item.name}${item.notes ? `<br><small style="color: #666;">${item.notes}</small>` : ''}</td>
-                <td>${item.quantity}</td>
-                <td>${item.price.toLocaleString('fa-IR')} تومان</td>
-                <td>${(item.quantity * item.price).toLocaleString('fa-IR')} تومان</td>
+                ${itemsConfig.columns.includes('name') ? `<td>${item.name}${itemsConfig.showNotes && item.notes ? `<br><small style="color: #666;">${item.notes}</small>` : ''}</td>` : ''}
+                ${itemsConfig.columns.includes('quantity') ? `<td>${item.quantity}</td>` : ''}
+                ${itemsConfig.columns.includes('price') ? `<td>${item.price.toLocaleString('fa-IR')} تومان</td>` : ''}
+                ${itemsConfig.columns.includes('total') ? `<td>${(item.quantity * item.price).toLocaleString('fa-IR')} تومان</td>` : ''}
               </tr>
             `).join('') : ''}
           </tbody>
         </table>
 
         <div class="summary">
+          ${summaryConfig.showSubtotal ? `
           <div class="summary-row">
             <span>زیرمجموع:</span>
             <span>${order.subtotal.toLocaleString('fa-IR')} تومان</span>
           </div>
-          ${order.tax > 0 ? `
+          ` : ''}
+          ${summaryConfig.showTax && order.tax > 0 ? `
           <div class="summary-row">
             <span>مالیات:</span>
             <span>${order.tax.toLocaleString('fa-IR')} تومان</span>
           </div>
           ` : ''}
-          ${order.serviceCharge && order.serviceCharge > 0 ? `
+          ${summaryConfig.showServiceCharge && order.serviceCharge && order.serviceCharge > 0 ? `
           <div class="summary-row">
             <span>کارمزد سرویس:</span>
             <span>${order.serviceCharge.toLocaleString('fa-IR')} تومان</span>
           </div>
           ` : ''}
-          ${order.discount > 0 ? `
+          ${summaryConfig.showDiscount && order.discount > 0 ? `
           <div class="summary-row" style="color: #059669;">
             <span>تخفیف:</span>
             <span>-${order.discount.toLocaleString('fa-IR')} تومان</span>
           </div>
           ` : ''}
+          ${summaryConfig.showTotal ? `
           <div class="summary-row summary-total">
             <span>مبلغ کل:</span>
             <span>${order.total.toLocaleString('fa-IR')} تومان</span>
           </div>
+          ` : ''}
         </div>
 
         ${order.notes ? `
@@ -546,10 +583,12 @@ export default function OrdersManagementClient() {
         </div>
         ` : ''}
 
+        ${footerConfig.show ? `
         <div class="footer">
-          <p>با تشکر از انتخاب شما</p>
-          <p>${new Date().toLocaleDateString('fa-IR')} - ${new Date().toLocaleTimeString('fa-IR')}</p>
+          <p>${footerConfig.text}</p>
+          ${footerConfig.showDate ? `<p>${new Date().toLocaleDateString('fa-IR')} - ${new Date().toLocaleTimeString('fa-IR')}</p>` : ''}
         </div>
+        ` : ''}
       </body>
       </html>
     `
@@ -559,7 +598,12 @@ export default function OrdersManagementClient() {
     
     // صبر کن تا محتوا لود شود، سپس چاپ کن
     setTimeout(() => {
-      printWindow.print()
+      if (generalConfig.showPrintDialog) {
+        printWindow.print()
+      } else {
+        // چاپ خودکار بدون نمایش دیالوگ (نیاز به تنظیمات مرورگر)
+        printWindow.print()
+      }
     }, 250)
   }
 

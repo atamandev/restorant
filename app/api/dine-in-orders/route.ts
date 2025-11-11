@@ -123,6 +123,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const tableNumber = searchParams.get('tableNumber')
     const date = searchParams.get('date')
+    const branchId = searchParams.get('branchId')
     
     const skip = (page - 1) * limit
     
@@ -132,6 +133,9 @@ export async function GET(request: NextRequest) {
     }
     if (tableNumber) {
       query.tableNumber = tableNumber
+    }
+    if (branchId) {
+      query.branchId = new ObjectId(branchId)
     }
     if (date) {
       const startOfDay = new Date(date)

@@ -5,12 +5,12 @@ import { AuthProvider } from '@/components/AuthProvider'
 import ClientLayout from '@/components/ClientLayout'
 
 export const metadata: Metadata = {
-  title: 'سیستم مدیریت رستوران',
-  description: 'سیستم مدیریت حرفه‌ای رستوران',
+  title: "سیستم مدیریت رستوران",
+  description: "سیستم مدیریت حرفه‌ای رستوران",
   icons: {
-    icon: '/icon.svg',
-    shortcut: '/icon.svg',
-    apple: '/icon.svg',
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
   },
 }
 

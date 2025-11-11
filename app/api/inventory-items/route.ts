@@ -78,9 +78,51 @@ export async function GET(request: NextRequest) {
       .limit(maxLimit)
       .toArray()
     
-    // اگر includeAlerts=true باشد، هشدارهای مرتبط را هم بیاور
-    if (includeAlerts) {
-      for (const item of inventoryItems) {
+    // اگر unitPrice وجود نداشته باشد، از inventory_balance بگیر
+    const balanceCollection = db.collection('inventory_balance')
+    const itemIdsNeedingPrice = inventoryItems
+      .filter(item => !item.unitPrice || item.unitPrice === 0)
+      .map(item => item._id)
+    
+    // دریافت همه balance ها در یک query (بهینه‌تر)
+    let balancesMap = new Map()
+    if (itemIdsNeedingPrice.length > 0) {
+      // تبدیل به ObjectId برای جستجو
+      const objectIds = itemIdsNeedingPrice.map(id => 
+        typeof id === 'string' ? new ObjectId(id) : id
+      )
+      const stringIds = itemIdsNeedingPrice.map(id => id.toString())
+      
+      const balances = await balanceCollection.find({
+        $or: [
+          { itemId: { $in: objectIds } },
+          { itemId: { $in: stringIds } }
+        ]
+      }).toArray()
+      
+      balances.forEach(balance => {
+        if (balance.quantity > 0 && balance.totalValue) {
+          const calculatedPrice = balance.totalValue / balance.quantity
+          // ذخیره با هر دو فرمت (string و ObjectId)
+          const itemIdStr = balance.itemId?.toString() || balance.itemId
+          if (itemIdStr) {
+            balancesMap.set(itemIdStr, calculatedPrice)
+          }
+        }
+      })
+    }
+    
+    // به‌روزرسانی unitPrice برای آیتم‌هایی که نیاز دارند
+    for (const item of inventoryItems) {
+      if (!item.unitPrice || item.unitPrice === 0) {
+        const itemIdStr = item._id.toString()
+        if (balancesMap.has(itemIdStr)) {
+          item.unitPrice = balancesMap.get(itemIdStr)
+        }
+      }
+      
+      // اگر includeAlerts=true باشد، هشدارهای مرتبط را هم بیاور
+      if (includeAlerts) {
         const activeAlert = await stockAlertsCollection.findOne({
           itemId: item._id.toString(),
           status: 'active'

@@ -136,6 +136,10 @@ export async function DELETE(
       throw new Error('Database connection failed')
     }
     const inventoryCollection = db.collection('inventory_items')
+    const balanceCollection = db.collection('inventory_balance')
+    const stockAlertsCollection = db.collection('stock_alerts')
+    const stockMovementsCollection = db.collection('stock_movements')
+    const itemLedgerCollection = db.collection('item_ledger')
     
     const itemId = params.id
     
@@ -150,6 +154,44 @@ export async function DELETE(
       )
     }
     
+    // بررسی وجود کالا قبل از حذف
+    const existingItem = await inventoryCollection.findOne({ _id: objectId })
+    if (!existingItem) {
+      return NextResponse.json(
+        { success: false, message: 'کالا یافت نشد' },
+        { status: 404 }
+      )
+    }
+    
+    console.log(`[DELETE] Starting deletion of item ${itemId}`)
+    
+    // حذف از inventory_balance (موجودی انبارها) - با هر دو فرمت ObjectId و string
+    const balanceResult = await balanceCollection.deleteMany({
+      $or: [
+        { itemId: objectId },
+        { itemId: itemId }
+      ]
+    })
+    console.log(`[DELETE] Deleted ${balanceResult.deletedCount} balance records`)
+    
+    // حذف از stock_alerts (هشدارهای موجودی) - با هر دو فرمت ObjectId و string
+    const alertsResult = await stockAlertsCollection.deleteMany({
+      $or: [
+        { itemId: objectId },
+        { itemId: itemId }
+      ]
+    })
+    console.log(`[DELETE] Deleted ${alertsResult.deletedCount} stock alerts`)
+    
+    // حذف از stock_movements (حرکات موجودی) - اختیاری، می‌توانید تاریخچه را نگه دارید
+    // const movementsResult = await stockMovementsCollection.deleteMany({ itemId: itemId })
+    // console.log(`[DELETE] Deleted ${movementsResult.deletedCount} stock movements`)
+    
+    // حذف از item_ledger (کاردکس کالا) - اختیاری، می‌توانید تاریخچه را نگه دارید
+    // const ledgerResult = await itemLedgerCollection.deleteMany({ itemId: itemId })
+    // console.log(`[DELETE] Deleted ${ledgerResult.deletedCount} ledger records`)
+    
+    // حذف از inventory_items (کالا)
     const result = await inventoryCollection.deleteOne({ _id: objectId })
     
     if (result.deletedCount === 0) {
@@ -159,9 +201,16 @@ export async function DELETE(
       )
     }
     
+    console.log(`[DELETE] Successfully deleted item ${itemId} and all related data`)
+    
     return NextResponse.json({
       success: true,
-      message: 'کالا با موفقیت حذف شد'
+      message: 'کالا و تمام داده‌های مرتبط با موفقیت حذف شد',
+      deletedCounts: {
+        item: result.deletedCount,
+        balance: balanceResult.deletedCount,
+        alerts: alertsResult.deletedCount
+      }
     })
   } catch (error) {
     console.error('Error deleting warehouse item:', error)

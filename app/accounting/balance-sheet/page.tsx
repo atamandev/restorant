@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   BarChart3, 
   Search, 
@@ -154,11 +154,202 @@ const mockBalanceSheetData: BalanceSheetItem[] = [
 ]
 
 export default function BalanceSheetPage() {
-  const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheetItem[]>(mockBalanceSheetData)
+  const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheetItem[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterCategory, setFilterCategory] = useState('all')
   const [selectedItem, setSelectedItem] = useState<BalanceSheetItem | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [balanceSheetApiData, setBalanceSheetApiData] = useState<any>(null)
+  const [asOfDate, setAsOfDate] = useState<string>(new Date().toISOString().split('T')[0])
+
+  // تبدیل داده‌های API به فرمت مورد نیاز صفحه
+  const convertApiDataToItems = useCallback((apiData: any): BalanceSheetItem[] => {
+    const items: BalanceSheetItem[] = []
+    const today = new Date().toLocaleDateString('fa-IR')
+
+    if (!apiData) return items
+
+    // دارایی‌های جاری
+    if (apiData.assets?.current) {
+      if (apiData.assets.current.cashAndBank > 0) {
+        items.push({
+          id: 'asset-cash-bank',
+          category: 'دارایی‌های جاری',
+          subcategory: 'نقد و بانک',
+          name: 'نقد و بانک',
+          amount: apiData.assets.current.cashAndBank,
+          type: 'asset',
+          description: 'موجودی نقدی و حساب‌های بانکی',
+          lastUpdated: today
+        })
+      }
+      if (apiData.assets.current.accountsReceivable > 0) {
+        items.push({
+          id: 'asset-receivable',
+          category: 'دارایی‌های جاری',
+          subcategory: 'حساب‌های دریافتنی',
+          name: 'حساب‌های دریافتنی',
+          amount: apiData.assets.current.accountsReceivable,
+          type: 'asset',
+          description: 'مبالغ قابل دریافت از مشتریان',
+          lastUpdated: today
+        })
+      }
+      if (apiData.assets.current.inventory > 0) {
+        items.push({
+          id: 'asset-inventory',
+          category: 'دارایی‌های جاری',
+          subcategory: 'موجودی',
+          name: 'موجودی مواد اولیه',
+          amount: apiData.assets.current.inventory,
+          type: 'asset',
+          description: 'ارزش موجودی مواد اولیه',
+          lastUpdated: today
+        })
+      }
+      if (apiData.assets.current.chequesReceivable > 0) {
+        items.push({
+          id: 'asset-cheques',
+          category: 'دارایی‌های جاری',
+          subcategory: 'چک‌های دریافتنی',
+          name: 'چک‌های دریافتنی',
+          amount: apiData.assets.current.chequesReceivable,
+          type: 'asset',
+          description: 'چک‌های دریافتی از مشتریان',
+          lastUpdated: today
+        })
+      }
+    }
+
+    // دارایی‌های ثابت
+    if (apiData.assets?.fixed?.total > 0) {
+      items.push({
+        id: 'asset-fixed',
+        category: 'دارایی‌های ثابت',
+        subcategory: 'تجهیزات',
+        name: 'دارایی‌های ثابت',
+        amount: apiData.assets.fixed.total,
+        type: 'asset',
+        description: 'تجهیزات و دارایی‌های ثابت',
+        lastUpdated: today
+      })
+    }
+
+    // بدهی‌های جاری
+    if (apiData.liabilities?.current) {
+      if (apiData.liabilities.current.accountsPayable > 0) {
+        items.push({
+          id: 'liability-payable',
+          category: 'بدهی‌های جاری',
+          subcategory: 'حساب‌های پرداختنی',
+          name: 'حساب‌های پرداختنی',
+          amount: apiData.liabilities.current.accountsPayable,
+          type: 'liability',
+          description: 'مبالغ قابل پرداخت به تامین‌کنندگان',
+          lastUpdated: today
+        })
+      }
+      if (apiData.liabilities.current.chequesPayable > 0) {
+        items.push({
+          id: 'liability-cheques',
+          category: 'بدهی‌های جاری',
+          subcategory: 'چک‌های پرداختنی',
+          name: 'چک‌های پرداختنی',
+          amount: apiData.liabilities.current.chequesPayable,
+          type: 'liability',
+          description: 'چک‌های صادر شده',
+          lastUpdated: today
+        })
+      }
+      if (apiData.liabilities.current.taxPayable > 0) {
+        items.push({
+          id: 'liability-tax',
+          category: 'بدهی‌های جاری',
+          subcategory: 'مالیات',
+          name: 'مالیات پرداختنی',
+          amount: apiData.liabilities.current.taxPayable,
+          type: 'liability',
+          description: 'مالیات قابل پرداخت',
+          lastUpdated: today
+        })
+      }
+    }
+
+    // بدهی‌های بلندمدت
+    if (apiData.liabilities?.longTerm?.total > 0) {
+      items.push({
+        id: 'liability-longterm',
+        category: 'بدهی‌های بلندمدت',
+        subcategory: 'وام‌ها',
+        name: 'وام‌های بلندمدت',
+        amount: apiData.liabilities.longTerm.total,
+        type: 'liability',
+        description: 'وام‌ها و تعهدات بلندمدت',
+        lastUpdated: today
+      })
+    }
+
+    // سرمایه
+    if (apiData.equity) {
+      if (apiData.equity.initialCapital > 0) {
+        items.push({
+          id: 'equity-initial',
+          category: 'سرمایه',
+          subcategory: 'سرمایه اولیه',
+          name: 'سرمایه اولیه',
+          amount: apiData.equity.initialCapital,
+          type: 'equity',
+          description: 'سرمایه اولیه رستوران',
+          lastUpdated: today
+        })
+      }
+      if (apiData.equity.retainedEarnings > 0) {
+        items.push({
+          id: 'equity-retained',
+          category: 'سرمایه',
+          subcategory: 'سود انباشته',
+          name: 'سود انباشته',
+          amount: apiData.equity.retainedEarnings,
+          type: 'equity',
+          description: 'سود انباشته از فعالیت‌ها',
+          lastUpdated: today
+        })
+      }
+    }
+
+    return items
+  }, [])
+
+  // دریافت داده از API
+  const fetchBalanceSheet = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (asOfDate) params.append('asOfDate', asOfDate)
+
+      const response = await fetch(`/api/balance-sheet?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        setBalanceSheetApiData(data.data)
+        const items = convertApiDataToItems(data.data)
+        setBalanceSheetData(items)
+      } else {
+        console.error('Error fetching balance sheet:', data.message)
+        setBalanceSheetData([])
+      }
+    } catch (error) {
+      console.error('Error fetching balance sheet:', error)
+      setBalanceSheetData([])
+    } finally {
+      setLoading(false)
+    }
+  }, [asOfDate, convertApiDataToItems])
+
+  useEffect(() => {
+    fetchBalanceSheet()
+  }, [fetchBalanceSheet])
 
   const filteredData = balanceSheetData.filter(item =>
     (filterType === 'all' || item.type === filterType) &&
@@ -167,9 +358,24 @@ export default function BalanceSheetPage() {
       item.description.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
-  const getTotalAssets = () => balanceSheetData.filter(item => item.type === 'asset').reduce((sum, item) => sum + item.amount, 0)
-  const getTotalLiabilities = () => balanceSheetData.filter(item => item.type === 'liability').reduce((sum, item) => sum + item.amount, 0)
-  const getTotalEquity = () => balanceSheetData.filter(item => item.type === 'equity').reduce((sum, item) => sum + item.amount, 0)
+  const getTotalAssets = () => {
+    if (balanceSheetApiData?.assets?.total !== undefined) {
+      return balanceSheetApiData.assets.total
+    }
+    return balanceSheetData.filter(item => item.type === 'asset').reduce((sum, item) => sum + item.amount, 0)
+  }
+  const getTotalLiabilities = () => {
+    if (balanceSheetApiData?.liabilities?.total !== undefined) {
+      return balanceSheetApiData.liabilities.total
+    }
+    return balanceSheetData.filter(item => item.type === 'liability').reduce((sum, item) => sum + item.amount, 0)
+  }
+  const getTotalEquity = () => {
+    if (balanceSheetApiData?.equity?.total !== undefined) {
+      return balanceSheetApiData.equity.total
+    }
+    return balanceSheetData.filter(item => item.type === 'equity').reduce((sum, item) => sum + item.amount, 0)
+  }
   const getNetWorth = () => getTotalAssets() - getTotalLiabilities()
 
   const getTypeIcon = (type: string) => {
@@ -239,6 +445,9 @@ export default function BalanceSheetPage() {
   }
 
   const isBalanced = () => {
+    if (balanceSheetApiData?.balanceCheck?.isBalanced !== undefined) {
+      return balanceSheetApiData.balanceCheck.isBalanced
+    }
     return Math.abs(getTotalAssets() - (getTotalLiabilities() + getTotalEquity())) < 1000
   }
 
@@ -247,9 +456,34 @@ export default function BalanceSheetPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold gradient-text mb-2">ترازنامه</h1>
-          <p className="text-gray-600 dark:text-gray-300">گزارش وضعیت مالی رستوران</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold gradient-text mb-2">ترازنامه</h1>
+              <p className="text-gray-600 dark:text-gray-300">گزارش وضعیت مالی رستوران</p>
+            </div>
+            <div className="flex items-center space-x-3 space-x-reverse">
+              <input
+                type="date"
+                value={asOfDate}
+                onChange={(e) => setAsOfDate(e.target.value)}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              />
+              <button
+                onClick={fetchBalanceSheet}
+                disabled={loading}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'در حال بارگذاری...' : 'به‌روزرسانی'}
+              </button>
+            </div>
+          </div>
         </div>
+
+        {loading && (
+          <div className="text-center py-8">
+            <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری داده‌ها...</p>
+          </div>
+        )}
 
         {/* Balance Check */}
         <div className="mb-8">

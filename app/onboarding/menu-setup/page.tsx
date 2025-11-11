@@ -32,6 +32,7 @@ interface InventoryItem {
   unit: string
   currentStock: number
   code?: string
+  unitPrice?: number
 }
 
 interface RecipeItem {
@@ -136,6 +137,18 @@ export default function MenuSetupPage() {
     } catch (error) {
       console.error('Error fetching inventory items:', error)
     }
+  }
+
+  // محاسبه مجموع قیمت کالاهای استفاده شده در recipe
+  const calculateTotalIngredientCost = () => {
+    let total = 0
+    recipeItems.forEach(recipeItem => {
+      const inventoryItem = inventoryItems.find(item => item._id.toString() === recipeItem.ingredientId)
+      if (inventoryItem && inventoryItem.unitPrice) {
+        total += inventoryItem.unitPrice * recipeItem.quantity
+      }
+    })
+    return total
   }
 
   useEffect(() => {
@@ -784,12 +797,24 @@ export default function MenuSetupPage() {
                 {/* Recipe Items List - Selected Items Summary */}
                 {recipeItems.length > 0 && (
                   <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                    <p className="text-sm font-semibold text-green-800 dark:text-green-200 mb-3 flex items-center space-x-2 space-x-reverse">
-                      <CheckCircle className="w-5 h-5" />
-                      <span>مواد اولیه انتخاب شده ({recipeItems.length} مورد):</span>
-                    </p>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-semibold text-green-800 dark:text-green-200 flex items-center space-x-2 space-x-reverse">
+                        <CheckCircle className="w-5 h-5" />
+                        <span>مواد اولیه انتخاب شده ({recipeItems.length} مورد):</span>
+                      </p>
+                      <div className="flex items-center space-x-2 space-x-reverse bg-white dark:bg-gray-800 px-3 py-1 rounded-lg border border-green-300 dark:border-green-700">
+                        <DollarSign className="w-4 h-4 text-green-600 dark:text-green-400" />
+                        <span className="text-sm font-bold text-green-700 dark:text-green-300">
+                          مجموع قیمت: {calculateTotalIngredientCost().toLocaleString('fa-IR')} تومان
+                        </span>
+                      </div>
+                    </div>
                     <div className="space-y-2">
                       {recipeItems.map((item) => {
+                        const inventoryItem = inventoryItems.find(inv => inv._id.toString() === item.ingredientId)
+                        const itemCost = inventoryItem && inventoryItem.unitPrice 
+                          ? inventoryItem.unitPrice * item.quantity 
+                          : 0
                         return (
                           <div
                             key={item.ingredientId}
@@ -799,9 +824,21 @@ export default function MenuSetupPage() {
                               <p className="text-sm font-medium text-gray-900 dark:text-white">
                                 {item.ingredientName}
                               </p>
-                              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                مقدار: <span className="font-semibold">{item.quantity} {item.unit}</span>
-                              </p>
+                              <div className="flex items-center space-x-3 space-x-reverse mt-1">
+                                <p className="text-xs text-gray-600 dark:text-gray-400">
+                                  مقدار: <span className="font-semibold">{item.quantity} {item.unit}</span>
+                                </p>
+                                {inventoryItem && inventoryItem.unitPrice && (
+                                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                                    قیمت واحد: <span className="font-semibold">{inventoryItem.unitPrice.toLocaleString('fa-IR')} تومان</span>
+                                  </p>
+                                )}
+                                {itemCost > 0 && (
+                                  <p className="text-xs font-semibold text-green-600 dark:text-green-400">
+                                    = {itemCost.toLocaleString('fa-IR')} تومان
+                                  </p>
+                                )}
+                              </div>
                             </div>
                             <button
                               type="button"

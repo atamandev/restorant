@@ -273,7 +273,7 @@ export default function WarehousesPage() {
 
   // حذف انبار
   const handleDeleteWarehouse = async (warehouseId: string) => {
-    if (!confirm('آیا از حذف این انبار اطمینان دارید؟')) return
+    if (!confirm('آیا از حذف این انبار اطمینان دارید؟\n\nتوجه: تمام کالاها، موجودی‌ها و داده‌های مرتبط با این انبار نیز حذف خواهند شد.')) return
 
     try {
       const response = await fetch(`/api/warehouses/${warehouseId}`, {
@@ -283,8 +283,11 @@ export default function WarehousesPage() {
       const data = await response.json()
       
       if (data.success) {
-        alert('انبار با موفقیت حذف شد')
-        fetchWarehouses()
+        const deletedInfo = data.deletedCounts || {}
+        const infoMessage = `انبار با موفقیت حذف شد.\n\nحذف شده:\n- انبار: ${deletedInfo.warehouse || 1}\n- کالاها: ${deletedInfo.items || 0}\n- موجودی‌ها: ${deletedInfo.balances || 0}\n- حرکات: ${deletedInfo.movements || 0}\n- هشدارها: ${deletedInfo.alerts || 0}\n- انتقالات: ${deletedInfo.transfers || 0}`
+        alert(infoMessage)
+        // به‌روزرسانی لیست از دیتابیس
+        await fetchWarehouses()
       } else {
         alert('خطا در حذف انبار: ' + data.message)
       }

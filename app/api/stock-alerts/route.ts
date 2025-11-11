@@ -116,41 +116,50 @@ export async function GET(request: NextRequest) {
       itemsMap.set(key, item.currentStock || 0)
     })
     
-    // فیلتر کردن هشدارها: فقط هشدارهایی که کالا در انبار مشخص شده موجود است
+    // فیلتر کردن هشدارها: بررسی اینکه آیا هشدار معتبر است
     alerts = alerts.filter(alert => {
       const itemId = alert.itemId?.toString() || alert.itemId
       const warehouse = alert.warehouse || ''
       
-      if (!itemId || !warehouse) {
-        return false // اگر itemId یا warehouse نداریم، هشدار را نمایش نده
+      if (!itemId) {
+        return false // اگر itemId نداریم، هشدار را نمایش نده
       }
       
       // بررسی در balance برای انبار مشخص شده
       const balanceKey = `${itemId}-${warehouse}`
       const balanceQty = balanceMap.get(balanceKey)
       
-      if (balanceQty !== undefined && balanceQty > 0) {
-        return true // کالا در balance این انبار موجود است
-      }
-      
       // بررسی در inventory_items برای انبار مشخص شده
       const itemKey = `${itemId}-${warehouse}`
       const itemStock = itemsMap.get(itemKey)
       
-      if (itemStock !== undefined && itemStock > 0) {
-        return true // کالا در inventory_items این انبار موجود است
-      }
+      // دریافت موجودی واقعی (از balance یا inventory_items)
+      const actualStock = balanceQty !== undefined ? balanceQty : (itemStock !== undefined ? itemStock : alert.currentStock || 0)
       
-      // برای هشدار out_of_stock: اگر کالا در این انبار موجودی ندارد، هشدار را نمایش بده
+      // برای هشدار out_of_stock: اگر موجودی 0 یا کمتر است، هشدار را نمایش بده
       if (alert.type === 'out_of_stock') {
-        // بررسی کن که آیا کالا در این انبار واقعاً موجودی ندارد
-        const hasStockInThisWarehouse = (balanceQty !== undefined && balanceQty > 0) || 
-                                        (itemStock !== undefined && itemStock > 0)
-        return !hasStockInThisWarehouse // اگر موجودی ندارد، هشدار را نمایش بده
+        return actualStock <= 0
       }
       
-      // برای سایر هشدارها: فقط اگر کالا در این انبار موجودی دارد، هشدار را نمایش بده
-      return false
+      // برای هشدار low_stock: اگر موجودی کمتر یا برابر minStock است، هشدار را نمایش بده
+      if (alert.type === 'low_stock') {
+        const minStock = alert.minStock || 0
+        return actualStock <= minStock
+      }
+      
+      // برای هشدار overstock: اگر موجودی بیشتر از maxStock است، هشدار را نمایش بده
+      if (alert.type === 'overstock') {
+        const maxStock = alert.maxStock || 0
+        return actualStock > maxStock
+      }
+      
+      // برای هشدار expiry: همیشه نمایش بده (اگر تاریخ انقضا دارد)
+      if (alert.type === 'expiry') {
+        return !!alert.expiryDate
+      }
+      
+      // برای سایر هشدارها: نمایش بده
+      return true
     })
     
     // محدود کردن به limit

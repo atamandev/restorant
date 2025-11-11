@@ -27,7 +27,8 @@ import {
   Star, 
   Target, 
   Zap,
-  Loader2
+  Loader2,
+  Square
 } from 'lucide-react'
 
 interface Branch {
@@ -38,6 +39,7 @@ interface Branch {
   email?: string
   manager?: string
   capacity?: number
+  numberOfTables?: number
   openingHours?: {
     start: string
     end: string
@@ -77,6 +79,7 @@ export default function SetupBranchPage() {
     email: '',
     manager: '',
     capacity: 0,
+    numberOfTables: 0,
     openingHours: {
       start: '09:00',
       end: '23:00'
@@ -142,6 +145,13 @@ export default function SetupBranchPage() {
         setShowForm(false)
         setEditingBranch(null)
         resetForm()
+        
+        // Show success message if tables were created
+        if (formData.numberOfTables && formData.numberOfTables > 0) {
+          alert(`شعبه با موفقیت ذخیره شد!\n${formData.numberOfTables} میز برای این شعبه ایجاد شد.`)
+        } else {
+          alert('شعبه با موفقیت ذخیره شد!')
+        }
       } else {
         setError(data.message || 'خطا در ذخیره شعبه')
       }
@@ -245,6 +255,7 @@ export default function SetupBranchPage() {
       email: '',
       manager: '',
       capacity: 0,
+      numberOfTables: 0,
       openingHours: {
         start: '09:00',
         end: '23:00'
@@ -390,6 +401,7 @@ export default function SetupBranchPage() {
                         email: branch.email || '',
                         manager: branch.manager || '',
                         capacity: branch.capacity || 0,
+                        numberOfTables: branch.numberOfTables || 0,
                         openingHours: branch.openingHours || {
                           start: '09:00',
                           end: '23:00'
@@ -436,6 +448,12 @@ export default function SetupBranchPage() {
                     <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
                       <Users className="w-4 h-4" />
                       <span>ظرفیت: {branch.capacity} نفر</span>
+                    </div>
+                  )}
+                  {branch.numberOfTables !== undefined && branch.numberOfTables > 0 && (
+                    <div className="flex items-center space-x-2 space-x-reverse text-sm text-gray-600 dark:text-gray-400">
+                      <Square className="w-4 h-4" />
+                      <span>تعداد میزها: {branch.numberOfTables}</span>
                     </div>
                   )}
                   {branch.openingHours && (
@@ -560,6 +578,19 @@ export default function SetupBranchPage() {
                   value={formData.capacity}
                   onChange={(e) => setFormData({...formData, capacity: Number(e.target.value)})}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  تعداد میزها
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.numberOfTables}
+                  onChange={(e) => setFormData({...formData, numberOfTables: Number(e.target.value)})}
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="تعداد میزهای رستوران"
                 />
               </div>
               <div>

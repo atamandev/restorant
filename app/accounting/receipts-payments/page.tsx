@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   DollarSign, 
   Search, 
@@ -159,7 +159,7 @@ const mockReceiptsPayments: ReceiptPayment[] = [
 ]
 
 export default function ReceiptsPaymentsPage() {
-  const [transactions, setTransactions] = useState<ReceiptPayment[]>(mockReceiptsPayments)
+  const [transactions, setTransactions] = useState<ReceiptPayment[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterMethod, setFilterMethod] = useState('all')
@@ -167,6 +167,10 @@ export default function ReceiptsPaymentsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState<ReceiptPayment | null>(null)
   const [selectedTransaction, setSelectedTransaction] = useState<ReceiptPayment | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [fromDate, setFromDate] = useState<string>('')
+  const [toDate, setToDate] = useState<string>('')
 
   const [formData, setFormData] = useState({
     type: 'receipt' as 'receipt' | 'payment',
@@ -189,6 +193,72 @@ export default function ReceiptsPaymentsPage() {
     notes: ''
   })
 
+  // تبدیل داده‌های API به فرمت مورد نیاز
+  const convertApiDataToTransaction = useCallback((item: any): ReceiptPayment => {
+    return {
+      id: item._id?.toString() || item.id || '',
+      type: item.type || 'receipt',
+      amount: item.amount || 0,
+      method: item.method || 'cash',
+      personId: item.personId?.toString() || item.personId || '',
+      personName: item.person?.name || item.personName || 'نامشخص',
+      personType: item.personType || 'customer',
+      reference: item.reference || '',
+      referenceType: item.referenceType || 'invoice',
+      referenceId: item.referenceId || '',
+      description: item.description || '',
+      date: item.date ? new Date(item.date).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+      time: item.time || new Date().toTimeString().slice(0, 5),
+      branchId: item.branchId?.toString() || item.branchId || '',
+      branchName: item.branchName || 'نامشخص',
+      cashRegisterId: item.cashRegisterId?.toString() || item.cashRegisterId || '',
+      cashRegisterName: item.cashRegisterName || 'نامشخص',
+      status: item.status || 'completed',
+      appliedAmount: item.appliedAmount || item.amount || 0,
+      remainingAmount: item.remainingAmount || 0,
+      notes: item.notes || '',
+      createdBy: item.createdBy || 'system',
+      createdAt: item.createdAt ? new Date(item.createdAt).toLocaleString('fa-IR') : new Date().toLocaleString('fa-IR')
+    }
+  }, [])
+
+  // دریافت داده از API
+  const fetchTransactions = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (filterType !== 'all') params.append('type', filterType)
+      if (filterMethod !== 'all') params.append('method', filterMethod)
+      if (filterStatus !== 'all') params.append('status', filterStatus)
+      if (fromDate) params.append('fromDate', fromDate)
+      if (toDate) params.append('toDate', toDate)
+      params.append('includeRelated', 'true')
+      params.append('sortBy', 'date')
+      params.append('sortOrder', 'desc')
+      params.append('limit', '1000')
+
+      const response = await fetch(`/api/receipts-payments?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        const transactionsList = (data.data || []).map(convertApiDataToTransaction)
+        setTransactions(transactionsList)
+      } else {
+        console.error('Error fetching transactions:', data.message)
+        setTransactions([])
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error)
+      setTransactions([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterType, filterMethod, filterStatus, fromDate, toDate, convertApiDataToTransaction])
+
+  useEffect(() => {
+    fetchTransactions()
+  }, [fetchTransactions])
+
   const filteredTransactions = transactions.filter(transaction =>
     (filterType === 'all' || transaction.type === filterType) &&
     (filterMethod === 'all' || transaction.method === filterMethod) &&
@@ -198,34 +268,82 @@ export default function ReceiptsPaymentsPage() {
       transaction.description.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
-  const handleSave = () => {
-    if (editingTransaction) {
-      const updatedTransaction = {
-        ...formData,
-        id: editingTransaction.id,
-        appliedAmount: editingTransaction.appliedAmount,
-        remainingAmount: editingTransaction.remainingAmount,
-        createdBy: editingTransaction.createdBy,
-        createdAt: editingTransaction.createdAt
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const transactionData = {
+        type: formData.type,
+        amount: formData.amount,
+        method: formData.method,
+        personId: formData.personId,
+        personType: formData.personType,
+        reference: formData.reference,
+        referenceType: formData.referenceType,
+        referenceId: formData.referenceId,
+        description: formData.description,
+        date: formData.date,
+        time: formData.time,
+        branchId: formData.branchId,
+        branchName: formData.branchName,
+        cashRegisterId: formData.cashRegisterId,
+        cashRegisterName: formData.cashRegisterName,
+        status: formData.status,
+        notes: formData.notes
       }
-      setTransactions(transactions.map(transaction => 
-        transaction.id === editingTransaction.id ? updatedTransaction : transaction
-      ))
-    } else {
-      const newTransaction: ReceiptPayment = {
-        ...formData,
-        id: Date.now().toString(),
-        appliedAmount: 0,
-        remainingAmount: formData.amount,
-        createdBy: 'کاربر سیستم',
-        createdAt: new Date().toLocaleString('fa-IR')
+
+      let response
+      if (editingTransaction) {
+        response = await fetch(`/api/receipts-payments/${editingTransaction.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(transactionData)
+        })
+      } else {
+        response = await fetch('/api/receipts-payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(transactionData)
+        })
       }
-      setTransactions([newTransaction, ...transactions])
+
+      const data = await response.json()
+      if (data.success) {
+        await fetchTransactions()
+        setShowForm(false)
+        setEditingTransaction(null)
+        resetForm()
+        alert(editingTransaction ? 'تراکنش با موفقیت به‌روزرسانی شد' : 'تراکنش با موفقیت ثبت شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error saving transaction:', error)
+      alert('خطا در ذخیره تراکنش')
+    } finally {
+      setSaving(false)
     }
-    setShowForm(false)
-    setEditingTransaction(null)
-    resetForm()
   }
+
+  const handleDelete = async (transactionId: string) => {
+    if (!confirm('آیا از حذف این تراکنش اطمینان دارید؟')) return
+
+    try {
+      const response = await fetch(`/api/receipts-payments/${transactionId}`, {
+        method: 'DELETE'
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchTransactions()
+        alert('تراکنش با موفقیت حذف شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting transaction:', error)
+      alert('خطا در حذف تراکنش')
+    }
+  }
+
 
   const openAddForm = () => {
     setEditingTransaction(null)
@@ -258,11 +376,6 @@ export default function ReceiptsPaymentsPage() {
     setShowForm(true)
   }
 
-  const deleteTransaction = (id: string) => {
-    if (confirm('آیا از حذف این تراکنش مطمئن هستید؟')) {
-      setTransactions(transactions.filter(transaction => transaction.id !== id))
-    }
-  }
 
   const resetForm = () => {
     setFormData({
@@ -551,7 +664,7 @@ export default function ReceiptsPaymentsPage() {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => deleteTransaction(transaction.id)}
+                            onClick={() => handleDelete(transaction.id)}
                             className="p-2 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />

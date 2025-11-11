@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
+    const branchId = searchParams.get('branchId')
     
     const skip = (page - 1) * limit
     
@@ -80,6 +81,9 @@ export async function GET(request: NextRequest) {
     }
     if (status) {
       query.status = status
+    }
+    if (branchId) {
+      query.branchId = new ObjectId(branchId)
     }
     if (dateFrom || dateTo) {
       query.createdAt = {}

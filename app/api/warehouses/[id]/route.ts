@@ -39,54 +39,167 @@ export async function GET(
     }
 
     // دریافت آیتم‌های موجودی در این انبار از inventory_balance (دقیق‌تر)
-    const warehouseName = warehouse.name
+    // Trim کردن فاصله‌ها از نام انبار برای تطابق بهتر
+    const warehouseName = warehouse.name?.trim() || warehouse.name
     const balanceCollection = db.collection('inventory_balance')
     const inventoryItemsCollection = db.collection('inventory_items')
     
+    console.log('=== Fetching inventory for warehouse ===')
+    console.log('Warehouse name (original):', warehouse.name)
+    console.log('Warehouse name (trimmed):', warehouseName)
+    
     // دریافت موجودی از inventory_balance برای این انبار
-    const balances = await balanceCollection.find({ 
+    let balances = await balanceCollection.find({ 
       warehouseName: warehouseName 
     }).toArray()
     
-    console.log('=== Fetching inventory for warehouse ===')
-    console.log('Warehouse name:', warehouseName)
-    console.log('Balances found:', balances.length)
+    console.log('Balances found (direct match):', balances.length)
     
-    // برای هر balance، اطلاعات کامل آیتم را از inventory_items بگیر
-    const inventoryItems = []
-    for (const balance of balances) {
-      if (balance.quantity > 0) { // فقط آیتم‌هایی با موجودی بیشتر از صفر
-        const item = await inventoryItemsCollection.findOne({ 
-          _id: balance.itemId 
-        })
-        
-        if (item) {
-          // استفاده از موجودی از balance (دقیق‌تر)
-          inventoryItems.push({
-            ...item,
-            currentStock: balance.quantity, // موجودی این انبار
-            totalValue: balance.totalValue || (balance.quantity * (item.unitPrice || 0)),
-            unitPrice: balance.quantity > 0 ? (balance.totalValue || 0) / balance.quantity : item.unitPrice || 0,
-            warehouse: warehouseName,
-            isLowStock: (balance.quantity || 0) <= (item.minStock || 0)
-          })
+    // اگر balance پیدا نشد، با نام‌های جایگزین جستجو کن
+    if (balances.length === 0) {
+      let alternativeNames: string[] = []
+      
+      if (warehouseName === 'انبار اصلی' || warehouseName.includes('انبار اصلی')) {
+        alternativeNames = ['انبار اصلی', 'اصلی', 'تایماز', 'Taymaz', 'taymaz']
+      } else if (warehouseName === 'اصلی') {
+        alternativeNames = ['اصلی', 'انبار اصلی', 'تایماز', 'Taymaz', 'taymaz']
+      } else if (warehouseName === 'تایماز' || warehouseName.toLowerCase().includes('taymaz')) {
+        alternativeNames = ['تایماز', 'Taymaz', 'taymaz', 'انبار اصلی', 'اصلی']
+      }
+      
+      if (alternativeNames.length > 0) {
+        console.log('Trying alternative warehouse names for balance:', alternativeNames)
+        for (const altName of alternativeNames) {
+          const altBalances = await balanceCollection.find({ warehouseName: altName }).toArray()
+          if (altBalances.length > 0) {
+            balances = altBalances
+            console.log(`Found ${altBalances.length} balances with alternative warehouse name: "${altName}"`)
+            break
+          }
         }
       }
     }
     
-    // اگر balance خالی بود، از inventory_items استفاده کن (fallback)
-    if (inventoryItems.length === 0) {
-      console.log('No balances found, falling back to inventory_items')
-      let items = await inventoryItemsCollection.find({ warehouse: warehouseName }).toArray()
-      
-      // اگر پیدا نشد، با case-insensitive جستجو کن
-      if (items.length === 0) {
-        items = await inventoryItemsCollection.find({ 
-          warehouse: { $regex: new RegExp(`^${warehouseName}$`, 'i') } 
-        }).toArray()
+    console.log('Final balances found:', balances.length)
+    
+    // دریافت همه کالاهایی که warehouse field آنها برابر نام انبار است
+    // استفاده از روش ساده‌تر: دریافت همه کالاها و فیلتر کردن با trim
+    // این روش مطمئن‌تر است چون فاصله‌ها را در نظر می‌گیرد
+    const allItems = await inventoryItemsCollection.find({}).toArray()
+    
+    // لیست نام‌های جایگزین برای جستجو
+    let searchNames: string[] = [warehouseName]
+    
+    if (warehouseName === 'انبار اصلی' || warehouseName.includes('انبار اصلی')) {
+      searchNames = ['انبار اصلی', 'اصلی', 'تایماز', 'Taymaz', 'taymaz']
+    } else if (warehouseName === 'اصلی') {
+      searchNames = ['اصلی', 'انبار اصلی', 'تایماز', 'Taymaz', 'taymaz']
+    } else if (warehouseName === 'تایماز' || warehouseName.toLowerCase().includes('taymaz')) {
+      searchNames = ['تایماز', 'Taymaz', 'taymaz', 'انبار اصلی', 'اصلی']
+    }
+    
+    // فیلتر کردن کالاها بر اساس warehouse field (با trim)
+    let itemsFromWarehouse = allItems.filter((item: any) => {
+      const itemWarehouse = item.warehouse?.trim() || item.warehouse || ''
+      return searchNames.some(searchName => itemWarehouse === searchName)
+    })
+    
+    console.log(`Found ${itemsFromWarehouse.length} items from inventory_items with warehouse field matching:`, searchNames)
+    console.log('Warehouse name searched:', warehouseName)
+    
+    // نمایش نمونه‌ای از warehouse field های موجود در دیتابیس برای دیباگ
+    if (itemsFromWarehouse.length === 0) {
+      const uniqueWarehouses = [...new Set(allItems.map((item: any) => item.warehouse).filter(Boolean))]
+      console.log('All unique warehouse names in database:', uniqueWarehouses)
+    }
+    
+    // ایجاد Map از balance ها برای دسترسی سریع
+    const balanceMap = new Map<string, any>()
+    for (const balance of balances) {
+      const itemIdStr = balance.itemId?.toString() || String(balance.itemId || '')
+      if (itemIdStr) {
+        balanceMap.set(itemIdStr, balance)
+      }
+    }
+    
+    // برای هر balance، اطلاعات کامل آیتم را از inventory_items بگیر
+    const inventoryItems = []
+    const processedItemIds = new Set<string>() // برای جلوگیری از تکرار
+    
+    // ابتدا کالاهایی که balance دارند را پردازش کن
+    for (const balance of balances) {
+      // تبدیل itemId به ObjectId برای جستجو
+      let itemId: any = balance.itemId
+      if (typeof itemId === 'string') {
+        try {
+          itemId = new ObjectId(itemId)
+        } catch (e) {
+          console.warn(`Invalid itemId format: ${itemId}`, e)
+          continue
+        }
       }
       
-      inventoryItems.push(...items)
+      const itemIdStr = itemId.toString()
+      
+      // اگر قبلاً پردازش شده، رد کن
+      if (processedItemIds.has(itemIdStr)) {
+        continue
+      }
+      
+      const item = await inventoryItemsCollection.findOne({ 
+        _id: itemId
+      })
+      
+      if (item) {
+        processedItemIds.add(itemIdStr)
+        const quantity = balance.quantity || 0
+        const totalValue = balance.totalValue || (quantity * (item.unitPrice || 0))
+        const unitPrice = quantity > 0 && balance.totalValue 
+          ? balance.totalValue / quantity 
+          : (item.unitPrice || 0)
+        
+        // استفاده از موجودی از balance (دقیق‌تر)
+        // نمایش همه آیتم‌ها، حتی اگر موجودی صفر باشد
+        inventoryItems.push({
+          ...item,
+          currentStock: quantity, // موجودی این انبار
+          totalValue: totalValue,
+          unitPrice: unitPrice,
+          warehouse: warehouseName,
+          isLowStock: quantity <= (item.minStock || 0)
+        })
+      } else {
+        console.warn(`Item not found for balance itemId: ${itemIdStr}`)
+      }
+    }
+    
+    // حالا کالاهایی که در inventory_items هستند اما balance ندارند را اضافه کن
+    console.log(`Processing ${itemsFromWarehouse.length} items from inventory_items that don't have balance`)
+    for (const item of itemsFromWarehouse) {
+      const itemIdStr = item._id?.toString() || String(item._id || '')
+      
+      // اگر قبلاً پردازش نشده (یعنی balance ندارد)
+      if (!processedItemIds.has(itemIdStr)) {
+        processedItemIds.add(itemIdStr)
+        
+        // استفاده از موجودی از inventory_items
+        const quantity = item.currentStock || 0
+        const unitPrice = item.unitPrice || 0
+        const totalValue = item.totalValue || (quantity * unitPrice)
+        
+        console.log(`Adding item without balance: ${item.name}, warehouse: ${item.warehouse}, quantity: ${quantity}`)
+        
+        inventoryItems.push({
+          ...item,
+          currentStock: quantity,
+          totalValue: totalValue,
+          unitPrice: unitPrice,
+          warehouse: warehouseName,
+          isLowStock: quantity <= (item.minStock || 0)
+        })
+      } else {
+        console.log(`Skipping item (already processed from balance): ${item.name}`)
+      }
     }
     
     console.log('Final inventory items count:', inventoryItems.length)
@@ -185,27 +298,87 @@ export async function DELETE(
       throw new Error('Database connection failed')
     }
     const collection = db.collection(COLLECTION_NAME)
+    const inventoryCollection = db.collection('inventory_items')
+    const balanceCollection = db.collection('inventory_balance')
+    const stockMovementsCollection = db.collection('stock_movements')
+    const stockAlertsCollection = db.collection('stock_alerts')
+    const transfersCollection = db.collection('transfers')
+    const cashRegistersCollection = db.collection('cash_registers')
+    
+    // دریافت اطلاعات انبار قبل از حذف
+    const currentWarehouse = await collection.findOne({ _id: new ObjectId(params.id) })
+    
+    if (!currentWarehouse) {
+      return NextResponse.json(
+        { success: false, message: 'انبار یافت نشد' },
+        { status: 404 }
+      )
+    }
+    
+    const warehouseName = currentWarehouse.name
+    const warehouseId = params.id
+    
+    console.log(`[DELETE] Starting deletion of warehouse ${warehouseName} (${warehouseId})`)
     
     // بررسی وجود آیتم‌های موجودی در این انبار
-    const inventoryCollection = db.collection('inventory_items')
-    const currentWarehouse = await collection.findOne({ _id: new ObjectId(params.id) })
     const itemsInWarehouse = await inventoryCollection.countDocuments({ 
       $or: [
-        { warehouse: currentWarehouse?.name },
-        { warehouse: params.id }
+        { warehouse: warehouseName },
+        { warehouse: warehouseId }
       ]
     })
     
-    if (itemsInWarehouse > 0) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: `امکان حذف انبار وجود ندارد. ${itemsInWarehouse} آیتم موجودی در این انبار موجود است.` 
-        },
-        { status: 400 }
-      )
-    }
-
+    const balancesInWarehouse = await balanceCollection.countDocuments({
+      warehouseName: warehouseName
+    })
+    
+    console.log(`[DELETE] Found ${itemsInWarehouse} items and ${balancesInWarehouse} balances in warehouse`)
+    
+    // حذف از inventory_balance (موجودی این انبار)
+    const balanceResult = await balanceCollection.deleteMany({
+      warehouseName: warehouseName
+    })
+    console.log(`[DELETE] Deleted ${balanceResult.deletedCount} balance records`)
+    
+    // حذف از inventory_items (کالاهایی که warehouse field برابر نام انبار است)
+    // توجه: این فقط کالاهایی را حذف می‌کند که warehouse field دقیقاً برابر نام انبار است
+    // اگر می‌خواهید فقط warehouse field را پاک کنید به جای حذف کالا، می‌توانید update کنید
+    const itemsResult = await inventoryCollection.deleteMany({
+      $or: [
+        { warehouse: warehouseName },
+        { warehouse: warehouseId }
+      ]
+    })
+    console.log(`[DELETE] Deleted ${itemsResult.deletedCount} inventory items`)
+    
+    // حذف از stock_movements (حرکات موجودی این انبار)
+    const movementsResult = await stockMovementsCollection.deleteMany({
+      $or: [
+        { warehouseName: warehouseName },
+        { warehouseId: warehouseId }
+      ]
+    })
+    console.log(`[DELETE] Deleted ${movementsResult.deletedCount} stock movements`)
+    
+    // حذف از stock_alerts (هشدارهای این انبار)
+    const alertsResult = await stockAlertsCollection.deleteMany({
+      warehouse: warehouseName
+    })
+    console.log(`[DELETE] Deleted ${alertsResult.deletedCount} stock alerts`)
+    
+    // حذف از transfers (انتقالات مرتبط با این انبار)
+    const transfersResult = await transfersCollection.deleteMany({
+      $or: [
+        { fromWarehouse: warehouseName },
+        { toWarehouse: warehouseName }
+      ]
+    })
+    console.log(`[DELETE] Deleted ${transfersResult.deletedCount} transfers`)
+    
+    // حذف از cash_registers (صندوق‌های مرتبط - اگر branchId یا warehouseId دارند)
+    // این اختیاری است، بستگی به ساختار داده‌ها دارد
+    
+    // حذف خود انبار
     const result = await collection.deleteOne({ _id: new ObjectId(params.id) })
     
     if (result.deletedCount === 0) {
@@ -214,15 +387,29 @@ export async function DELETE(
         { status: 404 }
       )
     }
-
+    
+    console.log(`[DELETE] Successfully deleted warehouse ${warehouseName} and all related data`)
+    
     return NextResponse.json({
       success: true,
-      message: 'انبار با موفقیت حذف شد'
+      message: 'انبار و تمام داده‌های مرتبط با موفقیت حذف شد',
+      deletedCounts: {
+        warehouse: result.deletedCount,
+        items: itemsResult.deletedCount,
+        balances: balanceResult.deletedCount,
+        movements: movementsResult.deletedCount,
+        alerts: alertsResult.deletedCount,
+        transfers: transfersResult.deletedCount
+      }
     })
   } catch (error) {
     console.error('Error deleting warehouse:', error)
     return NextResponse.json(
-      { success: false, message: 'خطا در حذف انبار' },
+      { 
+        success: false, 
+        message: 'خطا در حذف انبار',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }

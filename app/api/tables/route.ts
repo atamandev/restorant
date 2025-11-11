@@ -14,17 +14,41 @@ export async function GET(request: NextRequest) {
     
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
+    const branchId = searchParams.get('branchId')
+    
+    console.log('Tables API: Request params - status:', status, 'branchId:', branchId)
     
     // Build query
     const query: any = {}
     if (status) {
       query.status = status
     }
+    if (branchId) {
+      try {
+        query.branchId = new ObjectId(branchId)
+        console.log('Tables API: Query with branchId:', query)
+      } catch (error) {
+        console.error('Tables API: Invalid branchId format:', branchId, error)
+        return NextResponse.json({
+          success: false,
+          message: 'فرمت شناسه شعبه نامعتبر است',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, { status: 400 })
+      }
+    }
     
     const tables = await db.collection('tables')
       .find(query)
-      .sort({ number: 1 })
       .toArray()
+    
+    // Sort tables by number (numerically)
+    tables.sort((a: any, b: any) => {
+      const numA = parseInt(a.number) || 0
+      const numB = parseInt(b.number) || 0
+      return numA - numB
+    })
+    
+    console.log('Tables API: Found', tables.length, 'tables (sorted by number)')
     
     return NextResponse.json({
       success: true,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useMenuItems } from '@/hooks/useMenuItems'
 import { 
   Utensils, 
@@ -86,21 +86,41 @@ export default function TableOrderPage() {
   const [loading, setLoading] = useState(false)
   const [tableOrders, setTableOrders] = useState<TableOrder[]>([])
   const [branchId, setBranchId] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const tablesLoadedRef = useRef(false)
+
+  // Set mounted state after component mounts (client-side only)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Load default branch
   useEffect(() => {
     const loadDefaultBranch = async () => {
       try {
+        console.log('Table Order: Loading branches...')
         const response = await fetch('/api/branches')
         const result = await response.json()
+        console.log('Table Order: Branches API response:', result)
         if (result.success && result.data && result.data.length > 0) {
           const activeBranch = result.data.find((b: any) => b.isActive) || result.data[0]
           if (activeBranch) {
-            setBranchId(activeBranch._id || activeBranch.id)
+            // Convert ObjectId to string if needed
+            const branchIdValue = activeBranch._id 
+              ? (typeof activeBranch._id === 'string' ? activeBranch._id : activeBranch._id.toString())
+              : (activeBranch.id ? String(activeBranch.id) : null)
+            console.log('Table Order: Setting branchId to:', branchIdValue, 'Type:', typeof branchIdValue)
+            if (branchIdValue) {
+              setBranchId(branchIdValue)
+            }
+          } else {
+            console.warn('Table Order: No branch found')
           }
+        } else {
+          console.warn('Table Order: No branches in response')
         }
       } catch (error) {
-        console.error('Error loading branch:', error)
+        console.error('Table Order: Error loading branch:', error)
       }
     }
     loadDefaultBranch()
@@ -113,44 +133,10 @@ export default function TableOrderPage() {
     refreshInterval: 30000 // هر 30 ثانیه به‌روزرسانی
   })
 
-  // Load tables from API
-  const loadTables = async () => {
-    try {
-      const response = await fetch('/api/tables')
-      const result = await response.json()
-      if (result.success) {
-        setTables(result.data)
-        // Update tables with current orders
-        updateTablesWithOrders(tableOrders)
-      } else {
-        console.error('Error loading tables:', result.message)
-      }
-    } catch (error) {
-      console.error('Error loading tables:', error)
-    }
-  }
-
-  // Load table orders from API
-  const loadTableOrders = async () => {
-    try {
-      const response = await fetch('/api/table-orders')
-      const result = await response.json()
-      if (result.success) {
-        setTableOrders(result.data)
-        // Update tables with current orders
-        updateTablesWithOrders(result.data)
-      } else {
-        console.error('Error loading table orders:', result.message)
-      }
-    } catch (error) {
-      console.error('Error loading table orders:', error)
-    }
-  }
-
   // Update tables with current orders
-  const updateTablesWithOrders = (orders: TableOrder[]) => {
-    setTables(prevTables => 
-      prevTables.map(table => {
+  const updateTablesWithOrders = useCallback((orders: TableOrder[]) => {
+    setTables(prevTables => {
+      const updated = prevTables.map(table => {
         const currentOrder = orders.find(order => 
           order.tableNumber === table.number && 
           ['pending', 'confirmed', 'preparing', 'ready'].includes(order.status)
@@ -161,22 +147,104 @@ export default function TableOrderPage() {
           currentOrder: currentOrder || undefined
         }
       })
-    )
-  }
-
-  // Load data on component mount
-  useEffect(() => {
-    loadTables()
-    loadTableOrders()
+      // Sort tables by number (numerically) after update
+      updated.sort((a, b) => {
+        const numA = parseInt(a.number) || 0
+        const numB = parseInt(b.number) || 0
+        return numA - numB
+      })
+      return updated
+    })
   }, [])
 
-  // دریافت دسته‌بندی‌ها از menu items
-  const categories = ['all', ...Array.from(new Set(loadedMenuItems.map(item => item.category))).filter(Boolean)]
+  // Load tables from API
+  const loadTables = useCallback(async () => {
+    if (!branchId) {
+      console.log('Table Order: branchId not loaded yet')
+      return // Wait for branchId to be loaded
+    }
+    
+    try {
+      console.log('Table Order: Loading tables for branchId:', branchId)
+      const response = await fetch(`/api/tables?branchId=${branchId}`)
+      const result = await response.json()
+      console.log('Table Order: Tables API response:', result)
+      if (result.success) {
+        // Convert API format to component format
+        const formattedTables: Table[] = result.data.map((table: any) => ({
+          id: table._id || table.id || '',
+          _id: table._id || table.id,
+          number: table.number || '',
+          capacity: table.capacity || 4,
+          status: (table.status || 'available') as 'available' | 'occupied' | 'reserved',
+          location: table.location
+        }))
+        // Sort tables by number (numerically)
+        formattedTables.sort((a, b) => {
+          const numA = parseInt(a.number) || 0
+          const numB = parseInt(b.number) || 0
+          return numA - numB
+        })
+        console.log('Table Order: Formatted and sorted tables:', formattedTables)
+        setTables(formattedTables)
+        tablesLoadedRef.current = true
+      } else {
+        console.error('Table Order: Error loading tables:', result.message)
+      }
+    } catch (error) {
+      console.error('Table Order: Error loading tables:', error)
+    }
+  }, [branchId])
 
-  const filteredMenuItems = loadedMenuItems.filter(item =>
-    (selectedCategory === 'all' || item.category === selectedCategory) &&
-    item.name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Load table orders from API
+  const loadTableOrders = useCallback(async () => {
+    if (!branchId) return // Wait for branchId to be loaded
+    
+    try {
+      const response = await fetch(`/api/table-orders?branchId=${branchId}`)
+      const result = await response.json()
+      if (result.success) {
+        setTableOrders(result.data)
+      } else {
+        console.error('Error loading table orders:', result.message)
+      }
+    } catch (error) {
+      console.error('Error loading table orders:', error)
+    }
+  }, [branchId])
+
+  // Load tables when branchId is available
+  useEffect(() => {
+    if (branchId) {
+      loadTables()
+    }
+  }, [branchId, loadTables])
+
+  // Load table orders when branchId is available
+  useEffect(() => {
+    if (branchId) {
+      loadTableOrders()
+    }
+  }, [branchId, loadTableOrders])
+
+  // Update tables with current orders when both tables and orders are loaded
+  useEffect(() => {
+    if (tablesLoadedRef.current && tableOrders.length >= 0) {
+      updateTablesWithOrders(tableOrders)
+    }
+  }, [tableOrders, updateTablesWithOrders])
+
+  // دریافت دسته‌بندی‌ها از menu items (فقط بعد از mount)
+  const categories = mounted 
+    ? ['all', ...Array.from(new Set(loadedMenuItems.map(item => item.category))).filter(Boolean)]
+    : ['all']
+
+  const filteredMenuItems = mounted
+    ? loadedMenuItems.filter(item =>
+        (selectedCategory === 'all' || item.category === selectedCategory) &&
+        item.name.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : []
 
   const addToOrder = (item: any) => {
     setOrder(prevOrder => {
@@ -356,7 +424,8 @@ export default function TableOrderPage() {
   const getOccupiedTables = () => tables.filter(table => table.status === 'occupied').length
   const getReservedTables = () => tables.filter(table => table.status === 'reserved').length
 
-  if (menuLoading) {
+  // جلوگیری از Hydration Error - فقط بعد از mount رندر کن
+  if (!mounted || menuLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800/80 dark:to-gray-900 flex items-center justify-center">
         <div className="text-center">
@@ -433,6 +502,18 @@ export default function TableOrderPage() {
                   میزهای رستوران
                 </h2>
                 <div className="flex items-center space-x-2 space-x-reverse">
+                  <button
+                    onClick={() => {
+                      if (branchId) {
+                        loadTables()
+                        loadTableOrders()
+                      }
+                    }}
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                    title="به‌روزرسانی میزها"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
                   <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-sm text-gray-600 dark:text-gray-400">آنلاین</span>
                 </div>

@@ -51,10 +51,18 @@ export function useMenuItems(options: UseMenuItemsOptions = {}) {
   } = options
 
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false) // Start with false to prevent hydration mismatch
   const [error, setError] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  // Set mounted state after component mounts (client-side only)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const loadMenuItems = useCallback(async () => {
+    if (!mounted) return // Don't load on server
+    
     try {
       setLoading(true)
       setError(null)
@@ -95,22 +103,24 @@ export function useMenuItems(options: UseMenuItemsOptions = {}) {
     } finally {
       setLoading(false)
     }
-  }, [category, isAvailable, isPopular, searchTerm])
+  }, [category, isAvailable, isPopular, searchTerm, mounted])
 
   useEffect(() => {
-    loadMenuItems()
-  }, [loadMenuItems])
+    if (mounted) {
+      loadMenuItems()
+    }
+  }, [loadMenuItems, mounted])
 
   // Auto refresh if enabled
   useEffect(() => {
-    if (!autoRefresh) return
+    if (!autoRefresh || !mounted) return
 
     const interval = setInterval(() => {
       loadMenuItems()
     }, refreshInterval)
 
     return () => clearInterval(interval)
-  }, [autoRefresh, refreshInterval, loadMenuItems])
+  }, [autoRefresh, refreshInterval, loadMenuItems, mounted])
 
   // Filter items based on availability
   const availableItems = menuItems.filter(item => item.isAvailable !== false)

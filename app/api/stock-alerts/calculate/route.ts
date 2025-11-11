@@ -336,14 +336,20 @@ export async function POST(request: NextRequest) {
             // بررسی اینکه آیا هشدار باید بسته شود
             let shouldResolve = false
             
-            if (alert.type === 'out_of_stock' || alert.type === 'low_stock') {
-              shouldResolve = currentStock > reorderPoint
+            if (alert.type === 'out_of_stock') {
+              // اگر موجودی بیشتر از 0 شد، هشدار را resolve کن
+              shouldResolve = currentStock > 0
+            } else if (alert.type === 'low_stock') {
+              // اگر موجودی بیشتر از minQty شد، هشدار را resolve کن
+              shouldResolve = currentStock > minQty
             } else if (alert.type === 'overstock') {
-              shouldResolve = currentStock < maxQty
+              // اگر موجودی کمتر از maxQty شد، هشدار را resolve کن
+              shouldResolve = currentStock <= maxQty
             } else if (alert.type === 'expiry') {
               const expiryDate = alert.expiryDate ? new Date(alert.expiryDate) : null
               if (expiryDate) {
                 const daysToExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+                // اگر تاریخ انقضا گذشته یا بیشتر از 30 روز مانده، هشدار را resolve کن
                 shouldResolve = daysToExpiry > EXPIRY_WARNING_DAYS || expiryDate < today
               }
             }

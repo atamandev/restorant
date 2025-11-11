@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   BookOpen,
   FileSpreadsheet,
@@ -294,8 +294,155 @@ export default function LedgersPage() {
   const [filterAccount, setFilterAccount] = useState('all')
   const [filterDate, setFilterDate] = useState('')
   const [filterBranch, setFilterBranch] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [journalEntries, setJournalEntries] = useState<LedgerEntry[]>([])
+  const [generalAccounts, setGeneralAccounts] = useState<GeneralLedgerAccount[]>([])
+  const [subsidiaryEntries, setSubsidiaryEntries] = useState<SubsidiaryLedgerEntry[]>([])
+  const [fromDate, setFromDate] = useState<string>('')
+  const [toDate, setToDate] = useState<string>('')
+  const [selectedEntityId, setSelectedEntityId] = useState<string>('')
+  const [selectedEntityType, setSelectedEntityType] = useState<'customer' | 'supplier' | 'employee' | 'other'>('customer')
 
-  const filteredJournalEntries = mockJournalEntries.filter(entry =>
+  // تبدیل داده‌های API به فرمت مورد نیاز
+  const convertApiDataToJournalEntry = useCallback((item: any): LedgerEntry => {
+    return {
+      id: item.id || item._id?.toString() || '',
+      date: item.date ? new Date(item.date).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+      documentNumber: item.documentNumber || '',
+      description: item.description || '',
+      account: item.account || '',
+      debit: item.debit || 0,
+      credit: item.credit || 0,
+      balance: item.balance || 0,
+      reference: item.reference || '',
+      branch: item.branch || 'نامشخص',
+      user: item.user || 'system'
+    }
+  }, [])
+
+  const convertApiDataToGeneralAccount = useCallback((item: any): GeneralLedgerAccount => {
+    return {
+      id: item.id || item._id?.toString() || item.code || '',
+      code: item.code || '',
+      name: item.name || '',
+      type: item.type || 'asset',
+      balance: item.balance || 0,
+      debitTotal: item.debitTotal || 0,
+      creditTotal: item.creditTotal || 0,
+      entries: item.entries || 0
+    }
+  }, [])
+
+  const convertApiDataToSubsidiaryEntry = useCallback((item: any): SubsidiaryLedgerEntry => {
+    return {
+      id: item.id || item._id?.toString() || '',
+      date: item.date ? new Date(item.date).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+      documentNumber: item.documentNumber || '',
+      description: item.description || '',
+      entityName: item.entityName || 'نامشخص',
+      entityType: item.entityType || 'customer',
+      debit: item.debit || 0,
+      credit: item.credit || 0,
+      balance: item.balance || 0,
+      reference: item.reference || ''
+    }
+  }, [])
+
+  // دریافت داده از API
+  const fetchJournalEntries = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      params.append('reportType', 'journal')
+      if (fromDate) params.append('fromDate', fromDate)
+      if (toDate) params.append('toDate', toDate)
+      params.append('limit', '1000')
+
+      const response = await fetch(`/api/ledgers?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        const entries = (data.data || []).map(convertApiDataToJournalEntry)
+        setJournalEntries(entries)
+      } else {
+        console.error('Error fetching journal entries:', data.message)
+        setJournalEntries([])
+      }
+    } catch (error) {
+      console.error('Error fetching journal entries:', error)
+      setJournalEntries([])
+    } finally {
+      setLoading(false)
+    }
+  }, [fromDate, toDate, convertApiDataToJournalEntry])
+
+  const fetchGeneralAccounts = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      params.append('reportType', 'general')
+      if (fromDate) params.append('fromDate', fromDate)
+      if (toDate) params.append('toDate', toDate)
+
+      const response = await fetch(`/api/ledgers?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        const accounts = (data.data || []).map(convertApiDataToGeneralAccount)
+        setGeneralAccounts(accounts)
+      } else {
+        console.error('Error fetching general accounts:', data.message)
+        setGeneralAccounts([])
+      }
+    } catch (error) {
+      console.error('Error fetching general accounts:', error)
+      setGeneralAccounts([])
+    } finally {
+      setLoading(false)
+    }
+  }, [fromDate, toDate, convertApiDataToGeneralAccount])
+
+  const fetchSubsidiaryEntries = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      params.append('reportType', 'subsidiary')
+      if (selectedEntityId) params.append('entityId', selectedEntityId)
+      if (selectedEntityType) params.append('entityType', selectedEntityType)
+      if (fromDate) params.append('fromDate', fromDate)
+      if (toDate) params.append('toDate', toDate)
+      params.append('limit', '1000')
+
+      const response = await fetch(`/api/ledgers?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        const entries = (data.data || []).map(convertApiDataToSubsidiaryEntry)
+        setSubsidiaryEntries(entries)
+      } else {
+        console.error('Error fetching subsidiary entries:', data.message)
+        setSubsidiaryEntries([])
+      }
+    } catch (error) {
+      console.error('Error fetching subsidiary entries:', error)
+      setSubsidiaryEntries([])
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedEntityId, selectedEntityType, fromDate, toDate, convertApiDataToSubsidiaryEntry])
+
+  // بارگذاری داده بر اساس تب فعال
+  useEffect(() => {
+    if (activeTab === 'journal') {
+      fetchJournalEntries()
+    } else if (activeTab === 'general') {
+      fetchGeneralAccounts()
+    } else if (activeTab === 'subsidiary') {
+      fetchSubsidiaryEntries()
+    }
+  }, [activeTab, fetchJournalEntries, fetchGeneralAccounts, fetchSubsidiaryEntries])
+
+  const filteredJournalEntries = journalEntries.filter(entry =>
     (searchTerm === '' || 
       entry.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       entry.account.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -305,13 +452,13 @@ export default function LedgersPage() {
     (filterBranch === 'all' || entry.branch === filterBranch)
   )
 
-  const filteredGeneralAccounts = mockGeneralLedgerAccounts.filter(account =>
+  const filteredGeneralAccounts = generalAccounts.filter(account =>
     searchTerm === '' || 
     account.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     account.code.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const filteredSubsidiaryEntries = mockSubsidiaryEntries.filter(entry =>
+  const filteredSubsidiaryEntries = subsidiaryEntries.filter(entry =>
     (searchTerm === '' || 
       entry.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       entry.entityName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -319,9 +466,9 @@ export default function LedgersPage() {
     (filterDate === '' || entry.date === filterDate)
   )
 
-  const totalDebit = mockJournalEntries.reduce((sum, entry) => sum + entry.debit, 0)
-  const totalCredit = mockJournalEntries.reduce((sum, entry) => sum + entry.credit, 0)
-  const isBalanced = totalDebit === totalCredit
+  const totalDebit = journalEntries.reduce((sum, entry) => sum + entry.debit, 0)
+  const totalCredit = journalEntries.reduce((sum, entry) => sum + entry.credit, 0)
+  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01
 
   const handleExport = (type: 'journal' | 'general' | 'subsidiary') => {
     alert(`گزارش ${type === 'journal' ? 'دفتر روزنامه' : type === 'general' ? 'دفتر کل' : 'دفتر معین'} به صورت Excel صادر شد.`)
@@ -341,6 +488,27 @@ export default function LedgersPage() {
           </p>
         </div>
         <div className="flex items-center space-x-3 space-x-reverse">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            placeholder="از تاریخ"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+          />
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            placeholder="تا تاریخ"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+          />
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'در حال بارگذاری...' : 'به‌روزرسانی'}
+          </button>
           <button
             onClick={handlePrint}
             className="premium-button p-3"
@@ -355,6 +523,12 @@ export default function LedgersPage() {
           </button>
         </div>
       </div>
+
+      {loading && (
+        <div className="text-center py-8">
+          <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری داده‌ها...</p>
+        </div>
+      )}
 
       {/* Balance Check */}
       <div className={`premium-card p-4 ${isBalanced ? 'border-green-200 bg-green-50 dark:bg-green-900/20' : 'border-red-200 bg-red-50 dark:bg-red-900/20'}`}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useMenuItems } from '@/hooks/useMenuItems'
 import { 
   Utensils, 
@@ -26,7 +26,8 @@ import {
   Edit,
   Square,
   Home,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from 'lucide-react'
 
 interface MenuItem {
@@ -75,61 +76,8 @@ interface DineInOrder {
   updatedAt: string
 }
 
-const initialTables: Table[] = [
-  { id: '1', number: '1', capacity: 2, status: 'available' },
-  { id: '2', number: '2', capacity: 4, status: 'occupied', currentOrder: {
-    id: '1',
-    orderNumber: 'DI-001',
-    tableNumber: '2',
-    customerName: 'احمد محمدی',
-    customerPhone: '09123456789',
-    items: [
-      { id: '1', name: 'کباب کوبیده', price: 120000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 25, description: 'کباب کوبیده سنتی با گوشت گوساله تازه', quantity: 2, notes: 'بدون پیاز' },
-      { id: '4', name: 'نوشابه', price: 15000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 2, description: 'نوشابه گازدار سرد', quantity: 2 }
-    ],
-    subtotal: 270000,
-    tax: 24300,
-    serviceCharge: 27000,
-    discount: 0,
-    total: 321300,
-    orderTime: '14:30',
-    estimatedReadyTime: '15:00',
-    status: 'preparing',
-    notes: 'میز 2 - مشتری منتظر است',
-    paymentMethod: 'cash',
-    priority: 'normal'
-  }},
-  { id: '3', number: '3', capacity: 6, status: 'available' },
-  { id: '4', number: '4', capacity: 2, status: 'occupied', currentOrder: {
-    id: '2',
-    orderNumber: 'DI-002',
-    tableNumber: '4',
-    customerName: 'سارا کریمی',
-    customerPhone: '09123456790',
-    items: [
-      { id: '2', name: 'جوجه کباب', price: 135000, category: 'غذاهای اصلی', image: '/api/placeholder/60/60', preparationTime: 20, description: 'جوجه کباب با سینه مرغ تازه و سس مخصوص', quantity: 1 },
-      { id: '5', name: 'دوغ محلی', price: 18000, category: 'نوشیدنی‌ها', image: '/api/placeholder/60/60', preparationTime: 3, description: 'دوغ محلی تازه و خنک', quantity: 1 }
-    ],
-    subtotal: 153000,
-    tax: 13770,
-    serviceCharge: 15300,
-    discount: 10000,
-    total: 172070,
-    orderTime: '14:25',
-    estimatedReadyTime: '14:50',
-    status: 'ready',
-    notes: 'میز 4 - آماده تحویل',
-    paymentMethod: 'card',
-    priority: 'normal'
-  }},
-  { id: '5', number: '5', capacity: 4, status: 'reserved' },
-  { id: '6', number: '6', capacity: 8, status: 'available' },
-  { id: '7', number: '7', capacity: 2, status: 'available' },
-  { id: '8', number: '8', capacity: 4, status: 'available' },
-]
-
 export default function DineInPage() {
-  const [tables, setTables] = useState<Table[]>(initialTables)
+  const [tables, setTables] = useState<Table[]>([])
   const [selectedTable, setSelectedTable] = useState<Table | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -142,24 +90,80 @@ export default function DineInPage() {
   const [priority, setPriority] = useState('normal')
   const [showOrderForm, setShowOrderForm] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [tablesLoading, setTablesLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [dineInOrders, setDineInOrders] = useState<DineInOrder[]>([])
   const [branchId, setBranchId] = useState<string | null>(null)
+  const tablesLoadedRef = useRef(false)
+
+  // Load tables from API
+  const loadTables = useCallback(async () => {
+    if (!branchId) {
+      console.log('Dine-In: branchId not loaded yet')
+      return // Wait for branchId to be loaded
+    }
+    
+    try {
+      setTablesLoading(true)
+      console.log('Dine-In: Loading tables for branchId:', branchId)
+      const response = await fetch(`/api/tables?branchId=${branchId}`)
+      const result = await response.json()
+      console.log('Dine-In: Tables API response:', result)
+      if (result.success) {
+        // Convert API format to component format
+        const formattedTables: Table[] = result.data.map((table: any) => ({
+          id: table._id || table.id || '',
+          number: table.number || '',
+          capacity: table.capacity || 4,
+          status: (table.status || 'available') as 'available' | 'occupied' | 'reserved'
+        }))
+        // Sort tables by number (numerically)
+        formattedTables.sort((a, b) => {
+          const numA = parseInt(a.number) || 0
+          const numB = parseInt(b.number) || 0
+          return numA - numB
+        })
+        console.log('Dine-In: Formatted and sorted tables:', formattedTables)
+        setTables(formattedTables)
+        tablesLoadedRef.current = true
+      } else {
+        console.error('Dine-In: Error loading tables:', result.message)
+      }
+    } catch (error) {
+      console.error('Dine-In: Error loading tables:', error)
+    } finally {
+      setTablesLoading(false)
+    }
+  }, [branchId])
 
   // Load default branch
   useEffect(() => {
     const loadDefaultBranch = async () => {
-    try {
+      try {
+        console.log('Dine-In: Loading branches...')
         const response = await fetch('/api/branches')
-      const result = await response.json()
+        const result = await response.json()
+        console.log('Dine-In: Branches API response:', result)
         if (result.success && result.data && result.data.length > 0) {
           const activeBranch = result.data.find((b: any) => b.isActive) || result.data[0]
           if (activeBranch) {
-            setBranchId(activeBranch._id || activeBranch.id)
+            // Convert ObjectId to string if needed
+            const branchIdValue = activeBranch._id 
+              ? (typeof activeBranch._id === 'string' ? activeBranch._id : activeBranch._id.toString())
+              : (activeBranch.id ? String(activeBranch.id) : null)
+            console.log('Dine-In: Setting branchId to:', branchIdValue, 'Type:', typeof branchIdValue)
+            if (branchIdValue) {
+              setBranchId(branchIdValue)
+            }
+          } else {
+            console.warn('Dine-In: No branch found')
           }
-      }
-    } catch (error) {
-        console.error('Error loading branch:', error)
+        } else {
+          console.warn('Dine-In: No branches in response')
+        }
+      } catch (error) {
+        console.error('Dine-In: Error loading branch:', error)
       }
     }
     loadDefaultBranch()
@@ -187,26 +191,26 @@ export default function DineInPage() {
   }, [loadedMenuItems])
 
   // Load dine-in orders from API
-  const loadDineInOrders = async () => {
+  const loadDineInOrders = useCallback(async () => {
+    if (!branchId) return // Wait for branchId to be loaded
+    
     try {
-      const response = await fetch('/api/dine-in-orders')
+      const response = await fetch(`/api/dine-in-orders?branchId=${branchId}`)
       const result = await response.json()
       if (result.success) {
         setDineInOrders(result.data)
-        // Update tables with current orders
-        updateTablesWithOrders(result.data)
       } else {
         console.error('Error loading dine-in orders:', result.message)
       }
     } catch (error) {
       console.error('Error loading dine-in orders:', error)
     }
-  }
+  }, [branchId])
 
   // Update tables with current orders
-  const updateTablesWithOrders = (orders: DineInOrder[]) => {
-    setTables(prevTables => 
-      prevTables.map(table => {
+  const updateTablesWithOrders = useCallback((orders: DineInOrder[]) => {
+    setTables(prevTables => {
+      const updated = prevTables.map(table => {
         const currentOrder = orders.find(order => 
           order.tableNumber === table.number && 
           ['pending', 'preparing', 'ready'].includes(order.status)
@@ -217,23 +221,55 @@ export default function DineInPage() {
           currentOrder: currentOrder || undefined
         }
       })
-    )
-  }
-
-  // Load data on component mount
-  useEffect(() => {
-    loadDineInOrders()
+      // Sort tables by number (numerically) after update
+      updated.sort((a, b) => {
+        const numA = parseInt(a.number) || 0
+        const numB = parseInt(b.number) || 0
+        return numA - numB
+      })
+      return updated
+    })
   }, [])
+
+  // Set mounted state after component mounts (client-side only)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Load tables when branchId is available
+  useEffect(() => {
+    if (branchId) {
+      loadTables()
+    }
+  }, [branchId, loadTables])
+
+  // Load dine-in orders when branchId is available
+  useEffect(() => {
+    if (branchId) {
+      loadDineInOrders()
+    }
+  }, [branchId, loadDineInOrders])
+
+  // Update tables with current orders when both tables and orders are loaded
+  useEffect(() => {
+    if (tablesLoadedRef.current && dineInOrders.length >= 0) {
+      updateTablesWithOrders(dineInOrders)
+    }
+  }, [dineInOrders, updateTablesWithOrders])
 
   // Menu items از hook مشترک load می‌شوند
 
-  // دریافت دسته‌بندی‌ها از menu items
-  const categories = ['all', ...Array.from(new Set(menuItems.map(item => item.category))).filter(Boolean)]
+  // دریافت دسته‌بندی‌ها از menu items (فقط بعد از mount)
+  const categories = mounted 
+    ? ['all', ...Array.from(new Set(menuItems.map(item => item.category))).filter(Boolean)]
+    : ['all']
 
-  const filteredMenuItems = menuItems.filter(item =>
-    (selectedCategory === 'all' || item.category === selectedCategory) &&
-    item.name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredMenuItems = mounted
+    ? menuItems.filter(item =>
+        (selectedCategory === 'all' || item.category === selectedCategory) &&
+        item.name.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : []
 
   const addToOrder = (item: MenuItem) => {
     setOrder(prevOrder => {
@@ -349,8 +385,9 @@ export default function DineInPage() {
         setPriority('normal')
         setSelectedTable(null)
         
-        // Reload orders
-        loadDineInOrders()
+        // Reload orders and tables
+        await loadDineInOrders()
+        await loadTables()
       } else {
         alert('خطا در ثبت سفارش: ' + result.message)
       }
@@ -408,11 +445,20 @@ export default function DineInPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800/80 dark:to-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold gradient-text mb-2">سفارش حضوری</h1>
-          <p className="text-gray-600 dark:text-gray-300">ثبت سفارشات حضوری برای میزهای رستوران</p>
-        </div>
+        {!mounted ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <Loader2 className="w-16 h-16 animate-spin text-primary-600 mx-auto mb-4" />
+              <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری...</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold gradient-text mb-2">سفارش حضوری</h1>
+              <p className="text-gray-600 dark:text-gray-300">ثبت سفارشات حضوری برای میزهای رستوران</p>
+            </div>
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -471,6 +517,18 @@ export default function DineInPage() {
                   میزهای رستوران
                 </h2>
                 <div className="flex items-center space-x-2 space-x-reverse">
+                  <button
+                    onClick={() => {
+                      if (branchId) {
+                        loadTables()
+                        loadDineInOrders()
+                      }
+                    }}
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                    title="به‌روزرسانی میزها"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
                   <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-sm text-gray-600 dark:text-gray-400">آنلاین</span>
                 </div>
@@ -853,6 +911,8 @@ export default function DineInPage() {
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

@@ -4,7 +4,7 @@ import {
   reserveInventoryForOrder, 
   consumeReservedInventory, 
   releaseReservedInventory 
-} from '../inventory-reservations/helpers'
+} from '../../inventory-reservations/helpers'
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 

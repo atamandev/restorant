@@ -88,6 +88,7 @@ export default function InitialInventoryPage() {
   const [showDrawer, setShowDrawer] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [balances, setBalances] = useState<any[]>([]) // موجودی از Balance
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set()) // آیتم‌های انتخاب شده
 
   const [formData, setFormData] = useState({
     name: '',
@@ -588,7 +589,17 @@ export default function InitialInventoryPage() {
       
       if (response.success) {
         showToast('کالا با موفقیت حذف شد', 'success')
-        await fetchItems()
+        // به‌روزرسانی لیست کالاها و موجودی‌ها از دیتابیس
+        await Promise.all([
+          fetchItems(),
+          fetchBalances()
+        ])
+        // حذف از selected items
+        setSelectedItems(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(id)
+          return newSet
+        })
       } else {
         showToast(response.message || 'خطا در حذف کالا', 'error')
       }
@@ -597,6 +608,83 @@ export default function InitialInventoryPage() {
       showToast('خطا در حذف کالا', 'error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // حذف دسته‌ای کالاها
+  const handleBulkDelete = async () => {
+    if (selectedItems.size === 0) {
+      showToast('لطفاً حداقل یک کالا را انتخاب کنید', 'warning')
+      return
+    }
+
+    const count = selectedItems.size
+    if (!confirm(`آیا مطمئن هستید که می‌خواهید ${count} کالا را حذف کنید؟`)) return
+
+    try {
+      setSaving(true)
+      const itemsToDelete = Array.from(selectedItems)
+      let successCount = 0
+      let failCount = 0
+
+      // حذف به صورت موازی
+      await Promise.all(
+        itemsToDelete.map(async (id) => {
+          try {
+            const response = await remove(`/api/warehouse/items/${id}`)
+            if (response.success) {
+              successCount++
+            } else {
+              failCount++
+            }
+          } catch (error) {
+            console.error(`Error deleting item ${id}:`, error)
+            failCount++
+          }
+        })
+      )
+
+      if (successCount > 0) {
+        showToast(`${successCount} کالا با موفقیت حذف شد${failCount > 0 ? ` (${failCount} مورد خطا داشت)` : ''}`, 'success')
+        // به‌روزرسانی لیست کالاها و موجودی‌ها از دیتابیس
+        await Promise.all([
+          fetchItems(),
+          fetchBalances()
+        ])
+        setSelectedItems(new Set())
+      } else {
+        showToast('خطا در حذف کالاها', 'error')
+      }
+    } catch (error) {
+      console.error('Error bulk deleting items:', error)
+      showToast('خطا در حذف کالاها', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // انتخاب/لغو انتخاب یک آیتم
+  const handleToggleSelect = (id: string) => {
+    setSelectedItems(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  // انتخاب/لغو انتخاب همه
+  const handleSelectAll = () => {
+    if (selectedItems.size === filteredItems.length) {
+      // اگر همه انتخاب شده‌اند، همه را لغو کن
+      setSelectedItems(new Set())
+    } else {
+      // همه را انتخاب کن
+      const allIds = filteredItems.map(item => item.id || item._id || '').filter(Boolean)
+      setSelectedItems(new Set(allIds))
     }
   }
 
@@ -793,7 +881,10 @@ export default function InitialInventoryPage() {
             {/* Category Filter */}
             <select
               value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
+              onChange={(e) => {
+                setFilterCategory(e.target.value)
+                setSelectedItems(new Set()) // پاک کردن انتخاب‌ها هنگام تغییر فیلتر
+              }}
               className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               <option value="all">همه دسته‌ها</option>
@@ -805,7 +896,10 @@ export default function InitialInventoryPage() {
             {/* Status Filter */}
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
+              onChange={(e) => {
+                setFilterStatus(e.target.value)
+                setSelectedItems(new Set()) // پاک کردن انتخاب‌ها هنگام تغییر فیلتر
+              }}
               className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               <option value="all">همه وضعیت‌ها</option>
@@ -817,7 +911,10 @@ export default function InitialInventoryPage() {
             {/* Warehouse Filter */}
             <select
               value={filterWarehouse}
-              onChange={(e) => setFilterWarehouse(e.target.value)}
+              onChange={(e) => {
+                setFilterWarehouse(e.target.value)
+                setSelectedItems(new Set()) // پاک کردن انتخاب‌ها هنگام تغییر فیلتر
+              }}
               className="px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               <option value="all">همه انبارها</option>
@@ -840,12 +937,50 @@ export default function InitialInventoryPage() {
         </div>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedItems.size > 0 && (
+        <div className="mb-4 premium-card p-4 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4 space-x-reverse">
+              <span className="text-sm font-medium text-primary-800 dark:text-primary-200">
+                {selectedItems.size} کالا انتخاب شده
+              </span>
+            </div>
+            <div className="flex items-center space-x-2 space-x-reverse">
+              <button
+                onClick={() => setSelectedItems(new Set())}
+                className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+              >
+                لغو انتخاب
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={saving}
+                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>حذف انتخاب شده‌ها ({selectedItems.size})</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="premium-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full" dir="rtl">
             <thead className="bg-gray-50 dark:bg-gray-800/50 sticky top-0 z-10">
               <tr>
+                <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 w-12">
+                  <input
+                    type="checkbox"
+                    checked={filteredItems.length > 0 && selectedItems.size === filteredItems.length}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600"
+                    title="انتخاب همه"
+                  />
+                </th>
                 <th className="text-right py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
                   نام کالا
                 </th>
@@ -875,7 +1010,7 @@ export default function InitialInventoryPage() {
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12">
+                  <td colSpan={9} className="text-center py-12">
                     <Package className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400 mb-2">
                       هیچ کالایی یافت نشد
@@ -888,13 +1023,27 @@ export default function InitialInventoryPage() {
                   </td>
                 </tr>
               ) : (
-                filteredItems.map((item, index) => (
+                filteredItems.map((item, index) => {
+                  const itemId = item.id || item._id || ''
+                  const isSelected = selectedItems.has(itemId)
+                  
+                  return (
                   <tr
-                    key={item.id || item._id}
+                    key={itemId}
                     className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                      isSelected ? 'bg-primary-50 dark:bg-primary-900/20' : 
                       index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/50 dark:bg-gray-800/50'
                     }`}
                   >
+                    <td className="py-4 px-6">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleSelect(itemId)}
+                        className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
                     <td className="py-4 px-6">
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white">{item.name}</p>
@@ -1005,7 +1154,8 @@ export default function InitialInventoryPage() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>

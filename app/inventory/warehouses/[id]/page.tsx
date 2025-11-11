@@ -134,39 +134,26 @@ export default function WarehouseDetailsPage() {
     }
   }
 
-  // بارگذاری موجودی انبار - از inventory_balance برای دقت بیشتر
+  // بارگذاری موجودی انبار - از API warehouse استفاده می‌کنیم که خودش از inventory_balance استفاده می‌کند
   const fetchInventory = async () => {
     try {
       if (!warehouse) return
       
-      // روش 1: از API warehouse (برای نمایش)
+      console.log('Fetching inventory for warehouse:', warehouse.name, warehouseId)
       const response = await fetch(`/api/warehouses/${warehouseId}`)
       const data = await response.json()
       
       if (data.success) {
         const itemsFromWarehouse = data.data.inventoryItems || []
-        
-        // روش 2: از inventory_balance برای اطمینان (دقیق‌تر)
-        const balanceResponse = await fetch(`/api/inventory/balance?warehouseName=${encodeURIComponent(warehouse.name)}`)
-        const balanceData = await balanceResponse.json()
-        
-        if (balanceData.success && balanceData.data && balanceData.data.length > 0) {
-          // اگر balance وجود دارد، از آن استفاده کن
-          const balanceItemIds = new Set(balanceData.data.map((b: any) => b.itemId?.toString()).filter(Boolean))
-          
-          // فیلتر items بر اساس balance
-          const filteredItems = itemsFromWarehouse.filter((item: InventoryItem) => {
-            return balanceItemIds.has(item._id?.toString() || '')
-          })
-          
-          setInventoryItems(filteredItems)
-        } else {
-          // اگر balance خالی است، از items استفاده کن
-          setInventoryItems(itemsFromWarehouse)
-        }
+        console.log('Received inventory items:', itemsFromWarehouse.length)
+        setInventoryItems(itemsFromWarehouse)
+      } else {
+        console.error('Failed to fetch inventory:', data.message)
+        setInventoryItems([])
       }
     } catch (error) {
       console.error('Error fetching inventory:', error)
+      setInventoryItems([])
     }
   }
 

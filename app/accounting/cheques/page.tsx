@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   FileText, 
   Search, 
@@ -221,7 +221,7 @@ const mockCheques: Cheque[] = [
 ]
 
 export default function ChequesPage() {
-  const [cheques, setCheques] = useState<Cheque[]>(mockCheques)
+  const [cheques, setCheques] = useState<Cheque[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
@@ -230,6 +230,8 @@ export default function ChequesPage() {
   const [editingCheque, setEditingCheque] = useState<Cheque | null>(null)
   const [selectedCheque, setSelectedCheque] = useState<Cheque | null>(null)
   const [showStatusModal, setShowStatusModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   const [formData, setFormData] = useState({
     chequeNumber: '',
@@ -252,6 +254,75 @@ export default function ChequesPage() {
     notes: ''
   })
 
+  // تبدیل داده‌های API به فرمت مورد نیاز
+  const convertApiDataToCheque = useCallback((item: any): Cheque => {
+    return {
+      id: item._id?.toString() || item.id || '',
+      chequeNumber: item.chequeNumber || '',
+      bankName: item.bankName || '',
+      branchName: item.branchName || '',
+      amount: item.amount || 0,
+      currency: item.currency || 'IRR',
+      issueDate: item.issueDate ? new Date(item.issueDate).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+      dueDate: item.dueDate ? new Date(item.dueDate).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+      status: item.status || 'in_hand',
+      type: item.chequeType || item.type || 'received',
+      drawerName: item.personName || item.drawerName || '',
+      drawerPhone: item.personPhone || item.drawerPhone || '',
+      drawerAddress: item.personAddress || item.drawerAddress || '',
+      payeeName: item.payeeName || 'رستوران مرکزی',
+      payeePhone: item.payeePhone || '',
+      payeeAddress: item.payeeAddress || '',
+      reference: item.reference || '',
+      referenceType: item.referenceType || 'other',
+      referenceId: item.referenceId || '',
+      notes: item.notes || '',
+      createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+      createdBy: item.createdBy || 'system',
+      lastStatusChange: item.lastStatusChange || '',
+      lastStatusChangeBy: item.lastStatusChangeBy || '',
+      depositDate: item.depositDate ? new Date(item.depositDate).toLocaleDateString('fa-IR') : undefined,
+      clearDate: item.clearDate ? new Date(item.clearDate).toLocaleDateString('fa-IR') : undefined,
+      returnDate: item.returnDate ? new Date(item.returnDate).toLocaleDateString('fa-IR') : undefined,
+      returnReason: item.returnReason || undefined,
+      endorsementDate: item.endorsementDate ? new Date(item.endorsementDate).toLocaleDateString('fa-IR') : undefined,
+      endorsementTo: item.endorsementTo || undefined
+    }
+  }, [])
+
+  // دریافت داده از API
+  const fetchCheques = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (filterStatus !== 'all') params.append('status', filterStatus)
+      if (filterType !== 'all') params.append('chequeType', filterType)
+      params.append('sortBy', 'dueDate')
+      params.append('sortOrder', 'asc')
+      params.append('limit', '1000')
+
+      const response = await fetch(`/api/cheques?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        const chequesList = (data.data || []).map(convertApiDataToCheque)
+        setCheques(chequesList)
+      } else {
+        console.error('Error fetching cheques:', data.message)
+        setCheques([])
+      }
+    } catch (error) {
+      console.error('Error fetching cheques:', error)
+      setCheques([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterStatus, filterType, convertApiDataToCheque])
+
+  useEffect(() => {
+    fetchCheques()
+  }, [fetchCheques])
+
   const filteredCheques = cheques.filter(cheque =>
     (filterStatus === 'all' || cheque.status === filterStatus) &&
     (filterType === 'all' || cheque.type === filterType) &&
@@ -266,67 +337,81 @@ export default function ChequesPage() {
       cheque.bankName.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
-  const handleSave = () => {
-    if (editingCheque) {
-      // Update existing cheque
-      const updatedCheque = {
-        ...editingCheque,
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const chequeData = {
         chequeNumber: formData.chequeNumber,
-        bankName: formData.bankName,
-        branchName: formData.branchName,
+        chequeType: formData.type,
         amount: formData.amount,
         currency: formData.currency,
-        issueDate: formData.issueDate,
-        dueDate: formData.dueDate,
-        type: formData.type,
-        drawerName: formData.drawerName,
-        drawerPhone: formData.drawerPhone,
-        drawerAddress: formData.drawerAddress,
-        payeeName: formData.payeeName,
-        payeePhone: formData.payeePhone,
-        payeeAddress: formData.payeeAddress,
-        reference: formData.reference,
-        referenceType: formData.referenceType,
-        referenceId: formData.referenceId,
-        notes: formData.notes
-      }
-      setCheques(cheques.map(cheque => 
-        cheque.id === editingCheque.id ? updatedCheque : cheque
-      ))
-    } else {
-      // Create new cheque
-      const newCheque: Cheque = {
-        id: Date.now().toString(),
-        chequeNumber: formData.chequeNumber,
         bankName: formData.bankName,
         branchName: formData.branchName,
-        amount: formData.amount,
-        currency: formData.currency,
         issueDate: formData.issueDate,
         dueDate: formData.dueDate,
-        status: 'in_hand',
-        type: formData.type,
-        drawerName: formData.drawerName,
-        drawerPhone: formData.drawerPhone,
-        drawerAddress: formData.drawerAddress,
-        payeeName: formData.payeeName,
-        payeePhone: formData.payeePhone,
-        payeeAddress: formData.payeeAddress,
+        personName: formData.type === 'received' ? formData.drawerName : formData.payeeName,
+        personPhone: formData.type === 'received' ? formData.drawerPhone : formData.payeePhone,
+        personAddress: formData.type === 'received' ? formData.drawerAddress : formData.payeeAddress,
         reference: formData.reference,
         referenceType: formData.referenceType,
         referenceId: formData.referenceId,
         notes: formData.notes,
-        createdAt: new Date().toLocaleString('fa-IR'),
-        createdBy: 'کاربر سیستم',
-        lastStatusChange: new Date().toLocaleString('fa-IR'),
-        lastStatusChangeBy: 'کاربر سیستم'
+        status: 'in_hand'
       }
-      setCheques([newCheque, ...cheques])
+
+      let response
+      if (editingCheque) {
+        response = await fetch(`/api/cheques/${editingCheque.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(chequeData)
+        })
+      } else {
+        response = await fetch('/api/cheques', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(chequeData)
+        })
+      }
+
+      const data = await response.json()
+      if (data.success) {
+        await fetchCheques()
+        setShowForm(false)
+        setEditingCheque(null)
+        resetForm()
+        alert(editingCheque ? 'چک با موفقیت به‌روزرسانی شد' : 'چک با موفقیت ثبت شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error saving cheque:', error)
+      alert('خطا در ذخیره چک')
+    } finally {
+      setSaving(false)
     }
-    setShowForm(false)
-    setEditingCheque(null)
-    resetForm()
   }
+
+  const handleDelete = async (chequeId: string) => {
+    if (!confirm('آیا از حذف این چک اطمینان دارید؟')) return
+
+    try {
+      const response = await fetch(`/api/cheques/${chequeId}`, {
+        method: 'DELETE'
+      })
+      const data = await response.json()
+      if (data.success) {
+        await fetchCheques()
+        alert('چک با موفقیت حذف شد')
+      } else {
+        alert('خطا: ' + data.message)
+      }
+    } catch (error) {
+      console.error('Error deleting cheque:', error)
+      alert('خطا در حذف چک')
+    }
+  }
+
 
   const openAddForm = () => {
     setEditingCheque(null)
@@ -709,7 +794,7 @@ export default function ChequesPage() {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => deleteCheque(cheque.id)}
+                            onClick={() => handleDelete(cheque.id)}
                             className="p-2 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />

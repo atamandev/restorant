@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -115,12 +115,62 @@ const mockCashFlowData: CashFlowEntry[] = [
 ]
 
 export default function CashFlowPage() {
-  const [cashFlowData, setCashFlowData] = useState<CashFlowEntry[]>(mockCashFlowData)
+  const [cashFlowData, setCashFlowData] = useState<CashFlowEntry[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterMethod, setFilterMethod] = useState('all')
   const [filterDateRange, setFilterDateRange] = useState('week')
   const [selectedEntry, setSelectedEntry] = useState<CashFlowEntry | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [fromDate, setFromDate] = useState<string>('')
+  const [toDate, setToDate] = useState<string>('')
+
+  // دریافت داده از API
+  const fetchCashFlow = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (filterType !== 'all') params.append('type', filterType)
+      if (filterMethod !== 'all') params.append('method', filterMethod)
+      if (fromDate) params.append('fromDate', fromDate)
+      if (toDate) params.append('toDate', toDate)
+      params.append('sortBy', 'date')
+      params.append('sortOrder', 'desc')
+      params.append('limit', '1000')
+
+      const response = await fetch(`/api/cash-flow?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        // تبدیل داده‌های API به فرمت مورد نیاز
+        const entries: CashFlowEntry[] = (data.data || []).map((item: any, index: number) => ({
+          id: item._id?.toString() || String(index),
+          date: item.date ? new Date(item.date).toLocaleDateString('fa-IR') : new Date().toLocaleDateString('fa-IR'),
+          type: item.type === 'inflow' ? 'receipt' : 'payment',
+          category: item.category || 'سایر',
+          description: item.description || item.reference || 'بدون توضیحات',
+          amount: item.amount || 0,
+          method: item.method || 'cash',
+          balance: item.balance || 0,
+          reference: item.reference || '',
+          personName: item.personName || item.person?.name || 'نامشخص'
+        }))
+        setCashFlowData(entries)
+      } else {
+        console.error('Error fetching cash flow:', data.message)
+        setCashFlowData([])
+      }
+    } catch (error) {
+      console.error('Error fetching cash flow:', error)
+      setCashFlowData([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterType, filterMethod, fromDate, toDate])
+
+  useEffect(() => {
+    fetchCashFlow()
+  }, [fetchCashFlow])
 
   const filteredData = cashFlowData.filter(entry =>
     (filterType === 'all' || entry.type === filterType) &&
@@ -318,9 +368,42 @@ export default function CashFlowPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold gradient-text mb-2">گردش نقدی</h1>
-          <p className="text-gray-600 dark:text-gray-300">تحلیل و گزارش گردش نقدی رستوران</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold gradient-text mb-2">گردش نقدی</h1>
+              <p className="text-gray-600 dark:text-gray-300">تحلیل و گزارش گردش نقدی رستوران</p>
+            </div>
+            <div className="flex items-center space-x-3 space-x-reverse">
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                placeholder="از تاریخ"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              />
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                placeholder="تا تاریخ"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              />
+              <button
+                onClick={fetchCashFlow}
+                disabled={loading}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'در حال بارگذاری...' : 'به‌روزرسانی'}
+              </button>
+            </div>
+          </div>
         </div>
+
+        {loading && (
+          <div className="text-center py-8">
+            <p className="text-gray-600 dark:text-gray-400">در حال بارگذاری داده‌ها...</p>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
