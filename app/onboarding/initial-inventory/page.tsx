@@ -114,24 +114,8 @@ export default function InitialInventoryPage() {
         console.log('Warehouses loaded:', warehousesList.length) // برای دیباگ
         setWarehouses(warehousesList)
         
-        // پیدا کردن انبار "تایماز" یا اولین انبار
-        const taymazWarehouse = warehousesList.find((w: Warehouse) => 
-          w.name === 'تایماز' || w.name.toLowerCase().includes('taymaz')
-        )
-        const defaultWarehouse = taymazWarehouse || warehousesList[0]
-        
-        console.log('Taymaz warehouse found:', taymazWarehouse?.name)
-        console.log('Default warehouse:', defaultWarehouse?.name)
+        // فقط لیست انبارها را تنظیم کن، پیش‌فرض تنظیم نکن
         console.log('Current formData.warehouse:', formData.warehouse)
-        
-        // اگر انباری وجود دارد و warehouse در formData خالی است، "تایماز" را انتخاب کن
-        if (defaultWarehouse) {
-          const warehouseName = defaultWarehouse.name
-          if (!formData.warehouse || formData.warehouse === '') {
-            console.log('Setting default warehouse to:', warehouseName)
-            setFormData(prev => ({ ...prev, warehouse: warehouseName }))
-          }
-        }
       } else {
         console.error('Failed to fetch warehouses:', response)
       }
@@ -193,17 +177,17 @@ export default function InitialInventoryPage() {
 
   // Auto-refresh برای به‌روزرسانی real-time موجودی - بهینه شده
   useEffect(() => {
-    // Refresh هر 30 ثانیه و فقط وقتی صفحه visible است
+    // Refresh هر 2 دقیقه و فقط وقتی صفحه visible است و loading نیست
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && !loading) {
         fetchItems()
         fetchBalances()
       }
-    }, 30000) // 30 ثانیه به جای 5 ثانیه
+    }, 120000) // 2 minutes - کاهش بار سرور
 
     // Cleanup interval وقتی component unmount می‌شود
     return () => clearInterval(interval)
-  }, []) // فقط یکبار اجرا می‌شود
+  }, [loading]) // فقط یکبار اجرا می‌شود
 
   // گوش دادن به events همگام‌سازی موجودی
   useEffect(() => {
@@ -338,16 +322,11 @@ export default function InitialInventoryPage() {
     // اطمینان از اینکه warehouse انتخاب شده است
     let finalWarehouse = formData.warehouse && formData.warehouse.trim() 
       ? formData.warehouse.trim() 
-      : (warehouses.find(w => w.name === 'تایماز' || w.name.toLowerCase().includes('taymaz'))?.name || 'تایماز')
+      : ''
     
-    // اگر warehouse شامل "تایماز" است، فقط "تایماز" را نگه دار (برای حذف کد انبار مثل "تایماز (WH-001)")
-    if (finalWarehouse && finalWarehouse.includes('تایماز')) {
-      finalWarehouse = 'تایماز'
-    }
-    
-    // اگر warehouse خالی است، به "تایماز" تنظیم کن
-    if (!finalWarehouse || finalWarehouse === '') {
-      finalWarehouse = 'تایماز'
+    // حذف کد انبار از نام (مثل "تایماز (WH-001)" -> "تایماز")
+    if (finalWarehouse && finalWarehouse.includes('(')) {
+      finalWarehouse = finalWarehouse.split('(')[0].trim()
     }
     
     if (!formData.name.trim() || !formData.category.trim() || !formData.unit.trim()) {
@@ -357,7 +336,7 @@ export default function InitialInventoryPage() {
     
     // بررسی اجباری بودن انبار
     if (!finalWarehouse || finalWarehouse.trim() === '') {
-      showToast('انتخاب انبار اجباری است', 'warning')
+      showToast('انتخاب انبار اجباری است. لطفاً یک انبار انتخاب کنید.', 'warning')
       return
     }
 
@@ -540,25 +519,65 @@ export default function InitialInventoryPage() {
   // ویرایش کالا
   const handleEdit = (item: InventoryItem) => {
     // دریافت موجودی واقعی از inventory_balance برای انبار این آیتم
-    const itemWarehouse = item.warehouse || (warehouses.length > 0 ? warehouses[0].name : '')
+    const itemWarehouse = (item.warehouse?.trim() || item.warehouse || '')
     
-    // دریافت موجودی از انبار مشخص
+    // بررسی که انبار این کالا در لیست انبارها وجود دارد
+    const warehouseExists = warehouses.some(w => {
+      const warehouseName = w.name?.trim() || w.name || ''
+      return warehouseName === itemWarehouse
+    })
+    
+    if (!itemWarehouse) {
+      showToast('این کالا انبار مشخصی ندارد. لطفاً ابتدا انبار را تنظیم کنید.', 'warning')
+      // اگر انبار وجود ندارد، warehouse را خالی بگذار تا کاربر انتخاب کند
+      setFormData({
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        currentStock: item.currentStock || 0,
+        minStock: item.minStock,
+        maxStock: item.maxStock,
+        unitPrice: item.unitPrice,
+        expiryDate: item.expiryDate || '',
+        supplier: item.supplier || '',
+        warehouse: '' // خالی بگذار تا کاربر انتخاب کند
+      })
+      setEditingItem(item)
+      setShowDrawer(true)
+      return
+    }
+    
+    if (!warehouseExists) {
+      showToast('انبار این کالا در سیستم وجود ندارد. لطفاً انبار معتبری انتخاب کنید.', 'warning')
+      // اگر انبار وجود ندارد، warehouse را خالی بگذار تا کاربر انتخاب کند
+      setFormData({
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        currentStock: item.currentStock || 0,
+        minStock: item.minStock,
+        maxStock: item.maxStock,
+        unitPrice: item.unitPrice,
+        expiryDate: item.expiryDate || '',
+        supplier: item.supplier || '',
+        warehouse: '' // خالی بگذار تا کاربر انتخاب کند
+      })
+      setEditingItem(item)
+      setShowDrawer(true)
+      return
+    }
+    
+    // دریافت موجودی از انبار مشخص (تطابق دقیق)
     const itemBalances = balances.filter(b => {
       const balanceItemId = b.itemId?.toString() || String(b.itemId || '')
       const itemIdStr = (item.id || item._id || '').toString()
       return balanceItemId === itemIdStr
     })
     
-    // فیلتر بر اساس انبار آیتم
+    // فیلتر بر اساس انبار آیتم (تطابق دقیق)
     const warehouseBalances = itemBalances.filter(b => {
-      const warehouseName = b.warehouseName || ''
-      return warehouseName === itemWarehouse || 
-             warehouseName.toLowerCase() === itemWarehouse.toLowerCase() ||
-             (itemWarehouse === 'تایماز' && (
-               warehouseName === 'تایماز' || 
-               warehouseName.toLowerCase().includes('taymaz') ||
-               warehouseName.includes('تایماز')
-             ))
+      const warehouseName = (b.warehouseName?.trim() || b.warehouseName || '')
+      return warehouseName === itemWarehouse
     })
     
     const actualStock = warehouseBalances.reduce((sum, b) => sum + (b.quantity || 0), 0) || item.currentStock || 0
@@ -689,16 +708,7 @@ export default function InitialInventoryPage() {
   }
 
   const resetForm = () => {
-    // پیدا کردن انبار "تایماز" یا اولین انبار
-    const taymazWarehouse = warehouses.find(w => 
-      w.name === 'تایماز' || w.name.toLowerCase().includes('taymaz')
-    )
-    const defaultWarehouse = taymazWarehouse || warehouses[0]
-    const warehouseName = defaultWarehouse ? defaultWarehouse.name : 'تایماز'
-    
-    console.log('Resetting form with warehouse:', warehouseName)
-    console.log('Available warehouses:', warehouses.map(w => w.name))
-    
+    // فرم را خالی کن، بدون پیش‌فرض برای انبار
     setFormData({
       name: '',
       category: '',
@@ -709,7 +719,7 @@ export default function InitialInventoryPage() {
       unitPrice: 0,
       expiryDate: '',
       supplier: '',
-      warehouse: warehouseName
+      warehouse: '' // انبار باید توسط کاربر انتخاب شود
     })
     setEditingItem(null)
   }
@@ -1227,14 +1237,18 @@ export default function InitialInventoryPage() {
               <select
                 value={formData.warehouse || ''}
                 onChange={(e) => {
-                  const selectedWarehouse = e.target.value
+                  let selectedWarehouse = e.target.value
+                  // حذف کد انبار از نام (مثل "تایماز (WH-001)" -> "تایماز")
+                  if (selectedWarehouse && selectedWarehouse.includes('(')) {
+                    selectedWarehouse = selectedWarehouse.split('(')[0].trim()
+                  }
                   console.log('Warehouse selected:', selectedWarehouse)
                   setFormData({...formData, warehouse: selectedWarehouse})
                 }}
                 className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 required
               >
-                <option value="">انتخاب انبار</option>
+                <option value="">انتخاب انبار *</option>
                 {warehouses.length > 0 ? (
                   warehouses.map(warehouse => (
                     <option key={warehouse._id || warehouse.id} value={warehouse.name}>
@@ -1245,11 +1259,34 @@ export default function InitialInventoryPage() {
                   <option value="" disabled>در حال بارگذاری انبارها...</option>
                 )}
               </select>
-              {formData.warehouse && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  انبار انتخاب شده: {formData.warehouse}
-                </p>
-              )}
+              {(() => {
+                const selectedWarehouseName = formData.warehouse?.trim() || formData.warehouse || ''
+                // بررسی که انبار انتخاب شده در لیست انبارها وجود دارد
+                const warehouseExists = warehouses.some(w => {
+                  const warehouseName = w.name?.trim() || w.name || ''
+                  return warehouseName === selectedWarehouseName
+                })
+                
+                if (selectedWarehouseName && warehouseExists) {
+                  return (
+                    <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                      ✓ انبار انتخاب شده: {selectedWarehouseName}
+                    </p>
+                  )
+                } else if (selectedWarehouseName && !warehouseExists) {
+                  return (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                      ⚠ انبار انتخاب شده در سیستم وجود ندارد. لطفاً انبار معتبری انتخاب کنید.
+                    </p>
+                  )
+                } else {
+                  return (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                      ⚠ انبار تعیین نشده - لطفاً یک انبار انتخاب کنید
+                    </p>
+                  )
+                }
+              })()}
             </div>
             
             <div>

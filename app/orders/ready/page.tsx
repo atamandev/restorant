@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   CheckCircle, 
   Search, 
@@ -19,7 +19,9 @@ import {
   AlertCircle,
   Package,
   Utensils,
-  ShoppingCart
+  ShoppingCart,
+  RefreshCw,
+  X
 } from 'lucide-react'
 
 interface ReadyOrder {
@@ -49,110 +51,91 @@ interface ReadyOrder {
   deliveryAddress?: string
 }
 
-const mockReadyOrders: ReadyOrder[] = [
-  {
-    id: '1',
-    orderNumber: 'DI-001',
-    customerName: 'احمد محمدی',
-    customerPhone: '09123456789',
-    tableNumber: '2',
-    orderType: 'dine-in',
-    items: [
-      { name: 'کباب کوبیده', quantity: 2, price: 120000 },
-      { name: 'نوشابه', quantity: 2, price: 15000 }
-    ],
-    subtotal: 270000,
-    tax: 24300,
-    serviceCharge: 27000,
-    discount: 0,
-    total: 321300,
-    orderTime: '14:30',
-    estimatedReadyTime: '15:00',
-    actualReadyTime: '14:55',
-    status: 'ready',
-    notes: 'میز 2 - مشتری منتظر است',
-    paymentMethod: 'cash',
-    priority: 'normal'
-  },
-  {
-    id: '2',
-    orderNumber: 'TW-002',
-    customerName: 'سارا کریمی',
-    customerPhone: '09123456790',
-    orderType: 'takeaway',
-    items: [
-      { name: 'جوجه کباب', quantity: 1, price: 135000 },
-      { name: 'دوغ محلی', quantity: 1, price: 18000 }
-    ],
-    subtotal: 153000,
-    tax: 13770,
-    serviceCharge: 0,
-    discount: 10000,
-    total: 156770,
-    orderTime: '14:25',
-    estimatedReadyTime: '14:50',
-    actualReadyTime: '14:48',
-    status: 'ready',
-    notes: 'بیرون‌بر - آماده تحویل',
-    paymentMethod: 'card',
-    priority: 'normal'
-  },
-  {
-    id: '3',
-    orderNumber: 'DL-003',
-    customerName: 'رضا حسینی',
-    customerPhone: '09123456791',
-    orderType: 'delivery',
-    items: [
-      { name: 'چلو گوشت', quantity: 1, price: 180000 },
-      { name: 'سالاد سزار', quantity: 1, price: 45000 }
-    ],
-    subtotal: 225000,
-    tax: 20250,
-    serviceCharge: 0,
-    discount: 0,
-    total: 245250,
-    orderTime: '14:20',
-    estimatedReadyTime: '15:00',
-    actualReadyTime: '14:58',
-    status: 'ready',
-    notes: 'ارسال - آدرس: تهران، خیابان ولیعصر',
-    paymentMethod: 'credit',
-    priority: 'urgent',
-    deliveryAddress: 'تهران، خیابان ولیعصر، پلاک 123'
-  },
-  {
-    id: '4',
-    orderNumber: 'DI-004',
-    customerName: 'مریم نوری',
-    customerPhone: '09123456792',
-    tableNumber: '4',
-    orderType: 'dine-in',
-    items: [
-      { name: 'میرزا قاسمی', quantity: 1, price: 70000 },
-      { name: 'نوشابه', quantity: 1, price: 15000 }
-    ],
-    subtotal: 85000,
-    tax: 7650,
-    serviceCharge: 8500,
-    discount: 0,
-    total: 101150,
-    orderTime: '14:15',
-    estimatedReadyTime: '14:35',
-    actualReadyTime: '14:32',
-    status: 'ready',
-    notes: 'میز 4 - آماده تحویل',
-    paymentMethod: 'card',
-    priority: 'normal'
-  }
-]
-
 export default function ReadyOrdersPage() {
-  const [orders, setOrders] = useState<ReadyOrder[]>(mockReadyOrders)
+  const [orders, setOrders] = useState<ReadyOrder[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [filterPriority, setFilterPriority] = useState('all')
   const [selectedOrder, setSelectedOrder] = useState<ReadyOrder | null>(null)
+
+  // تبدیل داده‌های API به فرمت مورد نیاز
+  const convertApiDataToOrder = useCallback((item: any): ReadyOrder => {
+    const orderTime = item.orderTime ? (typeof item.orderTime === 'string' ? item.orderTime : new Date(item.orderTime).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })) : ''
+    const estimatedReadyTime = item.estimatedReadyTime ? (typeof item.estimatedReadyTime === 'string' ? item.estimatedReadyTime : new Date(item.estimatedReadyTime).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })) : ''
+    const actualReadyTime = item.actualReadyTime ? (typeof item.actualReadyTime === 'string' ? item.actualReadyTime : new Date(item.actualReadyTime).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })) : estimatedReadyTime
+
+    return {
+      id: item._id?.toString() || item.id || '',
+      orderNumber: item.orderNumber || '',
+      customerName: item.customerName || 'نامشخص',
+      customerPhone: item.customerPhone || '',
+      tableNumber: item.tableNumber || undefined,
+      orderType: item.orderType || 'dine-in',
+      items: Array.isArray(item.items) ? item.items.map((i: any) => ({
+        name: i.name || '',
+        quantity: i.quantity || 0,
+        price: i.price || i.unitPrice || 0
+      })) : [],
+      subtotal: item.subtotal || 0,
+      tax: item.tax || item.taxAmount || 0,
+      serviceCharge: item.serviceCharge || 0,
+      discount: item.discount || item.discountAmount || 0,
+      total: item.total || item.totalAmount || 0,
+      orderTime,
+      estimatedReadyTime,
+      actualReadyTime,
+      status: 'ready' as const,
+      notes: item.notes || '',
+      paymentMethod: item.paymentMethod || 'cash',
+      priority: item.priority || 'normal',
+      deliveryAddress: item.customerAddress || item.deliveryAddress || undefined
+    }
+  }, [])
+
+  // دریافت سفارشات آماده از API
+  const fetchReadyOrders = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      params.append('status', 'ready')
+      if (filterType !== 'all') params.append('orderType', filterType)
+      if (filterPriority !== 'all') params.append('priority', filterPriority)
+      params.append('sortBy', 'orderTime')
+      params.append('sortOrder', 'asc')
+      params.append('limit', '1000')
+
+      const response = await fetch(`/api/orders?${params.toString()}`)
+      const result = await response.json()
+
+      if (result.success && result.data) {
+        const readyOrders = result.data.map(convertApiDataToOrder)
+        setOrders(readyOrders)
+      } else {
+        setOrders([])
+      }
+    } catch (error) {
+      console.error('Error fetching ready orders:', error)
+      setOrders([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterType, filterPriority, convertApiDataToOrder])
+
+  useEffect(() => {
+    fetchReadyOrders()
+  }, [fetchReadyOrders])
+
+  // Auto-refresh هر 30 ثانیه
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchReadyOrders()
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [fetchReadyOrders])
 
   const filteredOrders = orders.filter(order =>
     (filterType === 'all' || order.orderType === filterType) &&
@@ -198,10 +181,30 @@ export default function ReadyOrdersPage() {
     }
   }
 
-  const markAsCompleted = (orderId: string) => {
+  const markAsCompleted = async (orderId: string) => {
     if (confirm('آیا این سفارش را به عنوان تکمیل شده علامت‌گذاری می‌کنید؟')) {
-      setOrders(orders.filter(order => order.id !== orderId))
-      alert('سفارش با موفقیت تکمیل شد!')
+      try {
+        const response = await fetch('/api/orders/status', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            orderId,
+            status: 'completed'
+          })
+        })
+        const result = await response.json()
+        if (result.success) {
+          await fetchReadyOrders()
+          alert('سفارش با موفقیت تکمیل شد!')
+        } else {
+          alert('خطا در به‌روزرسانی سفارش: ' + result.message)
+        }
+      } catch (error) {
+        console.error('Error updating order status:', error)
+        alert('خطا در اتصال به سرور')
+      }
     }
   }
 
@@ -209,6 +212,7 @@ export default function ReadyOrdersPage() {
   const getUrgentOrders = () => orders.filter(order => order.priority === 'urgent').length
   const getTotalRevenue = () => orders.reduce((sum, order) => sum + order.total, 0)
   const getAverageOrderValue = () => {
+    if (orders.length === 0) return 0
     const total = orders.reduce((sum, order) => sum + order.total, 0)
     return Math.round(total / orders.length)
   }
@@ -305,7 +309,15 @@ export default function ReadyOrdersPage() {
               </select>
             </div>
             <div className="flex items-center space-x-2 space-x-reverse">
-              <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
+              <button
+                onClick={fetchReadyOrders}
+                disabled={loading}
+                className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <span>به‌روزرسانی</span>
+              </button>
+              <button className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
                 <Printer className="w-4 h-4" />
                 <span>چاپ لیست</span>
               </button>
@@ -317,7 +329,11 @@ export default function ReadyOrdersPage() {
         <div className="premium-card p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">لیست سفارشات آماده</h2>
           
-          {filteredOrders.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+            </div>
+          ) : filteredOrders.length === 0 ? (
             <div className="text-center py-12">
               <CheckCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">هیچ سفارش آماده‌ای وجود ندارد</h3>

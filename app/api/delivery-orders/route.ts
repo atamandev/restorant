@@ -921,6 +921,14 @@ export async function PUT(request: NextRequest) {
           }
 
           if (finalStatus === 'paid' || finalStatus === 'completed') {
+            // محاسبه سود
+            const { calculateOrderProfit } = await import('@/lib/profit-helpers')
+            const profitData = await calculateOrderProfit(
+              db,
+              currentOrder.items || [],
+              currentOrder.discountAmount || currentOrder.discount || 0
+            )
+            
             const invoiceNumber = await generateInvoiceNumber('sales')
             const invoice = {
               invoiceNumber,
@@ -931,19 +939,27 @@ export async function PUT(request: NextRequest) {
               customerAddress: currentOrder.deliveryAddress || '',
               date: new Date(),
               dueDate: null,
-              items: (currentOrder.items || []).map((item: any) => ({
-                itemId: item.menuItemId || item.id,
-                name: item.name,
-                price: item.price,
-                quantity: item.quantity,
-                total: item.total,
-                category: item.category
-              })),
+              items: (currentOrder.items || []).map((item: any, index: number) => {
+                const itemProfit = profitData.itemProfits[index] || { profit: 0, ingredientCost: 0, discount: 0 }
+                return {
+                  itemId: item.menuItemId || item.id,
+                  name: item.name,
+                  price: item.price,
+                  quantity: item.quantity,
+                  total: item.total,
+                  category: item.category,
+                  profit: itemProfit.profit,
+                  ingredientCost: itemProfit.ingredientCost,
+                  discount: itemProfit.discount
+                }
+              }),
               subtotal: currentOrder.subtotal || 0,
               taxAmount: currentOrder.tax || 0,
-              discountAmount: currentOrder.discountAmount || 0,
+              discountAmount: currentOrder.discountAmount || currentOrder.discount || 0,
               totalAmount: currentOrder.total || 0,
               paidAmount: currentOrder.total || 0,
+              profit: profitData.totalProfit,
+              costOfGoods: profitData.itemProfits.reduce((sum, item) => sum + item.ingredientCost, 0),
               status: 'paid',
               paymentMethod: currentOrder.paymentMethod || 'cash',
               notes: `سفارش ارسالی - ${currentOrder.orderNumber}`,
@@ -956,6 +972,11 @@ export async function PUT(request: NextRequest) {
             }
 
             await db.collection('invoices').insertOne(invoice, { session })
+            
+            // ذخیره سود در سفارش
+            updateFields.profit = profitData.totalProfit
+            updateFields.costOfGoods = profitData.itemProfits.reduce((sum, item) => sum + item.ingredientCost, 0)
+            updateFields.itemProfits = profitData.itemProfits
 
             // به‌روزرسانی باشگاه مشتریان
             if (currentOrder.customerId) {

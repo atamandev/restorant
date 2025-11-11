@@ -112,14 +112,27 @@ export default function StaffManagementPage() {
       params.append('sortOrder', sortOrder)
       params.append('limit', '100')
 
-      const response = await fetch(`/api/staff?${params.toString()}`)
+      const response = await fetch(`/api/staff?${params.toString()}`, {
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
       const result = await response.json()
       if (result.success) {
         setStaff(result.data || [])
+      } else {
+        console.error('Failed to fetch staff:', result.message)
+        alert(`خطا در دریافت لیست کارکنان: ${result.message || 'خطای نامشخص'}`)
       }
     } catch (error) {
       console.error('Error fetching staff:', error)
-      alert('خطا در دریافت لیست کارکنان')
+      alert('خطا در اتصال به سرور برای دریافت لیست کارکنان')
     } finally {
       setLoading(false)
     }

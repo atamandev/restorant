@@ -4,22 +4,59 @@ import { MongoClient, ObjectId } from 'mongodb'
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 const DB_NAME = 'restoren'
 
-let client: MongoClient
+let client: MongoClient | undefined
 let db: any
 
 async function connectToDatabase() {
-  if (!client) {
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    db = client.db(DB_NAME)
+  try {
+    if (!client) {
+      client = new MongoClient(MONGO_URI)
+      await client.connect()
+      db = client.db(DB_NAME)
+    } else if (!db) {
+      db = client.db(DB_NAME)
+    }
+    
+    // Test connection
+    if (db) {
+      try {
+        await db.admin().ping()
+      } catch (pingError) {
+        console.warn('MongoDB ping failed, but continuing:', pingError)
+      }
+    }
+    
+    if (!db) {
+      throw new Error('Database connection failed: db is null')
+    }
+    
+    return db
+  } catch (error) {
+    console.error('Database connection error:', error)
+    // Reset connection on error
+    if (client) {
+      try {
+        await client.close()
+      } catch (e) {
+        // Ignore close errors
+      }
+      client = undefined
+    }
+    db = null
+    throw error
   }
-  return db
 }
 
 // GET - داشبورد جامع مدیریتی (چشم مدیر 👁️)
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      return NextResponse.json(
+        { success: false, message: 'خطا در اتصال به دیتابیس' },
+        { status: 500 }
+      )
+    }
     
     const { searchParams } = new URL(request.url)
     const branchId = searchParams.get('branchId')
@@ -201,13 +238,30 @@ export async function GET(request: NextRequest) {
     // ==========================================
     // 4. مواد اولیه تا چند روز دیگر تمام می‌شوند؟ ⚠️
     // ==========================================
+    // استفاده از inventory_balance برای موجودی واقعی
+    const inventoryBalanceCollection = db.collection('inventory_balance')
     const allInventoryItems = await inventoryCollection.find({}).toArray()
     const stockAlerts = await stockAlertsCollection.find({ status: 'active' }).toArray()
+
+    // دریافت موجودی واقعی از inventory_balance
+    const balances = await inventoryBalanceCollection.find({}).toArray()
+    const balanceMap = new Map()
+    balances.forEach((balance: any) => {
+      const itemId = balance.itemId?.toString()
+      if (itemId) {
+        if (!balanceMap.has(itemId)) {
+          balanceMap.set(itemId, 0)
+        }
+        balanceMap.set(itemId, balanceMap.get(itemId) + (balance.quantity || 0))
+      }
+    })
 
     // محاسبه زمان تمام شدن موجودی بر اساس مصرف متوسط
     const inventoryItemsWithDaysRemaining = []
     for (const item of allInventoryItems) {
-      const stock = item.currentStock || 0
+      const itemId = item._id.toString()
+      // استفاده از موجودی واقعی از inventory_balance
+      const stock = balanceMap.get(itemId) || item.currentStock || 0
       const minStock = item.minStock || 0
       const unit = item.unit || 'عدد'
 
@@ -218,7 +272,10 @@ export async function GET(request: NextRequest) {
 
         const consumptionEntries = await itemLedgerCollection
           .find({
-            itemId: item._id.toString(),
+            $or: [
+              { itemId: itemId },
+              { itemId: new ObjectId(itemId) }
+            ],
             documentType: 'sale',
             date: { $gte: thirtyDaysAgo }
           })
@@ -240,7 +297,7 @@ export async function GET(request: NextRequest) {
         }
 
         inventoryItemsWithDaysRemaining.push({
-          itemId: item._id.toString(),
+          itemId: itemId,
           name: item.name,
           code: item.code,
           currentStock: stock,
@@ -249,7 +306,10 @@ export async function GET(request: NextRequest) {
           daysRemaining,
           averageDailyConsumption,
           isOutOfStock: stock === 0,
-          alert: stockAlerts.find((alert: any) => alert.itemId === item._id.toString())
+          alert: stockAlerts.find((alert: any) => {
+            const alertItemId = alert.itemId?.toString()
+            return alertItemId === itemId
+          })
         })
       }
     }
@@ -281,6 +341,11 @@ export async function GET(request: NextRequest) {
     // Gross Profit
     const grossProfit = revenue - costOfGoodsSold
     const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
+    
+    // سود خالص امروز (از فیلد profit در invoices)
+    const todayNetProfit = todayInvoices.reduce((sum: number, inv: any) => {
+      return sum + (inv.profit || 0)
+    }, 0)
 
     // ==========================================
     // آمارهای اضافی
@@ -391,7 +456,13 @@ export async function GET(request: NextRequest) {
           revenue,
           costOfGoodsSold,
           grossProfit,
-          grossMargin: grossMargin.toFixed(2),
+          grossMargin: typeof grossMargin === 'number' ? Number(grossMargin.toFixed(2)) : 0,
+          period: 'امروز'
+        },
+        
+        // 6. سود خالص امروز
+        todayNetProfit: {
+          amount: todayNetProfit,
           period: 'امروز'
         },
 
@@ -405,11 +476,18 @@ export async function GET(request: NextRequest) {
           inventorySummary: {
             totalItems: allInventoryItems.length,
             lowStockItems: allInventoryItems.filter(item => {
-              const stock = item.currentStock || 0
+              const itemId = item._id.toString()
+              // استفاده از موجودی واقعی از inventory_balance
+              const stock = balanceMap.get(itemId) || item.currentStock || 0
               const min = item.minStock || 0
               return stock <= min || item.isLowStock
             }).length,
-            outOfStockItems: allInventoryItems.filter(item => (item.currentStock || 0) === 0).length
+            outOfStockItems: allInventoryItems.filter(item => {
+              const itemId = item._id.toString()
+              // استفاده از موجودی واقعی از inventory_balance
+              const stock = balanceMap.get(itemId) || item.currentStock || 0
+              return stock === 0
+            }).length
           }
         }
       },

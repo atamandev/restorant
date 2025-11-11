@@ -39,7 +39,7 @@ interface Person {
   notes?: string
   createdAt?: Date | string
   updatedAt?: Date | string
-  source?: 'customers' | 'people' // برای تشخیص اینکه از کدام collection آمده
+  source?: 'customers' | 'people' | 'staff' // برای تشخیص اینکه از کدام collection آمده
   customerNumber?: string
   totalOrders?: number
   totalSpent?: number
@@ -95,6 +95,7 @@ const personTypes = [
 
 export default function PeopleSetupPage() {
   const [people, setPeople] = useState<Person[]>([])
+  const [staff, setStaff] = useState<any[]>([]) // کارکنان از API staff
   const [isAddingNew, setIsAddingNew] = useState(false)
   const [editingPerson, setEditingPerson] = useState<Person | null>(null)
   const [selectedType, setSelectedType] = useState<string>('customer')
@@ -123,28 +124,112 @@ export default function PeopleSetupPage() {
   const [goldenDiscountPercent, setGoldenDiscountPercent] = useState<number>(2)
   const [loadingCustomers, setLoadingCustomers] = useState(false)
 
-  // دریافت لیست اشخاص
+  // دریافت لیست اشخاص (غیر از کارکنان)
   const fetchPeople = async () => {
     try {
-      setLoading(true)
       const response = await fetch('/api/people')
       const data = await response.json()
       
       if (data.success) {
-        setPeople(data.data)
+        // فیلتر کردن کارکنان از لیست people (چون کارکنان از API staff می‌آیند)
+        const nonEmployeePeople = data.data.filter((p: Person) => p.type !== 'employee')
+        setPeople(nonEmployeePeople)
       } else {
         setError(data.message || 'خطا در دریافت لیست اشخاص')
       }
     } catch (error) {
       console.error('Error fetching people:', error)
       setError('خطا در اتصال به سرور')
+    }
+  }
+
+  // دریافت لیست کارکنان از API staff (همان API که settings/staff استفاده می‌کند)
+  const fetchStaff = async () => {
+    try {
+      // استفاده از cache برای کاهش درخواست‌های تکراری
+      const cacheKey = 'staff_cache'
+      const cacheTime = 30000 // 30 ثانیه
+      const cached = sessionStorage.getItem(cacheKey)
+      
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached)
+        if (Date.now() - timestamp < cacheTime) {
+          console.log('Using cached staff data')
+          setStaff(data)
+          return
+        }
+      }
+      
+      // استفاده از همان پارامترهای settings/staff برای اطمینان از یکسان بودن
+      const response = await fetch('/api/staff?limit=1000', {
+        cache: 'no-store', // برای اطمینان از دریافت داده‌های به‌روز
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // تبدیل فرمت staff به فرمت Person برای نمایش
+        const staffAsPeople: Person[] = (data.data || []).map((member: any) => {
+          // تقسیم name به firstName و lastName
+          const nameParts = (member.name || '').split(' ')
+          const firstName = nameParts[0] || ''
+          const lastName = nameParts.slice(1).join(' ') || ''
+          
+          return {
+            _id: member._id || member.id,
+            id: member._id || member.id,
+            firstName: firstName,
+            lastName: lastName,
+            phoneNumber: member.phone || '',
+            email: member.email || '',
+            address: member.address || '',
+            type: 'employee' as const,
+            isActive: member.status === 'active',
+            notes: member.notes || '',
+            salary: member.salary || 0,
+            position: member.position || '',
+            createdAt: member.createdAt || new Date(),
+            updatedAt: member.updatedAt || new Date(),
+            source: 'staff' // برای تشخیص اینکه از API staff آمده
+          }
+        })
+        console.log('Fetched staff from API:', staffAsPeople.length, 'members')
+        setStaff(staffAsPeople)
+        
+        // ذخیره در cache
+        sessionStorage.setItem(cacheKey, JSON.stringify({
+          data: staffAsPeople,
+          timestamp: Date.now()
+        }))
+      } else {
+        console.error('Failed to fetch staff:', data.message)
+        setError(data.message || 'خطا در دریافت لیست کارکنان')
+      }
+    } catch (error) {
+      console.error('Error fetching staff:', error)
+      setError('خطا در اتصال به سرور برای دریافت کارکنان')
+    }
+  }
+
+  // دریافت همه داده‌ها
+  const fetchAllData = async () => {
+    setLoading(true)
+    try {
+      await Promise.all([fetchPeople(), fetchStaff()])
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchPeople()
+    fetchAllData()
   }, [])
 
   // دریافت لیست مشتریان برای انتخاب مشتریان طلایی
@@ -260,7 +345,7 @@ export default function PeopleSetupPage() {
         }
 
         alert(`مشتری با موفقیت به مشتریان طلایی تبدیل شد و تخفیف ${goldenDiscountPercent}% برای آن تنظیم شد.`)
-        await fetchPeople() // دریافت مجدد لیست
+        await fetchAllData() // دریافت مجدد همه داده‌ها
         resetForm()
       } catch (error) {
         console.error('Error saving golden customer:', error)
@@ -271,15 +356,82 @@ export default function PeopleSetupPage() {
       return
     }
 
-    // برای سایر انواع اشخاص، همان منطق قبلی
-    if (!formData.firstName.trim() || !formData.lastName.trim()) {
-      setError('نام و نام خانوادگی الزامی است')
+    // برای کارکنان، از API staff استفاده کن
+    if (formData.type === 'employee') {
+      if (!formData.firstName.trim() || !formData.lastName.trim()) {
+        setError('نام و نام خانوادگی الزامی است')
+        return
+      }
+      if (!formData.position?.trim()) {
+        setError('سمت کارمند الزامی است')
+        return
+      }
+      if (!formData.email?.trim()) {
+        setError('ایمیل الزامی است')
+        return
+      }
+
+      try {
+        setSaving(true)
+        setError('')
+
+        const name = `${formData.firstName} ${formData.lastName}`.trim()
+        const method = editingPerson ? 'PUT' : 'POST'
+        const requestBody = editingPerson 
+          ? { 
+              id: editingPerson._id || editingPerson.id,
+              name,
+              email: formData.email || '',
+              phone: formData.phoneNumber || '',
+              position: formData.position || '',
+              department: 'عمومی', // پیش‌فرض
+              hireDate: new Date().toISOString().split('T')[0],
+              salary: formData.salary || 0,
+              status: formData.isActive ? 'active' : 'inactive',
+              address: formData.address || '',
+              notes: formData.notes || ''
+            }
+          : {
+              name,
+              email: formData.email || '',
+              phone: formData.phoneNumber || '',
+              position: formData.position || '',
+              department: 'عمومی', // پیش‌فرض
+              hireDate: new Date().toISOString().split('T')[0],
+              salary: formData.salary || 0,
+              status: formData.isActive ? 'active' : 'inactive',
+              address: formData.address || '',
+              notes: formData.notes || ''
+            }
+
+        const response = await fetch('/api/staff', {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        })
+
+        const data = await response.json()
+
+        if (data.success) {
+          // پاک کردن cache برای دریافت داده‌های جدید
+          sessionStorage.removeItem('staff_cache')
+          await fetchAllData() // دریافت مجدد همه داده‌ها
+          resetForm()
+        } else {
+          setError(data.message || 'خطا در ذخیره کارمند')
+        }
+      } catch (error) {
+        console.error('Error saving staff:', error)
+        setError('خطا در اتصال به سرور')
+      } finally {
+        setSaving(false)
+      }
       return
     }
 
-    // اعتبارسنجی برای کارکنان
-    if (formData.type === 'employee' && !formData.position?.trim()) {
-      setError('سمت کارمند الزامی است')
+    // برای سایر انواع اشخاص، همان منطق قبلی
+    if (!formData.firstName.trim() || !formData.lastName.trim()) {
+      setError('نام و نام خانوادگی الزامی است')
       return
     }
 
@@ -324,7 +476,7 @@ export default function PeopleSetupPage() {
       console.log('Response data:', data)
 
       if (data.success) {
-        await fetchPeople() // دریافت مجدد لیست
+        await fetchAllData() // دریافت مجدد همه داده‌ها
         resetForm()
       } else {
         setError(data.message || 'خطا در ذخیره شخص')
@@ -342,6 +494,12 @@ export default function PeopleSetupPage() {
     if (person.source === 'customers') {
       alert('این مشتری از بخش مشتریان آمده است. برای ویرایش، لطفاً از بخش "مشتریان" استفاده کنید.')
       return
+    }
+    
+    // اگر از API staff است، هشدار بده که باید از settings/staff ویرایش شود
+    if (person.source === 'staff') {
+      const shouldContinue = confirm('این کارمند از بخش تنظیمات کارکنان آمده است. برای ویرایش کامل، لطفاً از بخش "تنظیمات > کارکنان" استفاده کنید. آیا می‌خواهید ادامه دهید؟')
+      if (!shouldContinue) return
     }
     
     // فقط فیلدهای مورد نیاز را در formData قرار می‌دهیم
@@ -364,11 +522,41 @@ export default function PeopleSetupPage() {
   }
 
   const handleDelete = async (id: string) => {
-    const person = people.find(p => (p._id || p.id) === id)
+    const person = allPeople.find(p => (p._id || p.id) === id)
     
     // اگر از collection customers است، اجازه حذف نده
     if (person?.source === 'customers') {
       alert('این مشتری از بخش مشتریان آمده است و نمی‌توان آن را از اینجا حذف کرد. برای حذف، لطفاً از بخش "مشتریان" استفاده کنید.')
+      return
+    }
+    
+    // اگر از API staff است، از API staff حذف کن
+    if (person?.source === 'staff') {
+      if (!confirm('آیا مطمئن هستید که می‌خواهید این کارمند را حذف کنید؟')) return
+
+      try {
+        setSaving(true)
+        
+        const response = await fetch(`/api/staff?id=${id}`, {
+          method: 'DELETE',
+        })
+
+        const data = await response.json()
+
+        if (data.success) {
+          // پاک کردن cache برای دریافت داده‌های جدید
+          sessionStorage.removeItem('staff_cache')
+          await fetchAllData()
+        } else {
+          setError(data.message || 'خطا در حذف کارمند')
+        }
+      } catch (error) {
+        console.error('Error deleting staff:', error)
+        setError('خطا در اتصال به سرور')
+        await fetchAllData()
+      } finally {
+        setSaving(false)
+      }
       return
     }
     
@@ -388,16 +576,16 @@ export default function PeopleSetupPage() {
 
       if (!data.success) {
         // If delete failed, reload to restore state
-        await fetchPeople()
+        await fetchAllData()
         setError(data.message || 'خطا در حذف شخص')
       }
       // If successful, state already updated (optimistic)
       // Also reload to sync with server
-      await fetchPeople()
+      await fetchAllData()
     } catch (error) {
       console.error('Error deleting person:', error)
       // On error, reload to restore state
-      await fetchPeople()
+      await fetchAllData()
       setError('خطا در اتصال به سرور')
     } finally {
       setSaving(false)
@@ -441,7 +629,10 @@ export default function PeopleSetupPage() {
     return personType?.name || 'نامشخص'
   }
 
-  const filteredPeople = people.filter(person => {
+  // ترکیب people و staff برای نمایش
+  const allPeople = [...people, ...staff]
+  
+  const filteredPeople = allPeople.filter(person => {
     const matchesSearch = 
       person.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       person.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -456,7 +647,7 @@ export default function PeopleSetupPage() {
   const getTypeStats = () => {
     const stats = personTypes.map(type => ({
       ...type,
-      count: people.filter(person => person.type === type.id).length
+      count: allPeople.filter(person => person.type === type.id).length
     }))
     return stats
   }

@@ -4,22 +4,59 @@ import { MongoClient, ObjectId } from 'mongodb'
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
 const DB_NAME = 'restoren'
 
-let client: MongoClient
+let client: MongoClient | undefined
 let db: any
 
 async function connectToDatabase() {
-  if (!client) {
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    db = client.db(DB_NAME)
+  try {
+    if (!client) {
+      client = new MongoClient(MONGO_URI)
+      await client.connect()
+      db = client.db(DB_NAME)
+    } else if (!db) {
+      db = client.db(DB_NAME)
+    }
+    
+    // Test connection
+    if (db) {
+      try {
+        await db.admin().ping()
+      } catch (pingError) {
+        console.warn('MongoDB ping failed, but continuing:', pingError)
+      }
+    }
+    
+    if (!db) {
+      throw new Error('Database connection failed: db is null')
+    }
+    
+    return db
+  } catch (error) {
+    console.error('Database connection error:', error)
+    // Reset connection on error
+    if (client) {
+      try {
+        await client.close()
+      } catch (e) {
+        // Ignore close errors
+      }
+      client = undefined
+    }
+    db = null
+    throw error
   }
-  return db
 }
 
 // GET - خلاصه گزارشات سریع (برای کارت‌های داشبورد)
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      return NextResponse.json(
+        { success: false, message: 'خطا در اتصال به دیتابیس' },
+        { status: 500 }
+      )
+    }
     
     const { searchParams } = new URL(request.url)
     const branchId = searchParams.get('branchId')
@@ -84,10 +121,27 @@ export async function GET(request: NextRequest) {
     )
     const totalCustomers = customersSet.size
 
-    // موجودی کم
+    // موجودی کم - استفاده از inventory_balance برای موجودی واقعی
+    const inventoryBalanceCollection = db.collection('inventory_balance')
     const inventoryItems = await inventoryCollection.find({}).toArray()
+    
+    // دریافت موجودی واقعی از inventory_balance
+    const balances = await inventoryBalanceCollection.find({}).toArray()
+    const balanceMap = new Map()
+    balances.forEach((balance: any) => {
+      const itemId = balance.itemId?.toString()
+      if (itemId) {
+        if (!balanceMap.has(itemId)) {
+          balanceMap.set(itemId, 0)
+        }
+        balanceMap.set(itemId, balanceMap.get(itemId) + (balance.quantity || 0))
+      }
+    })
+    
     const lowStockItems = inventoryItems.filter((item: any) => {
-      const stock = item.currentStock || 0
+      const itemId = item._id.toString()
+      // استفاده از موجودی واقعی از inventory_balance
+      const stock = balanceMap.get(itemId) || item.currentStock || 0
       const min = item.minStock || 0
       return stock <= min || item.isLowStock
     }).length

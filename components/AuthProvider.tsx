@@ -1,7 +1,6 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
 
 interface User {
   id: string
@@ -26,9 +25,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const router = useRouter()
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
     // Check for existing token and user data in localStorage
     if (typeof window !== 'undefined') {
       const storedToken = localStorage.getItem('token')
@@ -65,8 +65,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
+      // استفاده از window.location به جای router.push برای جلوگیری از خطا
+      window.location.href = '/login'
     }
-    router.push('/login')
   }
 
   return (

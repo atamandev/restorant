@@ -5,22 +5,59 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhos
 const DB_NAME = 'restoren'
 const COLLECTION_NAME = 'staff'
 
-let client: MongoClient
+let client: MongoClient | undefined
 let db: any
 
 async function connectToDatabase() {
-  if (!client) {
-    client = new MongoClient(MONGO_URI)
-    await client.connect()
-    db = client.db(DB_NAME)
+  try {
+    if (!client) {
+      client = new MongoClient(MONGO_URI)
+      await client.connect()
+      db = client.db(DB_NAME)
+    } else if (!db) {
+      db = client.db(DB_NAME)
+    }
+    
+    // Test connection
+    if (db) {
+      try {
+        await db.admin().ping()
+      } catch (pingError) {
+        console.warn('MongoDB ping failed, but continuing:', pingError)
+      }
+    }
+    
+    if (!db) {
+      throw new Error('Database connection failed: db is null')
+    }
+    
+    return db
+  } catch (error) {
+    console.error('Database connection error:', error)
+    // Reset connection on error
+    if (client) {
+      try {
+        await client.close()
+      } catch (e) {
+        // Ignore close errors
+      }
+      client = undefined
+    }
+    db = null
+    throw error
   }
-  return db
 }
 
 // GET - دریافت لیست کارکنان با فیلتر و pagination
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      return NextResponse.json(
+        { success: false, message: 'خطا در اتصال به دیتابیس' },
+        { status: 500 }
+      )
+    }
     const staffCollection = db.collection(COLLECTION_NAME)
     const { searchParams } = new URL(request.url)
     
@@ -33,26 +70,30 @@ export async function GET(request: NextRequest) {
       const inactiveStaff = await staffCollection.countDocuments({ status: 'inactive' })
       const suspendedStaff = await staffCollection.countDocuments({ status: 'suspended' })
       
-      // محاسبه کل حقوق
-      const staffList = await staffCollection.find({}).toArray()
-      const totalSalary = staffList.reduce((sum: number, member: any) => sum + (member.salary || 0), 0)
+      // بهینه‌سازی: استفاده از aggregate برای محاسبه همه آمار به صورت موازی
+      const [salaryResult, ratingResult, departmentStats, positionStats] = await Promise.all([
+        // محاسبه کل حقوق
+        staffCollection.aggregate([
+          { $group: { _id: null, totalSalary: { $sum: '$salary' } } }
+        ]).toArray(),
+        // محاسبه میانگین عملکرد
+        staffCollection.aggregate([
+          { $group: { _id: null, avgRating: { $avg: '$performance.rating' }, count: { $sum: 1 } } }
+        ]).toArray(),
+        // آمار بر اساس بخش
+        staffCollection.aggregate([
+          { $group: { _id: '$department', count: { $sum: 1 } } },
+          { $sort: { count: -1 } }
+        ]).toArray(),
+        // آمار بر اساس سمت
+        staffCollection.aggregate([
+          { $group: { _id: '$position', count: { $sum: 1 } } },
+          { $sort: { count: -1 } }
+        ]).toArray()
+      ])
       
-      // محاسبه میانگین عملکرد
-      const avgRating = staffList.length > 0
-        ? staffList.reduce((sum: number, member: any) => sum + (member.performance?.rating || 0), 0) / staffList.length
-        : 0
-      
-      // آمار بر اساس بخش
-      const departmentStats = await staffCollection.aggregate([
-        { $group: { _id: '$department', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]).toArray()
-      
-      // آمار بر اساس سمت
-      const positionStats = await staffCollection.aggregate([
-        { $group: { _id: '$position', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]).toArray()
+      const totalSalary = salaryResult[0]?.totalSalary || 0
+      const avgRating = ratingResult[0]?.avgRating || 0
       
       return NextResponse.json({
         success: true,
@@ -80,12 +121,14 @@ export async function GET(request: NextRequest) {
       // ساخت فیلتر
       const filter: any = {}
       
-      if (search) {
+      // بهینه‌سازی: استفاده از text search یا regex بهینه
+      if (search && search.trim()) {
+        const searchRegex = { $regex: search.trim(), $options: 'i' }
         filter.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phone: { $regex: search, $options: 'i' } },
-          { position: { $regex: search, $options: 'i' } }
+          { name: searchRegex },
+          { email: searchRegex },
+          { phone: searchRegex },
+          { position: searchRegex }
         ]
       }
       
@@ -109,14 +152,34 @@ export async function GET(request: NextRequest) {
         sort[sortBy] = sortOrder === 'asc' ? 1 : -1
       }
       
-      const staff = await staffCollection
-        .find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .toArray()
+      // بهینه‌سازی: استفاده از projection برای کاهش حجم داده
+      const projection = {
+        name: 1,
+        email: 1,
+        phone: 1,
+        position: 1,
+        department: 1,
+        hireDate: 1,
+        salary: 1,
+        status: 1,
+        permissions: 1,
+        address: 1,
+        notes: 1,
+        performance: 1,
+        createdAt: 1,
+        updatedAt: 1
+      }
       
-      const total = await staffCollection.countDocuments(filter)
+      // بهینه‌سازی: اجرای موازی query و count
+      const [staff, total] = await Promise.all([
+        staffCollection
+          .find(filter, { projection })
+          .sort(sort)
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+        staffCollection.countDocuments(filter)
+      ])
       
       // Format staff data
       const formattedStaff = staff.map((member: any) => ({
@@ -145,7 +208,13 @@ export async function GET(request: NextRequest) {
 // POST - ایجاد کارمند جدید
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      return NextResponse.json(
+        { success: false, message: 'خطا در اتصال به دیتابیس' },
+        { status: 500 }
+      )
+    }
     const body = await request.json()
     const staffCollection = db.collection(COLLECTION_NAME)
     
@@ -211,7 +280,13 @@ export async function POST(request: NextRequest) {
 // PUT - به‌روزرسانی کارمند
 export async function PUT(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      return NextResponse.json(
+        { success: false, message: 'خطا در اتصال به دیتابیس' },
+        { status: 500 }
+      )
+    }
     const body = await request.json()
     const staffCollection = db.collection(COLLECTION_NAME)
     
@@ -292,7 +367,13 @@ export async function PUT(request: NextRequest) {
 // DELETE - حذف کارمند
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase()
+    const db = await connectToDatabase()
+    if (!db) {
+      return NextResponse.json(
+        { success: false, message: 'خطا در اتصال به دیتابیس' },
+        { status: 500 }
+      )
+    }
     const { searchParams } = new URL(request.url)
     const staffCollection = db.collection(COLLECTION_NAME)
     

@@ -48,69 +48,41 @@ export async function GET(
     console.log('Warehouse name (original):', warehouse.name)
     console.log('Warehouse name (trimmed):', warehouseName)
     
-    // دریافت موجودی از inventory_balance برای این انبار
+    // دریافت موجودی از inventory_balance فقط برای این انبار (تطابق دقیق)
+    // ابتدا با تطابق دقیق جستجو کن
     let balances = await balanceCollection.find({ 
       warehouseName: warehouseName 
     }).toArray()
     
-    console.log('Balances found (direct match):', balances.length)
-    
-    // اگر balance پیدا نشد، با نام‌های جایگزین جستجو کن
+    // اگر پیدا نشد، با trim جستجو کن
     if (balances.length === 0) {
-      let alternativeNames: string[] = []
-      
-      if (warehouseName === 'انبار اصلی' || warehouseName.includes('انبار اصلی')) {
-        alternativeNames = ['انبار اصلی', 'اصلی', 'تایماز', 'Taymaz', 'taymaz']
-      } else if (warehouseName === 'اصلی') {
-        alternativeNames = ['اصلی', 'انبار اصلی', 'تایماز', 'Taymaz', 'taymaz']
-      } else if (warehouseName === 'تایماز' || warehouseName.toLowerCase().includes('taymaz')) {
-        alternativeNames = ['تایماز', 'Taymaz', 'taymaz', 'انبار اصلی', 'اصلی']
-      }
-      
-      if (alternativeNames.length > 0) {
-        console.log('Trying alternative warehouse names for balance:', alternativeNames)
-        for (const altName of alternativeNames) {
-          const altBalances = await balanceCollection.find({ warehouseName: altName }).toArray()
-          if (altBalances.length > 0) {
-            balances = altBalances
-            console.log(`Found ${altBalances.length} balances with alternative warehouse name: "${altName}"`)
-            break
-          }
-        }
-      }
+      const allBalances = await balanceCollection.find({}).toArray()
+      balances = allBalances.filter((b: any) => {
+        const balanceWarehouse = b.warehouseName?.trim() || b.warehouseName || ''
+        return balanceWarehouse === warehouseName
+      })
     }
     
-    console.log('Final balances found:', balances.length)
+    console.log(`Found ${balances.length} balances for warehouse: "${warehouseName}"`)
     
-    // دریافت همه کالاهایی که warehouse field آنها برابر نام انبار است
-    // استفاده از روش ساده‌تر: دریافت همه کالاها و فیلتر کردن با trim
-    // این روش مطمئن‌تر است چون فاصله‌ها را در نظر می‌گیرد
+    // دریافت فقط کالاهایی که warehouse field آنها دقیقاً برابر نام انبار است
+    // استفاده از تطابق دقیق (case-sensitive) برای اطمینان از تطابق کامل
     const allItems = await inventoryItemsCollection.find({}).toArray()
     
-    // لیست نام‌های جایگزین برای جستجو
-    let searchNames: string[] = [warehouseName]
-    
-    if (warehouseName === 'انبار اصلی' || warehouseName.includes('انبار اصلی')) {
-      searchNames = ['انبار اصلی', 'اصلی', 'تایماز', 'Taymaz', 'taymaz']
-    } else if (warehouseName === 'اصلی') {
-      searchNames = ['اصلی', 'انبار اصلی', 'تایماز', 'Taymaz', 'taymaz']
-    } else if (warehouseName === 'تایماز' || warehouseName.toLowerCase().includes('taymaz')) {
-      searchNames = ['تایماز', 'Taymaz', 'taymaz', 'انبار اصلی', 'اصلی']
-    }
-    
-    // فیلتر کردن کالاها بر اساس warehouse field (با trim)
-    let itemsFromWarehouse = allItems.filter((item: any) => {
+    // فیلتر دقیق با trim برای اطمینان از تطابق کامل
+    const exactMatchItems = allItems.filter((item: any) => {
       const itemWarehouse = item.warehouse?.trim() || item.warehouse || ''
-      return searchNames.some(searchName => itemWarehouse === searchName)
+      return itemWarehouse === warehouseName
     })
     
-    console.log(`Found ${itemsFromWarehouse.length} items from inventory_items with warehouse field matching:`, searchNames)
-    console.log('Warehouse name searched:', warehouseName)
+    console.log(`Found ${exactMatchItems.length} items from inventory_items with exact warehouse match: "${warehouseName}"`)
     
     // نمایش نمونه‌ای از warehouse field های موجود در دیتابیس برای دیباگ
-    if (itemsFromWarehouse.length === 0) {
-      const uniqueWarehouses = [...new Set(allItems.map((item: any) => item.warehouse).filter(Boolean))]
+    if (exactMatchItems.length === 0) {
+      const allItems = await inventoryItemsCollection.find({}).toArray()
+      const uniqueWarehouses = [...new Set(allItems.map((item: any) => item.warehouse?.trim() || item.warehouse).filter(Boolean))]
       console.log('All unique warehouse names in database:', uniqueWarehouses)
+      console.log('Looking for exact match with:', warehouseName)
     }
     
     // ایجاد Map از balance ها برای دسترسی سریع
@@ -151,6 +123,13 @@ export async function GET(
       })
       
       if (item) {
+        // بررسی که warehouse این کالا دقیقاً برابر با نام انبار باشد
+        const itemWarehouse = item.warehouse?.trim() || item.warehouse || ''
+        if (itemWarehouse !== warehouseName) {
+          console.log(`Skipping item ${item.name}: warehouse mismatch (${itemWarehouse} != ${warehouseName})`)
+          continue
+        }
+        
         processedItemIds.add(itemIdStr)
         const quantity = balance.quantity || 0
         const totalValue = balance.totalValue || (quantity * (item.unitPrice || 0))
@@ -174,8 +153,8 @@ export async function GET(
     }
     
     // حالا کالاهایی که در inventory_items هستند اما balance ندارند را اضافه کن
-    console.log(`Processing ${itemsFromWarehouse.length} items from inventory_items that don't have balance`)
-    for (const item of itemsFromWarehouse) {
+    console.log(`Processing ${exactMatchItems.length} items from inventory_items that don't have balance`)
+    for (const item of exactMatchItems) {
       const itemIdStr = item._id?.toString() || String(item._id || '')
       
       // اگر قبلاً پردازش نشده (یعنی balance ندارد)

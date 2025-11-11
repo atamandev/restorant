@@ -1,20 +1,26 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useTransition } from 'react'
 import { useAuth } from '@/components/AuthProvider'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 
 // Lazy load heavy chart components
-const LineChart = dynamic(() => import('@/components/Charts/LineChart'), {
-  loading: () => <div className="w-full h-80 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div></div>,
-  ssr: false
-})
+const LineChart = dynamic(
+  () => import('@/components/Charts/LineChart'),
+  {
+    loading: () => <div className="w-full h-80 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div></div>,
+    ssr: false
+  }
+)
 
-const PieChart = dynamic(() => import('@/components/Charts/PieChart'), {
-  loading: () => <div className="w-full h-80 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div></div>,
-  ssr: false
-})
+const PieChart = dynamic(
+  () => import('@/components/Charts/PieChart'),
+  {
+    loading: () => <div className="w-full h-80 flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div></div>,
+    ssr: false
+  }
+)
 import { 
   TrendingUp, 
   Users, 
@@ -102,14 +108,47 @@ export default function Dashboard() {
   const [chartPeriod, setChartPeriod] = useState<'today' | 'month' | '6months' | 'year'>('month')
   const [activeCustomersCount, setActiveCustomersCount] = useState(0)
   const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0)
+  const [isPending, startTransition] = useTransition()
 
-  // Fetch dashboard data - optimized with parallel requests
-  const fetchDashboardData = useCallback(async (period?: 'today' | 'month' | '6months' | 'year') => {
+  // Cache key for sessionStorage
+  const getCacheKey = (key: string, period?: string) => `dashboard_${key}_${period || chartPeriod}`
+  const CACHE_DURATION = 120000 // 2 minutes cache (increased)
+
+  // Fetch dashboard data - optimized with caching and reduced API calls
+  const fetchDashboardData = useCallback(async (period?: 'today' | 'month' | '6months' | 'year', forceRefresh = false) => {
     const selectedPeriod = period || chartPeriod
     try {
       setRefreshing(true)
       
-      // Execute all API calls in parallel for better performance
+      // Check cache first (unless force refresh)
+      if (!forceRefresh && typeof window !== 'undefined') {
+        try {
+          const cached = sessionStorage.getItem(getCacheKey('main', selectedPeriod))
+          if (cached) {
+            const { data, timestamp } = JSON.parse(cached)
+            if (Date.now() - timestamp < CACHE_DURATION) {
+              // Batch state updates using startTransition
+              startTransition(() => {
+                setDashboardData(data.dashboard)
+                setSummaryData(data.summary)
+                setSalesChartData(data.salesChart || [])
+                setPaymentMethodsData(data.paymentMethods || [])
+                setTopMenuItems(data.topMenuItems || [])
+                setRecentInvoices(data.recentInvoices || [])
+                setRecentCheques(data.recentCheques || [])
+                setNotifications(data.notifications || [])
+                setActiveCustomersCount(data.activeCustomersCount || 0)
+                setNewCustomersThisMonth(data.newCustomersThisMonth || 0)
+              })
+              setRefreshing(false)
+              return
+            }
+          }
+        } catch {
+          // Ignore cache errors
+        }
+      }
+      
       // Build sales API URL based on selected period
       let salesApiUrl = '/api/sales-reports?reportType=daily'
       switch (selectedPeriod) {
@@ -127,10 +166,9 @@ export default function Dashboard() {
           break
       }
 
+      // Reduced API calls - only essential ones
       const [
         dashboardRes,
-        summaryRes,
-        salesRes,
         ordersSalesRes,
         paymentRes,
         topItemsRes,
@@ -139,226 +177,133 @@ export default function Dashboard() {
         alertsRes,
         customersRes
       ] = await Promise.allSettled([
-        fetch('/api/dashboard'),
-        fetch('/api/dashboard/summary'),
-        fetch(salesApiUrl),
-        fetch(`/api/orders/sales?period=${selectedPeriod}`), // دریافت داده از orders واقعی
-        fetch('/api/sales-reports?reportType=payment&dateRange=month'),
-        fetch('/api/reports/top-menu-items?limit=5'),
-        fetch('/api/invoices?limit=5&type=sales&sortBy=createdAt&sortOrder=desc'),
-        fetch('/api/cheques?limit=5&sortBy=createdAt&sortOrder=desc'),
-        fetch('/api/stock-alerts?status=active&limit=5'),
-        fetch('/api/customers?status=active&limit=50') // دریافت مشتریان فعال (محدود شده برای عملکرد بهتر)
+        fetch('/api/dashboard', { cache: 'default' }), // Use default cache
+        fetch(`/api/orders/sales?period=${selectedPeriod}`, { cache: 'default' }),
+        fetch('/api/sales-reports?reportType=payment&dateRange=month', { cache: 'default' }),
+        fetch('/api/reports/top-menu-items?limit=5', { cache: 'default' }),
+        fetch('/api/invoices?limit=5&type=sales&sortBy=createdAt&sortOrder=desc', { cache: 'default' }),
+        fetch('/api/cheques?limit=5&sortBy=createdAt&sortOrder=desc', { cache: 'default' }),
+        fetch('/api/stock-alerts?status=active&limit=5', { cache: 'default' }),
+        fetch('/api/customers?status=active&limit=50', { cache: 'default' })
       ])
 
-      // Process dashboard data
-      if (dashboardRes.status === 'fulfilled') {
-        try {
-          const result = await dashboardRes.value.json()
-          if (result.success) {
-            setDashboardData(result.data)
-          }
-        } catch (error) {
-          console.error('Error parsing dashboard:', error)
-        }
-      }
-
-      // Process summary data
-      if (summaryRes.status === 'fulfilled') {
-        try {
-          const result = await summaryRes.value.json()
-          if (result.success) {
-            setSummaryData(result.data)
-          }
-        } catch (error) {
-          console.error('Error parsing summary:', error)
-        }
-      }
-
-      // Process sales chart data from orders (real data)
-      const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
-      
-      // اول از orders واقعی تلاش کن
-      if (ordersSalesRes.status === 'fulfilled') {
-        try {
-          const ordersResult = await ordersSalesRes.value.json()
-          if (ordersResult.success && ordersResult.data && Array.isArray(ordersResult.data) && ordersResult.data.length > 0) {
-            const chartData = ordersResult.data.map((item: any) => {
-              return {
-                label: item.label || item.period || item.month || '',
-                month: item.label || item.period || item.month || '',
-                sales: item.totalSales || item.sales || item.amount || 0,
-                profit: item.totalProfit || item.profit || ((item.totalSales || item.sales || item.amount || 0) * 0.3)
-              }
-            })
-            setSalesChartData(chartData)
-          } else {
-            // Fallback to sales-reports
-            await processSalesReportsData(salesRes, monthNames)
-          }
-        } catch (error) {
-          console.error('Error parsing orders sales chart:', error)
-          await processSalesReportsData(salesRes, monthNames)
-        }
-      } else {
-        await processSalesReportsData(salesRes, monthNames)
-      }
-
-      async function processSalesReportsData(salesRes: any, monthNames: string[]) {
-        if (salesRes.status === 'fulfilled') {
+      // Process all responses in parallel and batch state updates
+      const processResponse = (res: any) => {
+        if (res.status === 'fulfilled') {
           try {
-            const salesResult = await salesRes.value.json()
-            if (salesResult.success && salesResult.data && Array.isArray(salesResult.data) && salesResult.data.length > 0) {
-              const chartData = salesResult.data.map((item: any, index: number) => {
-                try {
-                  const date = item.date ? new Date(item.date) : new Date()
-                  const monthIndex = date.getMonth() || 0
-                  return {
-                    label: monthNames[monthIndex] || monthNames[index] || `ماه ${index + 1}`,
-                    month: monthNames[monthIndex] || monthNames[index] || `ماه ${index + 1}`,
-                    sales: item.totalSales || item.sales || 0,
-                    profit: (item.totalSales || item.sales || 0) * 0.3
-                  }
-                } catch {
-                  return {
-                    label: monthNames[index] || `ماه ${index + 1}`,
-                    month: monthNames[index] || `ماه ${index + 1}`,
-                    sales: item.totalSales || item.sales || 0,
-                    profit: (item.totalSales || item.sales || 0) * 0.3
-                  }
-                }
-              })
-              setSalesChartData(chartData)
-            } else {
-              setSalesChartData([])
-            }
-          } catch (error) {
-            console.error('Error parsing sales chart:', error)
-            setSalesChartData([])
+            return res.value.json()
+          } catch {
+            return Promise.resolve({ success: false })
           }
-        } else {
-          setSalesChartData([])
         }
+        return Promise.resolve({ success: false })
       }
 
-      // Process payment methods
-      if (paymentRes.status === 'fulfilled') {
-        try {
-          const result = await paymentRes.value.json()
-          if (result.success && result.data && Array.isArray(result.data)) {
-            setPaymentMethodsData(result.data)
-          } else {
-            setPaymentMethodsData([])
-          }
-        } catch (error) {
-          console.error('Error parsing payment methods:', error)
-          setPaymentMethodsData([])
-        }
+      // Process all responses in parallel
+      const [
+        dashboardResult,
+        ordersResult,
+        paymentResult,
+        topItemsResult,
+        invoicesResult,
+        chequesResult,
+        alertsResult,
+        customersResult
+      ] = await Promise.all([
+        processResponse(dashboardRes),
+        processResponse(ordersSalesRes),
+        processResponse(paymentRes),
+        processResponse(topItemsRes),
+        processResponse(invoicesRes),
+        processResponse(chequesRes),
+        processResponse(alertsRes),
+        processResponse(customersRes)
+      ])
+
+      // Prepare all data before state updates
+      const dashboardDataResult = dashboardResult.success ? dashboardResult.data : null
+      const summaryDataResult = dashboardDataResult
+      
+      const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
+      const salesChartDataResult = ordersResult.success && ordersResult.data && Array.isArray(ordersResult.data) && ordersResult.data.length > 0
+        ? ordersResult.data.map((item: any) => ({
+            label: item.label || item.period || item.month || '',
+            month: item.label || item.period || item.month || '',
+            sales: item.totalSales || item.sales || item.amount || 0,
+            profit: item.totalProfit || item.profit || ((item.totalSales || item.sales || item.amount || 0) * 0.3)
+          }))
+        : []
+
+      const paymentMethodsDataResult = paymentResult.success && Array.isArray(paymentResult.data) ? paymentResult.data : []
+      const topMenuItemsResult = topItemsResult.success && topItemsResult.data ? topItemsResult.data : []
+      const recentInvoicesResult = invoicesResult.success && invoicesResult.data ? invoicesResult.data : []
+      const recentChequesResult = chequesResult.success && chequesResult.data ? chequesResult.data : []
+      
+      const notificationsResult = alertsResult.success && Array.isArray(alertsResult.data)
+        ? alertsResult.data.map((alert: any) => ({
+            id: alert._id || alert.id,
+            title: 'موجودی کم',
+            message: `موجودی ${alert.itemName || 'آیتم'} کمتر از حد مجاز است`,
+            time: alert.createdAt ? new Date(alert.createdAt).toLocaleString('fa-IR') : 'نامشخص',
+            type: 'warning',
+            icon: AlertTriangle
+          }))
+        : []
+
+      let activeCustomersCountResult = 0
+      let newCustomersThisMonthResult = 0
+      if (customersResult.success && Array.isArray(customersResult.data)) {
+        activeCustomersCountResult = customersResult.data.length || 0
+        const now = new Date()
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+        newCustomersThisMonthResult = customersResult.data.filter((customer: any) => {
+          if (!customer.registrationDate) return false
+          const regDate = new Date(customer.registrationDate)
+          return regDate >= startOfMonth
+        }).length
       }
 
-      // Process top menu items
-      if (topItemsRes.status === 'fulfilled') {
-        try {
-          const result = await topItemsRes.value.json()
-          if (result.success && result.data) {
-            setTopMenuItems(result.data)
-          } else {
-            setTopMenuItems([])
-          }
-        } catch (error) {
-          console.error('Error parsing top menu items:', error)
-          setTopMenuItems([])
+      // Batch all state updates using startTransition for better performance
+      startTransition(() => {
+        if (dashboardDataResult) {
+          setDashboardData(dashboardDataResult)
+          setSummaryData(summaryDataResult)
         }
-      }
+        setSalesChartData(salesChartDataResult)
+        setPaymentMethodsData(paymentMethodsDataResult)
+        setTopMenuItems(topMenuItemsResult)
+        setRecentInvoices(recentInvoicesResult)
+        setRecentCheques(recentChequesResult)
+        setNotifications(notificationsResult)
+        setActiveCustomersCount(activeCustomersCountResult)
+        setNewCustomersThisMonth(newCustomersThisMonthResult)
+      })
 
-      // Process recent invoices
-      if (invoicesRes.status === 'fulfilled') {
+      // Save to cache after processing
+      if (typeof window !== 'undefined' && dashboardDataResult) {
         try {
-          const result = await invoicesRes.value.json()
-          if (result.success && result.data) {
-            setRecentInvoices(result.data)
-          } else {
-            setRecentInvoices([])
+          const cacheData = {
+            dashboard: dashboardDataResult,
+            summary: summaryDataResult,
+            salesChart: salesChartDataResult,
+            paymentMethods: paymentMethodsDataResult,
+            topMenuItems: topMenuItemsResult,
+            recentInvoices: recentInvoicesResult,
+            recentCheques: recentChequesResult,
+            notifications: notificationsResult,
+            activeCustomersCount: activeCustomersCountResult,
+            newCustomersThisMonth: newCustomersThisMonthResult
           }
-        } catch (error) {
-          console.error('Error parsing invoices:', error)
-          setRecentInvoices([])
+          sessionStorage.setItem(getCacheKey('main', selectedPeriod), JSON.stringify({
+            data: cacheData,
+            timestamp: Date.now()
+          }))
+        } catch {
+          // Ignore cache errors
         }
-      }
-
-      // Process recent cheques
-      if (chequesRes.status === 'fulfilled') {
-        try {
-          const result = await chequesRes.value.json()
-          if (result.success && result.data) {
-            setRecentCheques(result.data)
-          } else {
-            setRecentCheques([])
-          }
-        } catch (error) {
-          console.error('Error parsing cheques:', error)
-          setRecentCheques([])
-        }
-      }
-
-      // Process stock alerts
-      if (alertsRes.status === 'fulfilled') {
-        try {
-          const result = await alertsRes.value.json()
-          if (result.success && result.data) {
-            const alerts = result.data.map((alert: any) => ({
-              id: alert._id || alert.id,
-              title: 'موجودی کم',
-              message: `موجودی ${alert.itemName || 'آیتم'} کمتر از حد مجاز است`,
-              time: alert.createdAt ? new Date(alert.createdAt).toLocaleString('fa-IR') : 'نامشخص',
-              type: 'warning',
-              icon: AlertTriangle
-            }))
-            setNotifications(alerts)
-          } else {
-            setNotifications([])
-          }
-        } catch (error) {
-          console.error('Error parsing stock alerts:', error)
-          setNotifications([])
-        }
-      }
-
-      // Process customers data - همگام با /customers/list
-      if (customersRes.status === 'fulfilled') {
-        try {
-          const result = await customersRes.value.json()
-          if (result.success && result.data) {
-            // تعداد مشتریان فعال (همان داده‌ای که در /customers/list نمایش داده می‌شود)
-            const activeCount = result.data.length || 0
-            setActiveCustomersCount(activeCount)
-
-            // محاسبه مشتریان جدید این ماه (مشتریانی که این ماه ثبت شده‌اند)
-            const now = new Date()
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-            const newCustomersThisMonth = result.data.filter((customer: any) => {
-              if (!customer.registrationDate) return false
-              const regDate = new Date(customer.registrationDate)
-              return regDate >= startOfMonth
-            }).length
-            setNewCustomersThisMonth(newCustomersThisMonth)
-          } else {
-            setActiveCustomersCount(0)
-            setNewCustomersThisMonth(0)
-          }
-        } catch (error) {
-          console.error('Error parsing customers:', error)
-          setActiveCustomersCount(0)
-          setNewCustomersThisMonth(0)
-        }
-      } else {
-        // اگر API call fail شود
-        console.error('Failed to fetch customers:', customersRes.reason)
-        setActiveCustomersCount(0)
-        setNewCustomersThisMonth(0)
       }
     } catch (error) {
-      console.error('Error fetching dashboard data:', error)
+      // Silent error handling
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -374,30 +319,30 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (user) {
-      fetchDashboardData()
+      fetchDashboardData(chartPeriod, false) // Use cache if available
     }
-  }, [user, fetchDashboardData, chartPeriod])
+  }, [user, chartPeriod]) // Removed fetchDashboardData from deps to prevent unnecessary re-renders
 
   useEffect(() => {
-    // Update time every second
+    // Update time every 30 seconds (reduced from 1 second)
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date())
-    }, 1000)
+    }, 30000)
 
     return () => {
       clearInterval(timeInterval)
     }
   }, [])
 
-  // Auto-refresh every 5 minutes for real-time updates (بهینه شده)
+  // Auto-refresh every 10 minutes (increased from 5 minutes)
   useEffect(() => {
     if (!user) return
     
     const refreshInterval = setInterval(() => {
       if (!refreshing && document.visibilityState === 'visible') {
-        fetchDashboardData()
+        fetchDashboardData(undefined, true) // Force refresh
       }
-    }, 300000) // 5 minutes - کاهش بار سرور
+    }, 600000) // 10 minutes
 
     return () => {
       clearInterval(refreshInterval)
@@ -406,28 +351,66 @@ export default function Dashboard() {
 
   // Prepare stats data from API - باید قبل از early return باشد
   const statsData = useMemo(() => {
-    if (!dashboardData?.todaySales) return []
+    // اگر dashboardData وجود ندارد، از summaryData استفاده کن
+    const data = dashboardData || summaryData
+    
+    if (!data) {
+      return []
+    }
+    
+    // محاسبه فروش امروز
+    const todaySales = data.todaySales || data.totalSales || { amount: 0, change: 0 }
+    const todaySalesAmount = typeof todaySales === 'object' ? (todaySales.amount || 0) : (todaySales || 0)
+    const todaySalesChange = typeof todaySales === 'object' ? (todaySales.change || 0) : 0
+    
+    // محاسبه سود ناخالص
+    const grossProfit = data.grossProfit || {}
+    const grossProfitAmount = grossProfit.grossProfit || grossProfit.profit || 0
+    // اطمینان از اینکه grossMargin یک number است
+    let grossMargin = grossProfit.grossMargin || grossProfit.margin || 0
+    if (typeof grossMargin === 'string') {
+      grossMargin = parseFloat(grossMargin) || 0
+    }
+    grossMargin = Number(grossMargin) || 0
+    
+    // محاسبه سود خالص امروز
+    const todayNetProfit = data.todayNetProfit?.amount || 0
+    
+    // محاسبه موجودی کم
+    const inventoryAlerts = data.inventoryAlerts || {}
+    const activeAlerts = inventoryAlerts.activeAlerts || inventoryAlerts.totalAlerts || 0
+    const criticalAlerts = inventoryAlerts.critical || []
     
     return [
       {
         title: 'فروش امروز',
-        value: dashboardData.todaySales.amount.toLocaleString('fa-IR'),
+        value: (Number(todaySalesAmount) || 0).toLocaleString('fa-IR'),
         currency: 'تومان',
-        change: `${dashboardData.todaySales.change >= 0 ? '+' : ''}${dashboardData.todaySales.change.toFixed(1)}%`,
-        changeType: dashboardData.todaySales.change >= 0 ? 'positive' : 'negative',
+        change: typeof todaySalesChange === 'number' && !isNaN(todaySalesChange) ? `${todaySalesChange >= 0 ? '+' : ''}${todaySalesChange.toFixed(1)}%` : '0%',
+        changeType: (Number(todaySalesChange) || 0) >= 0 ? 'positive' : 'negative',
         icon: TrendingUp,
         color: 'from-emerald-500 to-green-600',
         glowColor: 'shadow-glow-green'
       },
       {
         title: 'سود ناخالص',
-        value: dashboardData.grossProfit?.grossProfit.toLocaleString('fa-IR') || '0',
+        value: (Number(grossProfitAmount) || 0).toLocaleString('fa-IR'),
         currency: 'تومان',
-        change: dashboardData.grossProfit?.grossMargin ? `${dashboardData.grossProfit.grossMargin}%` : '0%',
+        change: typeof grossMargin === 'number' && !isNaN(grossMargin) ? `${grossMargin.toFixed(1)}%` : '0%',
         changeType: 'positive',
-        icon: DollarSign,
+        icon: TrendingUp,
         color: 'from-blue-500 to-indigo-600',
-        glowColor: 'shadow-glow'
+        glowColor: 'shadow-glow-blue'
+      },
+      {
+        title: 'سود خالص امروز',
+        value: (Number(todayNetProfit) || 0).toLocaleString('fa-IR'),
+        currency: 'تومان',
+        change: todayNetProfit > 0 ? 'مثبت' : todayNetProfit < 0 ? 'منفی' : 'صفر',
+        changeType: todayNetProfit > 0 ? 'positive' : todayNetProfit < 0 ? 'negative' : 'neutral',
+        icon: DollarSign,
+        color: 'from-green-500 to-emerald-600',
+        glowColor: 'shadow-glow-green'
       },
       {
         title: 'مشتریان فعال',
@@ -441,16 +424,16 @@ export default function Dashboard() {
       },
       {
         title: 'موجودی کم',
-        value: dashboardData.inventoryAlerts?.activeAlerts.toLocaleString('fa-IR') || '0',
+        value: activeAlerts.toLocaleString('fa-IR'),
         currency: 'آیتم',
-        change: dashboardData.inventoryAlerts?.critical.length > 0 ? `${dashboardData.inventoryAlerts.critical.length} بحرانی` : 'خوب',
-        changeType: dashboardData.inventoryAlerts?.activeAlerts > 0 ? 'negative' : 'positive',
+        change: criticalAlerts.length > 0 ? `${criticalAlerts.length} بحرانی` : 'خوب',
+        changeType: activeAlerts > 0 ? 'negative' : 'positive',
         icon: AlertTriangle,
         color: 'from-orange-500 to-red-600',
         glowColor: 'shadow-glow'
       }
     ]
-  }, [dashboardData])
+  }, [dashboardData, summaryData, activeCustomersCount, newCustomersThisMonth])
 
   // Early returns باید بعد از همه hookها باشند
   if (authLoading) {
@@ -469,165 +452,239 @@ export default function Dashboard() {
   }
 
   return (
-    <div>
-      {/* Welcome Section with Time and Refresh */}
-      <div className="mb-8">
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h1 className="text-3xl font-bold gradient-text mb-2">داشبورد مدیریت رستوران</h1>
-            <p className="text-gray-600 dark:text-gray-300">
-              خلاصه عملکرد سیستم از بخش‌های مختلف - {new Date().toLocaleDateString('fa-IR')}
-            </p>
-          </div>
-          <div className="flex items-center space-x-4 space-x-reverse">
-            {/* Refresh Button */}
-            <button
-              onClick={fetchDashboardData}
-              disabled={refreshing}
-              className="premium-button flex items-center space-x-2 space-x-reverse"
-            >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>به‌روزرسانی</span>
-            </button>
-            
-            {/* Time Widget */}
-            <div className="premium-card p-4 flex items-center space-x-3 space-x-reverse">
-              <Clock className="w-6 h-6 text-blue-500" />
-              <div>
-                <div className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                  {currentTime.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-indigo-50/30 dark:from-gray-950 dark:via-slate-900 dark:to-gray-900">
+      {/* Modern Header with Glassmorphism */}
+      <div className="relative mb-8">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-600/10 dark:from-blue-500/5 dark:via-purple-500/5 dark:to-pink-500/5 rounded-3xl blur-3xl"></div>
+        
+        <div className="relative backdrop-blur-xl bg-white/70 dark:bg-gray-900/70 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-2xl">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                  <Activity className="w-6 h-6 text-white" />
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  {currentTime.toLocaleDateString('fa-IR')}
+                <div>
+                  <h1 className="text-3xl md:text-4xl font-extrabold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                    داشبورد مدیریت
+                  </h1>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {new Date().toLocaleDateString('fa-IR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
                 </div>
               </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {/* Time Widget - Modern Design */}
+              <div className="relative group">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl blur opacity-20 group-hover:opacity-30 transition-opacity"></div>
+                <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 border border-white/20 dark:border-gray-700/50 rounded-2xl p-4 flex items-center gap-3 shadow-xl">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
+                    <Clock className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+                      {currentTime.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {currentTime.toLocaleDateString('fa-IR')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Refresh Button - Modern Design */}
+              <button
+                onClick={fetchDashboardData}
+                disabled={refreshing}
+                className="relative group"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl blur opacity-20 group-hover:opacity-30 transition-opacity"></div>
+                <div className={`relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 border border-white/20 dark:border-gray-700/50 rounded-2xl px-6 py-3 flex items-center gap-2 shadow-xl transition-all duration-300 ${
+                  refreshing ? 'cursor-not-allowed' : 'hover:scale-105 active:scale-95'
+                }`}>
+                  <RefreshCw className={`w-5 h-5 text-blue-600 dark:text-blue-400 ${refreshing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+                  <span className="font-semibold text-gray-900 dark:text-white">به‌روزرسانی</span>
+                </div>
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Stats Cards - همیشه نمایش داده می‌شود */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {/* Modern Stats Cards with Glassmorphism */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
         {statsData.length > 0 ? (
           statsData.map((stat, index) => {
-            const Icon = stat.icon
+            const Icon = stat.icon || Activity
+            // آیکون‌های lucide-react به صورت forwardRef هستند (object با $$typeof)
+            if (!Icon || (typeof Icon !== 'function' && !Icon.$$typeof)) {
+              console.error('Invalid icon for stat:', stat.title, stat.icon)
+              return null
+            }
+            const gradients = [
+              'from-emerald-500 via-teal-500 to-cyan-500',
+              'from-blue-500 via-indigo-500 to-purple-500',
+              'from-green-500 via-emerald-500 to-teal-500',
+              'from-purple-500 via-pink-500 to-rose-500',
+              'from-orange-500 via-red-500 to-pink-500'
+            ]
+            const gradient = gradients[index % gradients.length]
+            
             return (
-              <div key={index} className={`premium-card p-6 card-hover ${stat.glowColor} floating-card`}>
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`p-3 rounded-xl bg-gradient-to-r ${stat.color} pulse-glow`}>
-                    <Icon className="w-6 h-6 text-white" />
+              <div 
+                key={index} 
+                className="group relative overflow-hidden"
+              >
+                {/* Glow Effect */}
+                <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-20 blur-2xl transition-opacity duration-500`}></div>
+                
+                {/* Card */}
+                <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-xl hover:shadow-2xl transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1">
+                  {/* Icon with Gradient Background */}
+                  <div className="flex items-center justify-between mb-6">
+                    <div className={`relative p-4 rounded-2xl bg-gradient-to-br ${gradient} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                      <Icon className="w-7 h-7 text-white relative z-10" />
+                      <div className="absolute inset-0 bg-white/20 rounded-2xl"></div>
+                    </div>
+                    
+                    {/* Change Badge */}
+                    <div className={`relative overflow-hidden rounded-full px-3 py-1.5 ${
+                      stat.changeType === 'positive' 
+                        ? 'bg-gradient-to-r from-emerald-100 to-green-100 dark:from-emerald-900/30 dark:to-green-900/30 text-emerald-700 dark:text-emerald-300'
+                        : stat.changeType === 'negative'
+                        ? 'bg-gradient-to-r from-red-100 to-rose-100 dark:from-red-900/30 dark:to-rose-900/30 text-red-700 dark:text-red-300'
+                        : 'bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800/30 dark:to-gray-700/30 text-gray-700 dark:text-gray-300'
+                    }`}>
+                      <span className="text-xs font-bold relative z-10">{stat.change}</span>
+                    </div>
                   </div>
-                  <span className={`text-sm font-medium px-2 py-1 rounded-full ${
-                    stat.changeType === 'positive' 
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                  }`}>
-                    {stat.change}
-                  </span>
+                  
+                  {/* Value */}
+                  <div className="mb-2">
+                    <h3 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-1 tracking-tight">
+                      {stat.value}
+                      <span className="text-lg font-semibold text-gray-500 dark:text-gray-400 mr-1">
+                        {stat.currency}
+                      </span>
+                    </h3>
+                  </div>
+                  
+                  {/* Title */}
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-300">{stat.title}</p>
+                  
+                  {/* Decorative Line */}
+                  <div className={`absolute bottom-0 right-0 left-0 h-1 bg-gradient-to-r ${gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500`}></div>
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-                  {stat.value}
-                  <span className="text-sm font-normal text-gray-500 dark:text-gray-400 mr-1">
-                    {stat.currency}
-                  </span>
-                </h3>
-                <p className="text-gray-600 dark:text-gray-300 text-sm">{stat.title}</p>
               </div>
             )
           })
         ) : (
-          // نمایش placeholder در حال بارگذاری
+          // Modern Loading Placeholders
           [1, 2, 3, 4].map((index) => (
-            <div key={index} className="premium-card p-6 animate-pulse">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-                <div className="w-16 h-6 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+            <div key={index} className="relative overflow-hidden backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-xl animate-pulse">
+              <div className="flex items-center justify-between mb-6">
+                <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-2xl"></div>
+                <div className="w-20 h-6 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
               </div>
-              <div className="w-32 h-8 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-              <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+              <div className="w-40 h-10 bg-gray-200 dark:bg-gray-700 rounded-lg mb-2"></div>
+              <div className="w-32 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
             </div>
           ))
         )}
       </div>
 
-      {/* Charts Section - همیشه نمایش داده می‌شود */}
+      {/* Modern Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-        {/* Sales Chart */}
-        <div className="lg:col-span-3 premium-card p-6 border-2 border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600 transition-all duration-300 shadow-lg">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-3 space-x-reverse">
-              <div className="w-12 h-12 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center shadow-lg">
-                <BarChart3 className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">نمودار فروش</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {chartPeriod === 'today' && 'فروش امروز (ساعتی)'}
-                  {chartPeriod === 'month' && 'فروش یک ماه گذشته (روزانه)'}
-                  {chartPeriod === '6months' && 'فروش ۶ ماه گذشته (ماهانه)'}
-                  {chartPeriod === 'year' && 'فروش یک سال گذشته (ماهانه)'}
-                </p>
+        {/* Sales Chart - Modern Design */}
+        <div className="lg:col-span-3 group relative overflow-hidden">
+          {/* Glow Effect */}
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20 opacity-0 group-hover:opacity-100 blur-3xl transition-opacity duration-500"></div>
+          
+          {/* Card */}
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-2xl hover:shadow-3xl transition-all duration-500">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-purple-500 rounded-2xl blur opacity-30"></div>
+                  <div className="relative w-14 h-14 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center shadow-xl">
+                    <BarChart3 className="w-7 h-7 text-white" />
+                  </div>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white mb-1">نمودار فروش</h2>
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                    {chartPeriod === 'today' && '📊 فروش امروز (ساعتی)'}
+                    {chartPeriod === 'month' && '📈 فروش یک ماه گذشته (روزانه)'}
+                    {chartPeriod === '6months' && '📉 فروش ۶ ماه گذشته (ماهانه)'}
+                    {chartPeriod === 'year' && '📊 فروش یک سال گذشته (ماهانه)'}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center justify-end mb-4">
-            <div className="inline-flex items-center space-x-1 space-x-reverse bg-gray-100 dark:bg-gray-800 rounded-xl p-1 shadow-sm">
-              <button
-                onClick={() => {
-                  setChartPeriod('today')
-                  fetchDashboardData('today')
-                }}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                  chartPeriod === 'today'
-                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-md scale-105'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                امروز
-              </button>
-              <button
-                onClick={() => {
-                  setChartPeriod('month')
-                  fetchDashboardData('month')
-                }}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                  chartPeriod === 'month'
-                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-md scale-105'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                یک ماه
-              </button>
-              <button
-                onClick={() => {
-                  setChartPeriod('6months')
-                  fetchDashboardData('6months')
-                }}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                  chartPeriod === '6months'
-                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-md scale-105'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                ۶ ماه
-              </button>
-              <button
-                onClick={() => {
-                  setChartPeriod('year')
-                  fetchDashboardData('year')
-                }}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                  chartPeriod === 'year'
-                    ? 'bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-md scale-105'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                }`}
-              >
-                یک سال
-              </button>
+            
+            {/* Modern Period Selector */}
+            <div className="flex items-center justify-end mb-6">
+              <div className="inline-flex items-center gap-2 backdrop-blur-xl bg-white/60 dark:bg-gray-800/60 border border-white/20 dark:border-gray-700/50 rounded-2xl p-1.5 shadow-lg">
+                <button
+                  onClick={() => {
+                    setChartPeriod('today')
+                    fetchDashboardData('today')
+                  }}
+                  className={`relative px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${
+                    chartPeriod === 'today'
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/50 scale-105'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-gray-700/50'
+                  }`}
+                >
+                  امروز
+                </button>
+                <button
+                  onClick={() => {
+                    setChartPeriod('month')
+                    fetchDashboardData('month')
+                  }}
+                  className={`relative px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${
+                    chartPeriod === 'month'
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/50 scale-105'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-gray-700/50'
+                  }`}
+                >
+                  یک ماه
+                </button>
+                <button
+                  onClick={() => {
+                    setChartPeriod('6months')
+                    fetchDashboardData('6months')
+                  }}
+                  className={`relative px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${
+                    chartPeriod === '6months'
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/50 scale-105'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-gray-700/50'
+                  }`}
+                >
+                  ۶ ماه
+                </button>
+                <button
+                  onClick={() => {
+                    setChartPeriod('year')
+                    fetchDashboardData('year')
+                  }}
+                  className={`relative px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ${
+                    chartPeriod === 'year'
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/50 scale-105'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-gray-700/50'
+                  }`}
+                >
+                  یک سال
+                </button>
+              </div>
             </div>
-          </div>
-          {/* Chart Container */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 pb-8 border border-gray-200 dark:border-gray-700 shadow-sm">
+            
+            {/* Modern Chart Container */}
+            <div className="relative backdrop-blur-xl bg-white/50 dark:bg-gray-800/50 rounded-2xl p-6 border border-white/20 dark:border-gray-700/50 shadow-inner">
             {refreshing && salesChartData.length === 0 ? (
               <div className="h-[450px] flex items-center justify-center">
                 <div className="text-center">
@@ -660,39 +717,49 @@ export default function Dashboard() {
                 />
               </div>
             )}
-          </div>
-
-          {/* Summary Stats */}
-          {salesChartData.length > 0 && (
-            <div className="mt-4 grid grid-cols-3 gap-4">
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">کل فروش</p>
-                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                  {salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0).toLocaleString('fa-IR')} تومان
-                </p>
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">کل سود</p>
-                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                  {salesChartData.reduce((sum, item) => sum + (item.profit || 0), 0).toLocaleString('fa-IR')} تومان
-                </p>
-              </div>
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">میانگین روزانه</p>
-                <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                  {(salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0) / Math.max(salesChartData.length, 1)).toLocaleString('fa-IR')} تومان
-                </p>
-              </div>
             </div>
-          )}
+
+            {/* Modern Summary Stats */}
+            {salesChartData.length > 0 && (
+              <div className="mt-6 grid grid-cols-3 gap-4">
+                {[
+                  { label: 'کل فروش', value: salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0), gradient: 'from-emerald-500 to-teal-500' },
+                  { label: 'کل سود', value: salesChartData.reduce((sum, item) => sum + (item.profit || 0), 0), gradient: 'from-blue-500 to-indigo-500' },
+                  { label: 'میانگین روزانه', value: salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0) / Math.max(salesChartData.length, 1), gradient: 'from-purple-500 to-pink-500' }
+                ].map((stat, idx) => (
+                  <div key={idx} className="relative group overflow-hidden">
+                    <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-0 group-hover:opacity-10 blur-xl transition-opacity duration-300`}></div>
+                    <div className="relative backdrop-blur-xl bg-white/60 dark:bg-gray-800/60 rounded-xl p-4 border border-white/20 dark:border-gray-700/50">
+                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">{stat.label}</p>
+                      <p className={`text-xl font-extrabold bg-gradient-to-r ${stat.gradient} bg-clip-text text-transparent`}>
+                        {stat.value.toLocaleString('fa-IR')} تومان
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Payment Methods Pie Chart */}
-        <div className="premium-card p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">روش‌های پرداخت</h2>
-            <CreditCard className="w-5 h-5 text-primary-600" />
-          </div>
+        {/* Payment Methods Pie Chart - Modern Design */}
+        <div className="group relative overflow-hidden">
+          {/* Glow Effect */}
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-rose-500/20 opacity-0 group-hover:opacity-100 blur-3xl transition-opacity duration-500"></div>
+          
+          {/* Card */}
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-2xl hover:shadow-3xl transition-all duration-500">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl blur opacity-30"></div>
+                  <div className="relative w-12 h-12 bg-gradient-to-br from-purple-500 via-pink-500 to-rose-500 rounded-xl flex items-center justify-center shadow-lg">
+                    <CreditCard className="w-6 h-6 text-white" />
+                  </div>
+                </div>
+                <h2 className="text-xl font-extrabold text-gray-900 dark:text-white">روش‌های پرداخت</h2>
+              </div>
+            </div>
           <div className="h-80">
             <PieChart 
               data={paymentMethodsData.length > 0 ? paymentMethodsData.map((item: any) => ({
@@ -712,6 +779,7 @@ export default function Dashboard() {
             />
           </div>
         </div>
+      </div>
       </div>
 
       {/* Top Menu Items */}
@@ -752,173 +820,272 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Recent Invoices and Cheques */}
+      {/* Recent Invoices and Cheques - Modern Design */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Recent Invoices */}
         {recentInvoices.length > 0 && (
-          <div className="premium-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">آخرین فاکتورها</h2>
-              <div className="flex items-center space-x-2 space-x-reverse">
-                <Receipt className="w-5 h-5 text-primary-600" />
+          <div className="group relative overflow-hidden">
+            {/* Glow Effect */}
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 via-indigo-500/20 to-purple-500/20 opacity-0 group-hover:opacity-100 blur-3xl transition-opacity duration-500"></div>
+            
+            {/* Card */}
+            <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-2xl hover:shadow-3xl transition-all duration-500">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl blur opacity-30"></div>
+                    <div className="relative w-12 h-12 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg">
+                      <Receipt className="w-6 h-6 text-white" />
+                    </div>
+                  </div>
+                  <h2 className="text-xl font-extrabold text-gray-900 dark:text-white">آخرین فاکتورها</h2>
+                </div>
                 <button 
                   onClick={() => router.push('/accounting/invoices')}
-                  className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  className="group/btn relative overflow-hidden px-4 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold text-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
                 >
-                  مشاهده همه
+                  <span className="relative z-10">مشاهده همه</span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 group-hover/btn:opacity-100 transition-opacity"></div>
                 </button>
               </div>
-            </div>
-            <div className="space-y-4 card-scrollbar smooth-scroll max-h-80 overflow-y-auto">
-              {recentInvoices.map((invoice: any) => (
-                <div key={invoice._id || invoice.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600/50 transition-colors">
-                  <div className="flex items-center space-x-3 space-x-reverse">
-                    <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center">
-                      <FileText className="w-5 h-5 text-primary-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">{invoice.invoiceNumber || invoice.id}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {invoice.customerName || invoice.customer || 'مشتری عمومی'}
-                      </p>
+              <div className="space-y-3 card-scrollbar smooth-scroll max-h-80 overflow-y-auto">
+                {recentInvoices.map((invoice: any) => (
+                  <div 
+                    key={invoice._id || invoice.id} 
+                    className="group/item relative overflow-hidden backdrop-blur-xl bg-white/60 dark:bg-gray-800/60 rounded-2xl p-4 border border-white/20 dark:border-gray-700/50 hover:bg-white/80 dark:hover:bg-gray-700/80 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-xl blur opacity-30"></div>
+                          <div className="relative w-12 h-12 bg-gradient-to-br from-blue-400 via-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg group-hover/item:scale-110 transition-transform">
+                            <FileText className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+                        <div>
+                          <p className="font-bold text-gray-900 dark:text-white text-base mb-1">{invoice.invoiceNumber || invoice.id}</p>
+                          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                            {invoice.customerName || invoice.customer || 'مشتری عمومی'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-lg font-extrabold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent mb-1">
+                          {(invoice.totalAmount || 0).toLocaleString('fa-IR')} تومان
+                        </p>
+                        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${getStatusColor(invoice.status)}`}>
+                          {getStatusText(invoice.status)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <div className="text-left">
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {(invoice.totalAmount || 0).toLocaleString('fa-IR')} تومان
-                    </p>
-                    <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(invoice.status)}`}>
-                      {getStatusText(invoice.status)}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         )}
 
         {/* Recent Cheques */}
         {recentCheques.length > 0 && (
-          <div className="premium-card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">آخرین چک‌ها</h2>
-              <div className="flex items-center space-x-2 space-x-reverse">
-                <CreditCard className="w-5 h-5 text-primary-600" />
+          <div className="group relative overflow-hidden">
+            {/* Glow Effect */}
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-rose-500/20 opacity-0 group-hover:opacity-100 blur-3xl transition-opacity duration-500"></div>
+            
+            {/* Card */}
+            <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-2xl hover:shadow-3xl transition-all duration-500">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl blur opacity-30"></div>
+                    <div className="relative w-12 h-12 bg-gradient-to-br from-purple-500 via-pink-500 to-rose-500 rounded-xl flex items-center justify-center shadow-lg">
+                      <CreditCard className="w-6 h-6 text-white" />
+                    </div>
+                  </div>
+                  <h2 className="text-xl font-extrabold text-gray-900 dark:text-white">آخرین چک‌ها</h2>
+                </div>
                 <button 
                   onClick={() => router.push('/accounting/cheques')}
-                  className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  className="group/btn relative overflow-hidden px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold text-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
                 >
-                  مشاهده همه
+                  <span className="relative z-10">مشاهده همه</span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-pink-500 to-rose-500 opacity-0 group-hover/btn:opacity-100 transition-opacity"></div>
                 </button>
               </div>
-            </div>
-            <div className="space-y-4 card-scrollbar smooth-scroll max-h-80 overflow-y-auto">
-              {recentCheques.map((cheque: any) => (
-                <div key={cheque._id || cheque.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600/50 transition-colors">
-                  <div className="flex items-center space-x-3 space-x-reverse">
-                    <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center">
-                      <CreditCard className="w-5 h-5 text-primary-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">{cheque.chequeNumber || cheque.id}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{cheque.bankName || 'نامشخص'}</p>
+              <div className="space-y-3 card-scrollbar smooth-scroll max-h-80 overflow-y-auto">
+                {recentCheques.map((cheque: any) => (
+                  <div 
+                    key={cheque._id || cheque.id} 
+                    className="group/item relative overflow-hidden backdrop-blur-xl bg-white/60 dark:bg-gray-800/60 rounded-2xl p-4 border border-white/20 dark:border-gray-700/50 hover:bg-white/80 dark:hover:bg-gray-700/80 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-gradient-to-br from-purple-400 to-pink-500 rounded-xl blur opacity-30"></div>
+                          <div className="relative w-12 h-12 bg-gradient-to-br from-purple-400 via-pink-500 to-rose-500 rounded-xl flex items-center justify-center shadow-lg group-hover/item:scale-110 transition-transform">
+                            <CreditCard className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+                        <div>
+                          <p className="font-bold text-gray-900 dark:text-white text-base mb-1">{cheque.chequeNumber || cheque.id}</p>
+                          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{cheque.bankName || 'نامشخص'}</p>
+                        </div>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-lg font-extrabold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent mb-1">
+                          {(cheque.amount || 0).toLocaleString('fa-IR')} تومان
+                        </p>
+                        <span className={`text-xs font-semibold px-3 py-1 rounded-full ${getStatusColor(cheque.status)}`}>
+                          {getStatusText(cheque.status)}
+                        </span>
+                        {cheque.dueDate && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            سررسید: {new Date(cheque.dueDate).toLocaleDateString('fa-IR')}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="text-left">
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {(cheque.amount || 0).toLocaleString('fa-IR')} تومان
-                    </p>
-                    <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(cheque.status)}`}>
-                      {getStatusText(cheque.status)}
-                    </span>
-                  </div>
-                  {cheque.dueDate && (
-                    <div className="text-right">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">سررسید:</p>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        {new Date(cheque.dueDate).toLocaleDateString('fa-IR')}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Notifications */}
+      {/* Notifications - Modern Design */}
       {notifications.length > 0 && (
-        <div className="premium-card p-6 mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">اعلان‌های سیستم</h2>
-            <div className="flex items-center space-x-2 space-x-reverse">
-              <Bell className="w-5 h-5 text-primary-600" />
-              <button 
-                onClick={() => router.push('/inventory/stock-alerts')}
-                className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-              >
-                مشاهده همه
-              </button>
-            </div>
-          </div>
-          <div className="space-y-4 card-scrollbar smooth-scroll max-h-96 overflow-y-auto">
-            {notifications.map((notification: any) => {
-              const Icon = notification.icon || Bell
-              return (
-                <div key={notification.id} className="flex items-start space-x-4 space-x-reverse p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-600/50 transition-colors">
-                  <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Icon className="w-5 h-5 text-primary-600" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <h3 className="font-medium text-gray-900 dark:text-white">{notification.title}</h3>
-                      <span className={`text-xs px-2 py-1 rounded-full ${getNotificationColor(notification.type)}`}>
-                        {notification.type === 'warning' ? 'هشدار' : notification.type === 'info' ? 'اطلاع' : notification.type}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">{notification.message}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{notification.time}</p>
+        <div className="group relative overflow-hidden mb-8">
+          {/* Glow Effect */}
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/20 via-red-500/20 to-pink-500/20 opacity-0 group-hover:opacity-100 blur-3xl transition-opacity duration-500"></div>
+          
+          {/* Card */}
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-2xl hover:shadow-3xl transition-all duration-500">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl blur opacity-30"></div>
+                  <div className="relative w-12 h-12 bg-gradient-to-br from-orange-500 via-red-500 to-pink-500 rounded-xl flex items-center justify-center shadow-lg">
+                    <Bell className="w-6 h-6 text-white" />
                   </div>
                 </div>
-              )
-            })}
+                <h2 className="text-xl font-extrabold text-gray-900 dark:text-white">اعلان‌های سیستم</h2>
+              </div>
+              <button 
+                onClick={() => router.push('/inventory/stock-alerts')}
+                className="group/btn relative overflow-hidden px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold text-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
+              >
+                <span className="relative z-10">مشاهده همه</span>
+                <div className="absolute inset-0 bg-gradient-to-r from-red-500 to-pink-500 opacity-0 group-hover/btn:opacity-100 transition-opacity"></div>
+              </button>
+            </div>
+            <div className="space-y-3 card-scrollbar smooth-scroll max-h-96 overflow-y-auto">
+              {notifications.map((notification: any) => {
+                const Icon = notification.icon || Bell
+                // آیکون‌های lucide-react به صورت forwardRef هستند (object با $$typeof)
+                if (!Icon || (typeof Icon !== 'function' && !Icon.$$typeof)) {
+                  return null
+                }
+                return (
+                  <div 
+                    key={notification.id} 
+                    className="group/item relative overflow-hidden backdrop-blur-xl bg-white/60 dark:bg-gray-800/60 rounded-2xl p-4 border border-white/20 dark:border-gray-700/50 hover:bg-white/80 dark:hover:bg-gray-700/80 transition-all duration-300 hover:scale-[1.01] hover:shadow-lg"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="relative flex-shrink-0">
+                        <div className="absolute inset-0 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl blur opacity-30"></div>
+                        <div className="relative w-12 h-12 bg-gradient-to-br from-orange-400 via-red-500 to-pink-500 rounded-xl flex items-center justify-center shadow-lg group-hover/item:scale-110 transition-transform">
+                          <Icon className="w-6 h-6 text-white" />
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-bold text-gray-900 dark:text-white text-base">{notification.title}</h3>
+                          <span className={`text-xs font-semibold px-3 py-1 rounded-full ${getNotificationColor(notification.type)}`}>
+                            {notification.type === 'warning' ? '⚠️ هشدار' : notification.type === 'info' ? 'ℹ️ اطلاعات' : notification.type}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{notification.message}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{notification.time}</p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="premium-card p-6">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">عملیات سریع</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button 
-            onClick={() => router.push('/operations/quick-sale')}
-            className="premium-button flex flex-col items-center p-4 space-y-2"
-          >
-            <ShoppingCart className="w-8 h-8" />
-            <span>فاکتور جدید</span>
-          </button>
-          <button 
-            onClick={() => router.push('/operations/table-order')}
-            className="premium-button bg-green-500 hover:bg-green-600 flex flex-col items-center p-4 space-y-2"
-          >
-            <Package className="w-8 h-8" />
-            <span>سفارش جدید</span>
-          </button>
-          <button 
-            onClick={() => router.push('/customers/add')}
-            className="premium-button bg-purple-500 hover:bg-purple-600 flex flex-col items-center p-4 space-y-2"
-          >
-            <Users className="w-8 h-8" />
-            <span>مشتری جدید</span>
-          </button>
-          <button 
-            onClick={() => router.push('/reports/general')}
-            className="premium-button bg-orange-500 hover:bg-orange-600 flex flex-col items-center p-4 space-y-2"
-          >
-            <BarChart3 className="w-8 h-8" />
-            <span>گزارشات</span>
-          </button>
+      {/* Quick Actions - Modern Design */}
+      <div className="group relative overflow-hidden">
+        {/* Glow Effect */}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 blur-3xl transition-opacity duration-500"></div>
+        
+        {/* Card */}
+        <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border border-white/20 dark:border-gray-800/50 rounded-3xl p-6 shadow-2xl hover:shadow-3xl transition-all duration-500">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl blur opacity-30"></div>
+              <div className="relative w-12 h-12 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg">
+                <Activity className="w-6 h-6 text-white" />
+              </div>
+            </div>
+            <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white">عملیات سریع</h2>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { 
+                icon: ShoppingCart, 
+                label: 'فاکتور جدید', 
+                path: '/operations/quick-sale',
+                gradient: 'from-blue-500 via-cyan-500 to-teal-500'
+              },
+              { 
+                icon: Package, 
+                label: 'سفارش جدید', 
+                path: '/operations/table-order',
+                gradient: 'from-emerald-500 via-green-500 to-teal-500'
+              },
+              { 
+                icon: Users, 
+                label: 'مشتری جدید', 
+                path: '/customers/add',
+                gradient: 'from-purple-500 via-pink-500 to-rose-500'
+              },
+              { 
+                icon: BarChart3, 
+                label: 'گزارشات', 
+                path: '/reports/general',
+                gradient: 'from-orange-500 via-red-500 to-pink-500'
+              }
+            ].map((action, index) => {
+              const Icon = action.icon || Activity
+              // آیکون‌های lucide-react به صورت forwardRef هستند (object با $$typeof)
+              if (!Icon || (typeof Icon !== 'function' && !Icon.$$typeof)) {
+                return null
+              }
+              return (
+                <button
+                  key={index}
+                  onClick={() => router.push(action.path)}
+                  className="group/btn relative overflow-hidden"
+                >
+                  {/* Glow Effect */}
+                  <div className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover/btn:opacity-20 blur-xl transition-opacity duration-300`}></div>
+                  
+                  {/* Button */}
+                  <div className={`relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 border border-white/20 dark:border-gray-700/50 rounded-2xl p-6 flex flex-col items-center gap-3 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 hover:-translate-y-1`}>
+                    <div className={`relative p-4 rounded-xl bg-gradient-to-br ${action.gradient} shadow-lg group-hover/btn:scale-110 transition-transform duration-300`}>
+                      <Icon className="w-7 h-7 text-white relative z-10" />
+                      <div className="absolute inset-0 bg-white/20 rounded-xl"></div>
+                    </div>
+                    <span className="font-bold text-gray-900 dark:text-white text-sm">{action.label}</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>

@@ -45,14 +45,25 @@ export async function PATCH(
     // اطمینان از اینکه warehouse تنظیم شده است
     let finalWarehouse = body.warehouse && body.warehouse.trim() ? body.warehouse.trim() : ''
     
-    // اگر warehouse شامل "تایماز" است، فقط "تایماز" را نگه دار (برای حذف کد انبار مثل "تایماز (WH-001)")
-    if (finalWarehouse && finalWarehouse.includes('تایماز')) {
-      finalWarehouse = 'تایماز'
+    // حذف کد انبار از نام (مثل "تایماز (WH-001)" -> "تایماز")
+    if (finalWarehouse && finalWarehouse.includes('(')) {
+      finalWarehouse = finalWarehouse.split('(')[0].trim()
     }
     
-    // اگر warehouse خالی است، به "تایماز" تنظیم کن (پیش‌فرض)
-    if (!finalWarehouse || finalWarehouse === '' || finalWarehouse === 'undefined') {
-      finalWarehouse = 'تایماز'
+    // اگر warehouse خالی است و در body آمده، خطا بده
+    if (body.warehouse !== undefined && (!finalWarehouse || finalWarehouse === '' || finalWarehouse === 'undefined')) {
+      return NextResponse.json(
+        { success: false, message: 'انتخاب انبار اجباری است' },
+        { status: 400 }
+      )
+    }
+    
+    // اگر warehouse در body نیامده، از مقدار قبلی استفاده کن
+    if (body.warehouse === undefined) {
+      const existingItem = await inventoryCollection.findOne({ _id: objectId })
+      if (existingItem) {
+        finalWarehouse = existingItem.warehouse?.trim() || existingItem.warehouse || ''
+      }
     }
     
     if (body.warehouse !== undefined) {

@@ -163,14 +163,17 @@ export async function POST(request: NextRequest) {
     // اطمینان از اینکه warehouse تنظیم شده است
     let finalWarehouse = warehouse && warehouse.trim() ? warehouse.trim() : ''
     
-    // اگر warehouse شامل "تایماز" است، فقط "تایماز" را نگه دار (برای حذف کد انبار مثل "تایماز (WH-001)")
-    if (finalWarehouse && finalWarehouse.includes('تایماز')) {
-      finalWarehouse = 'تایماز'
+    // حذف کد انبار از نام (مثل "تایماز (WH-001)" -> "تایماز")
+    if (finalWarehouse && finalWarehouse.includes('(')) {
+      finalWarehouse = finalWarehouse.split('(')[0].trim()
     }
     
-    // اگر warehouse خالی است، به "تایماز" تنظیم کن (پیش‌فرض)
+    // اگر warehouse خالی است، خطا بده
     if (!finalWarehouse || finalWarehouse === '' || finalWarehouse === 'undefined') {
-      finalWarehouse = 'تایماز'
+      return NextResponse.json(
+        { success: false, message: 'انتخاب انبار اجباری است' },
+        { status: 400 }
+      )
     }
     
     console.log('=== Creating new inventory item ===')
