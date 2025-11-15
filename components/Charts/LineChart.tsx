@@ -18,14 +18,14 @@ function LineChart({ data, showAllLabels = false }: LineChartProps) {
   useEffect(() => {
     const timer = setTimeout(() => {
       setAnimationProgress(1)
-    }, 150)
+    }, 200)
     return () => clearTimeout(timer)
   }, [])
 
   if (!data || !Array.isArray(data) || data.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-white dark:bg-gray-800 rounded-xl">
-        <p className="text-gray-500">هیچ داده‌ای برای نمایش وجود ندارد</p>
+      <div className="w-full h-full flex items-center justify-center bg-white dark:bg-gray-900">
+        <p className="text-gray-400 text-sm">هیچ داده‌ای برای نمایش وجود ندارد</p>
       </div>
     )
   }
@@ -34,9 +34,9 @@ function LineChart({ data, showAllLabels = false }: LineChartProps) {
   const minValue = Math.min(...data.map(d => Math.min(d.sales || 0, d.profit || 0)))
   const range = maxValue - minValue || 1
 
-  const chartPadding = { top: 50, right: 30, bottom: 70, left: 50 }
-  const chartWidth = 420
-  const chartHeight = 310
+  const chartPadding = { top: 50, right: 60, bottom: 70, left: 70 }
+  const chartWidth = 480
+  const chartHeight = 380
 
   const getY = (value: number) => {
     return chartPadding.top + chartHeight - ((value - minValue) / range) * chartHeight
@@ -94,33 +94,24 @@ function LineChart({ data, showAllLabels = false }: LineChartProps) {
     return path
   }
 
-  // ایجاد path برای area
-  const createAreaPath = (points: Array<{x: number, y: number}>) => {
-    const linePath = createSmoothPath(points)
-    const firstX = points[0].x
-    const lastX = points[points.length - 1].x
-    const baseY = chartPadding.top + chartHeight
-    return `${linePath} L ${lastX} ${baseY} L ${firstX} ${baseY} Z`
-  }
-
   return (
-    <div className="w-full h-full relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
-      <svg viewBox="0 0 500 430" className="w-full h-full">
+    <div className="w-full h-full relative bg-white dark:bg-gray-900">
+      <svg viewBox="0 0 600 500" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
         <defs>
-          {/* Subtle gradients */}
-          <linearGradient id="salesArea" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#34D399" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#34D399" stopOpacity="0.02" />
+          {/* Minimal gradient for subtle depth */}
+          <linearGradient id="salesGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#1F2937" stopOpacity="0.08" />
+            <stop offset="100%" stopColor="#1F2937" stopOpacity="0" />
           </linearGradient>
-          <linearGradient id="profitArea" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#60A5FA" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="#60A5FA" stopOpacity="0.02" />
+          <linearGradient id="profitGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#4B5563" stopOpacity="0.06" />
+            <stop offset="100%" stopColor="#4B5563" stopOpacity="0" />
           </linearGradient>
         </defs>
 
-        {/* Clean grid lines */}
+        {/* Minimal grid lines - very subtle */}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
-          <g key={ratio} style={{ opacity: animationProgress * 0.3 }}>
+          <g key={ratio} style={{ opacity: animationProgress * 0.15 }}>
             <line
               x1={chartPadding.left}
               y1={chartPadding.top + (1 - ratio) * chartHeight}
@@ -128,71 +119,68 @@ function LineChart({ data, showAllLabels = false }: LineChartProps) {
               y2={chartPadding.top + (1 - ratio) * chartHeight}
               stroke="#E5E7EB"
               strokeWidth="1"
-              className="dark:stroke-gray-700"
+              className="dark:stroke-gray-800"
             />
             <text
-              x={chartPadding.left - 8}
+              x={chartPadding.left - 15}
               y={chartPadding.top + (1 - ratio) * chartHeight + 4}
               textAnchor="end"
-              className="fill-gray-500 dark:fill-gray-400"
-              style={{ fontSize: '10px' }}
+              className="fill-gray-500 dark:fill-gray-500"
+              style={{ fontSize: '11px', fontFamily: 'system-ui, -apple-system, sans-serif' }}
             >
               {formatValue(maxValue - ratio * range)}
             </text>
           </g>
         ))}
 
-        {/* Area fills */}
+        {/* Subtle area fills */}
         <path
-          d={createAreaPath(salesPoints)}
-          fill="url(#salesArea)"
-          opacity={animationProgress}
-          style={{ transition: 'opacity 0.6s' }}
+          d={`${createSmoothPath(salesPoints)} L ${salesPoints[salesPoints.length - 1].x} ${chartPadding.top + chartHeight} L ${salesPoints[0].x} ${chartPadding.top + chartHeight} Z`}
+          fill="url(#salesGradient)"
+          opacity={animationProgress * 0.5}
         />
         <path
-          d={createAreaPath(profitPoints)}
-          fill="url(#profitArea)"
-          opacity={animationProgress}
-          style={{ transition: 'opacity 0.6s' }}
+          d={`${createSmoothPath(profitPoints)} L ${profitPoints[profitPoints.length - 1].x} ${chartPadding.top + chartHeight} L ${profitPoints[0].x} ${chartPadding.top + chartHeight} Z`}
+          fill="url(#profitGradient)"
+          opacity={animationProgress * 0.5}
         />
 
-        {/* Sales line */}
+        {/* Clean, minimal lines */}
         <path
           d={createSmoothPath(salesPoints)}
           fill="none"
-          stroke="#10B981"
+          stroke="#1F2937"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
           opacity={animationProgress}
-          style={{ transition: 'opacity 0.6s' }}
+          className="dark:stroke-gray-100"
         />
 
-        {/* Profit line */}
         <path
           d={createSmoothPath(profitPoints)}
           fill="none"
-          stroke="#3B82F6"
-          strokeWidth="2.5"
+          stroke="#6B7280"
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray="6 4"
+          strokeDasharray="5 5"
           opacity={animationProgress}
-          style={{ transition: 'opacity 0.6s' }}
+          className="dark:stroke-gray-400"
         />
 
-        {/* Data points */}
+        {/* Minimal data points - only visible on hover */}
         {data.map((d, i) => (
           <g key={i} style={{ opacity: animationProgress }}>
             {/* Sales point */}
             <circle
               cx={getX(i)}
               cy={getY(d.sales)}
-              r={hoveredPoint === i ? "5" : "3"}
-              fill="#10B981"
-              stroke="white"
+              r={hoveredPoint === i ? "5" : "0"}
+              fill="#1F2937"
+              stroke="#FFFFFF"
               strokeWidth="2"
-              className="dark:stroke-gray-800 cursor-pointer transition-all duration-200"
+              className="dark:fill-gray-100 dark:stroke-gray-900 cursor-pointer transition-all duration-200"
               onMouseEnter={() => setHoveredPoint(i)}
               onMouseLeave={() => setHoveredPoint(null)}
             />
@@ -201,93 +189,95 @@ function LineChart({ data, showAllLabels = false }: LineChartProps) {
             <circle
               cx={getX(i)}
               cy={getY(d.profit)}
-              r={hoveredPoint === i ? "5" : "3"}
-              fill="#3B82F6"
-              stroke="white"
+              r={hoveredPoint === i ? "5" : "0"}
+              fill="#6B7280"
+              stroke="#FFFFFF"
               strokeWidth="2"
-              className="dark:stroke-gray-800 cursor-pointer transition-all duration-200"
+              className="dark:fill-gray-400 dark:stroke-gray-900 cursor-pointer transition-all duration-200"
               onMouseEnter={() => setHoveredPoint(i)}
               onMouseLeave={() => setHoveredPoint(null)}
             />
 
-            {/* X-axis labels */}
+            {/* Clean X-axis labels */}
             {shouldShowLabel(i, d.month) && (
               <g>
                 <line
                   x1={getX(i)}
                   y1={chartPadding.top + chartHeight}
                   x2={getX(i)}
-                  y2={chartPadding.top + chartHeight + 5}
+                  y2={chartPadding.top + chartHeight + 4}
                   stroke="#D1D5DB"
-                  strokeWidth="1.5"
-                  className="dark:stroke-gray-600"
+                  strokeWidth="1"
+                  className="dark:stroke-gray-700"
                 />
                 <text
                   x={getX(i)}
-                  y={chartPadding.top + chartHeight + 25}
+                  y={chartPadding.top + chartHeight + 22}
                   textAnchor="middle"
                   className="fill-gray-600 dark:fill-gray-400"
-                  style={{ fontSize: '10px' }}
+                  style={{ fontSize: '11px', fontFamily: 'system-ui, -apple-system, sans-serif' }}
                 >
                   {d.month}
                 </text>
               </g>
             )}
 
-            {/* Tooltip */}
+            {/* Minimal tooltip */}
             {hoveredPoint === i && (
               <g>
                 <rect
                   x={getX(i) + 20}
                   y="15"
-                  width="150"
-                  height="75"
+                  width="140"
+                  height="70"
                   rx="8"
                   fill="#1F2937"
                   opacity="0.95"
-                  stroke="#374151"
-                  strokeWidth="1"
-                  className="dark:fill-gray-800 dark:stroke-gray-700"
+                  className="dark:fill-gray-800"
+                  style={{ filter: 'drop-shadow(0 2px 8px rgba(0, 0, 0, 0.15))' }}
                 />
                 <text
-                  x={getX(i) + 95}
-                  y="30"
+                  x={getX(i) + 90}
+                  y="32"
                   textAnchor="middle"
-                  className="fill-gray-200 dark:fill-gray-300"
-                  style={{ fontSize: '11px', fontWeight: '600' }}
+                  className="fill-white dark:fill-gray-200"
+                  style={{ fontSize: '12px', fontWeight: '600', fontFamily: 'system-ui, -apple-system, sans-serif' }}
                 >
                   {d.month}
                 </text>
-                <circle cx={getX(i) + 35} cy="48" r="3" fill="#10B981" />
-                <text x={getX(i) + 45} y="51" className="fill-gray-300 dark:fill-gray-400" style={{ fontSize: '10px' }}>فروش:</text>
-                <text x={getX(i) + 95} y="51" textAnchor="middle" className="fill-white dark:fill-gray-200" style={{ fontSize: '11px', fontWeight: '600' }}>
+                <line
+                  x1={getX(i) + 30}
+                  y1="38"
+                  x2={getX(i) + 150}
+                  y2="38"
+                  stroke="#374151"
+                  strokeWidth="0.5"
+                  className="dark:stroke-gray-600"
+                />
+                <circle cx={getX(i) + 35} cy="52" r="3" fill="#1F2937" className="dark:fill-gray-200" />
+                <text x={getX(i) + 45} y="55" className="fill-gray-300 dark:fill-gray-400" style={{ fontSize: '10px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>فروش:</text>
+                <text x={getX(i) + 90} y="55" textAnchor="middle" className="fill-white dark:fill-gray-100" style={{ fontSize: '11px', fontWeight: '600', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
                   {formatValue(d.sales || 0)}
                 </text>
-                <circle cx={getX(i) + 35} cy="68" r="3" fill="#3B82F6" />
-                <text x={getX(i) + 45} y="71" className="fill-gray-300 dark:fill-gray-400" style={{ fontSize: '10px' }}>سود:</text>
-                <text x={getX(i) + 95} y="71" textAnchor="middle" className="fill-white dark:fill-gray-200" style={{ fontSize: '11px', fontWeight: '600' }}>
+                <circle cx={getX(i) + 35} cy="68" r="3" fill="#6B7280" className="dark:fill-gray-400" />
+                <text x={getX(i) + 45} y="71" className="fill-gray-300 dark:fill-gray-400" style={{ fontSize: '10px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>سود:</text>
+                <text x={getX(i) + 90} y="71" textAnchor="middle" className="fill-white dark:fill-gray-100" style={{ fontSize: '11px', fontWeight: '600', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
                   {formatValue(d.profit || 0)}
                 </text>
-                <polygon
-                  points={`${getX(i) + 95},85 ${getX(i) + 88},95 ${getX(i) + 102},95`}
-                  fill="#1F2937"
-                  opacity="0.95"
-                  className="dark:fill-gray-800"
-                />
               </g>
             )}
           </g>
         ))}
 
-        {/* Simple legend */}
-        <g transform={`translate(${chartPadding.left}, 25)`} style={{ opacity: animationProgress }}>
+        {/* Minimal legend */}
+        <g transform={`translate(${chartPadding.left}, 15)`} style={{ opacity: animationProgress }}>
           <g>
-            <line x1="0" y1="0" x2="18" y2="0" stroke="#10B981" strokeWidth="3" strokeLinecap="round" />
-            <text x="24" y="4" className="fill-gray-700 dark:fill-gray-300" style={{ fontSize: '11px' }}>فروش</text>
+            <line x1="0" y1="6" x2="20" y2="6" stroke="#1F2937" strokeWidth="2.5" strokeLinecap="round" className="dark:stroke-gray-100" />
+            <text x="26" y="9" className="fill-gray-700 dark:fill-gray-300" style={{ fontSize: '12px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>فروش</text>
           </g>
-          <g transform="translate(70, 0)">
-            <line x1="0" y1="0" x2="18" y2="0" stroke="#3B82F6" strokeWidth="3" strokeLinecap="round" strokeDasharray="6 4" />
-            <text x="24" y="4" className="fill-gray-700 dark:fill-gray-300" style={{ fontSize: '11px' }}>سود</text>
+          <g transform="translate(75, 0)">
+            <line x1="0" y1="6" x2="20" y2="6" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeDasharray="5 5" className="dark:stroke-gray-400" />
+            <text x="26" y="9" className="fill-gray-700 dark:fill-gray-300" style={{ fontSize: '12px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>سود</text>
           </g>
         </g>
       </svg>

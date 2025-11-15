@@ -115,6 +115,21 @@ export default function CustomersListPage() {
     return () => clearInterval(interval)
   }, [])
 
+  // بررسی query parameter برای باز کردن فرم اضافه کردن
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search)
+      const action = urlParams.get('action')
+      if (action === 'add') {
+        setShowAddForm(true)
+        // حذف query parameter از URL بدون reload
+        urlParams.delete('action')
+        const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '')
+        window.history.replaceState({}, '', newUrl)
+      }
+    }
+  }, [])
+
   const filteredCustomers = customers.filter(customer => {
     const customerName = customer.name || customer.firstName + ' ' + customer.lastName || ''
     const matchesSearch = customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||

@@ -77,6 +77,9 @@ export async function PATCH(request: NextRequest) {
         case 'delivery':
           sourceCollection = 'delivery_orders'
           break
+        case 'table-order':
+          sourceCollection = 'table_orders'
+          break
         default:
           sourceCollection = 'dine_in_orders'
       }
@@ -152,7 +155,7 @@ export async function PATCH(request: NextRequest) {
               null, // بدون session
               sourceOrder._id.toString(),
               orderNumber,
-              orderType as 'dine-in' | 'takeaway' | 'delivery',
+              orderType as 'dine-in' | 'takeaway' | 'delivery' | 'table-order',
               sourceOrder.items || []
             )
 

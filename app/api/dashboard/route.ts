@@ -343,9 +343,26 @@ export async function GET(request: NextRequest) {
     const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
     
     // سود خالص امروز (از فیلد profit در invoices)
-    const todayNetProfit = todayInvoices.reduce((sum: number, inv: any) => {
-      return sum + (inv.profit || 0)
-    }, 0)
+    // اول سعی می‌کنیم از فیلد profit در invoices استفاده کنیم
+    let todayNetProfit = 0
+    let totalProfitFromInvoices = 0
+    let invoicesWithProfit = 0
+    
+    for (const inv of todayInvoices) {
+      if (inv.profit !== undefined && inv.profit !== null && inv.profit > 0) {
+        totalProfitFromInvoices += inv.profit
+        invoicesWithProfit++
+      }
+    }
+    
+    // اگر invoices فیلد profit دارند، از آنها استفاده کن
+    if (invoicesWithProfit > 0) {
+      todayNetProfit = totalProfitFromInvoices
+    } else {
+      // اگر invoices فیلد profit ندارند، از grossProfit استفاده کن
+      // سود خالص = سود ناخالص (تا زمانی که هزینه‌های عملیاتی اضافه نشده)
+      todayNetProfit = grossProfit
+    }
 
     // ==========================================
     // آمارهای اضافی

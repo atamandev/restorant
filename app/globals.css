@@ -369,6 +369,22 @@
     100% { background-position: 0% 50%; }
   }
   
+  /* Animated Gradient Border for Product Cards */
+  @keyframes gradient-xy {
+    0%, 100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+  
+  .animate-gradient-xy {
+    background-size: 200% 200%;
+    background-image: linear-gradient(45deg, #3b82f6, #2563eb, #1d4ed8, #1e40af, #3b82f6);
+    animation: gradient-xy 3s ease infinite;
+  }
+  
   /* Modern Scrollbar */
   .scrollbar-modern::-webkit-scrollbar {
     width: 8px;

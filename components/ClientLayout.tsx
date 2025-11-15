@@ -8,17 +8,21 @@ import { Loader2 } from 'lucide-react'
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { user, isLoading } = useAuth()
   const isLoginPage = pathname === '/login'
+  const isOrderPage = pathname === '/order'
 
-  // Don't show layout for login page - let it render independently
-  if (isLoginPage) {
+  // Don't show layout for login and order pages - let them render independently
+  // These pages don't need auth, so we skip useAuth hook to avoid hydration issues
+  if (isLoginPage || isOrderPage) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800/80 dark:to-gray-900">
         {children}
       </div>
     )
   }
+
+  // For protected pages, we need auth
+  const { user, isLoading } = useAuth()
 
   // Show loading while checking auth (only for protected pages)
   if (isLoading) {

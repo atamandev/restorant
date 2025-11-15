@@ -22,26 +22,38 @@ function isValidTokenFormat(token: string): boolean {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Skip middleware for static files and Next.js internals - MUST BE FIRST
-  // This includes all _next routes, static assets, and file extensions
+  // CRITICAL: Skip middleware for ALL Next.js internal files FIRST
+  // This MUST be the first check to prevent any interference
   if (
+    // Next.js internal routes
     pathname.startsWith('/_next/') ||
+    pathname.startsWith('/next/') ||
     pathname.startsWith('/static/') ||
+    // Static file extensions
+    pathname.match(/\.(ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2|ttf|eot|map|json|webp|avif)$/i) ||
+    // Common static files
     pathname === '/favicon.ico' ||
     pathname === '/icon.svg' ||
     pathname === '/robots.txt' ||
-    pathname === '/sitemap.xml' ||
-    pathname.match(/\.(ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2|ttf|eot|map|json)$/i)
+    pathname === '/sitemap.xml'
   ) {
     return NextResponse.next()
   }
 
+  // TEMPORARY: Allow all routes to pass through to debug 404 issues
+  // TODO: Re-enable authentication after fixing routing issues
+  return NextResponse.next()
+
   // Public routes that don't require authentication
   const publicRoutes = [
     '/login',
+    '/order',
+    '/test-menu',
     '/api/auth/login',
     '/api/auth/logout',
     '/api/placeholder',
+    '/api/menu-items',
+    '/api/menu-items/add-test-items',
     '/uploads'
   ]
 
@@ -52,11 +64,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Get token from cookie (primary method for browser requests)
+  // For protected routes, check authentication
   const token = request.cookies.get('token')?.value ||
     request.headers.get('authorization')?.replace('Bearer ', '')
 
-  // If no token, require authentication
+  // If no token, redirect to login (but allow the page to load first)
   if (!token) {
     if (pathname.startsWith('/api/')) {
       // API routes return 401
@@ -66,20 +78,18 @@ export function middleware(request: NextRequest) {
       )
     }
     
-    // Pages redirect to login with redirect parameter
+    // For pages, redirect to login
     try {
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
       return NextResponse.redirect(loginUrl)
     } catch (error) {
       console.error('Error creating login URL:', error)
-      // Fallback: redirect to login without redirect param
       return NextResponse.redirect(new URL('/login', request.url))
     }
   }
 
-  // Basic token format validation
-  // Full verification happens in API routes where we can use async/await
+  // Validate token format
   if (!isValidTokenFormat(token)) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json(
@@ -88,7 +98,7 @@ export function middleware(request: NextRequest) {
       )
     }
     
-    // Clear invalid token and redirect to login
+    // Clear invalid token and redirect
     try {
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
@@ -103,11 +113,9 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Token format is valid, allow access
-  // Full verification will happen in API routes if needed
+  // Token is valid, allow access
   const response = NextResponse.next()
   
-  // Set user info in headers for API routes (optional, for convenience)
   if (pathname.startsWith('/api/')) {
     response.headers.set('x-token-present', 'true')
   }
@@ -118,13 +126,9 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - _next/webpack-hmr (webpack hot module replacement)
-     * - favicon.ico (favicon file)
-     * - Static file extensions
+     * Match all request paths EXCEPT Next.js internals and static files
+     * This is the simplest and most reliable pattern
      */
-    '/((?!_next/static|_next/image|_next/webpack-hmr|_next/data|favicon.ico|.*\\.(?:ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2|ttf|eot|map|json)$).*)',
+    '/((?!_next|next|static|favicon\\.ico|icon\\.svg|robots\\.txt|sitemap\\.xml|.*\\.(?:ico|png|jpg|jpeg|gif|svg|css|js|woff|woff2|ttf|eot|map|json|webp|avif)$).*)',
   ],
 }

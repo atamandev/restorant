@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
+import { ensureCustomerExists } from '../customers/helpers'
 import { 
   reserveInventoryForOrder, 
   consumeReservedInventory, 
@@ -281,10 +282,32 @@ export async function POST(request: NextRequest) {
     // محاسبه زمان آماده‌سازی
     const estimatedReady = new Date(Date.now() + maxPreparationTime * 60 * 1000 + 10 * 60 * 1000)
     
+    // ثبت یا به‌روزرسانی مشتری در سیستم
+    let finalCustomerId: ObjectId | null = null
+    if (customerPhone || customerName) {
+      try {
+        finalCustomerId = await ensureCustomerExists(
+          db,
+          null, // بدون session (MongoDB standalone)
+          null, // customerId (هنوز نداریم)
+          customerName || null,
+          customerPhone || null,
+          null // customerAddress (در سفارش میز نداریم)
+        )
+        if (finalCustomerId) {
+          console.log(`[TABLE_ORDER] Customer ensured: ${finalCustomerId.toString()}`)
+        }
+      } catch (error) {
+        console.error('[TABLE_ORDER] Error ensuring customer:', error)
+        // ادامه بده حتی اگر ثبت مشتری با خطا مواجه شد
+      }
+    }
+    
     // 1. ایجاد سفارش میز (با status: 'pending' برای مدیریت موجودی)
     const tableOrderData = {
       orderNumber: orderNumber,
       tableNumber: String(tableNumber),
+      customerId: finalCustomerId,
       customerName: customerName ? String(customerName) : null,
       customerPhone: customerPhone ? String(customerPhone) : null,
       items: processedItems,
@@ -342,7 +365,7 @@ export async function POST(request: NextRequest) {
       orderNumber: orderNumber,
       orderType: 'table-order',
       tableNumber: String(tableNumber),
-      customerId: null,
+      customerId: finalCustomerId,
       customerName: customerName || '',
       customerPhone: customerPhone || null,
       items: processedItems.map(item => ({
@@ -487,6 +510,64 @@ export async function PUT(request: NextRequest) {
 
       if (!consumeResult.success) {
         console.warn(`[TABLE_ORDER] Warning: ${consumeResult.message}`)
+      }
+
+      // به‌روزرسانی باشگاه مشتریان (اگر customerId وجود دارد)
+      if (currentTableOrder.customerId) {
+        try {
+          const loyaltiesCollection = db.collection('customer_loyalties')
+          const loyalty = await loyaltiesCollection.findOne({ 
+            customerId: currentTableOrder.customerId.toString()
+          })
+
+          if (loyalty) {
+            const pointsToAdd = Math.floor((currentTableOrder.total || 0) / 1000)
+            const newTotalPoints = (loyalty.totalPoints || 0) + pointsToAdd
+            const newPointsEarned = (loyalty.pointsEarned || 0) + pointsToAdd
+            const newTotalOrders = (loyalty.totalOrders || 0) + 1
+            const newTotalSpent = (loyalty.totalSpent || 0) + (currentTableOrder.total || 0)
+
+            let newTier = 'Bronze'
+            if (newTotalPoints >= 1000) newTier = 'Platinum'
+            else if (newTotalPoints >= 500) newTier = 'Gold'
+            else if (newTotalPoints >= 100) newTier = 'Silver'
+
+            await loyaltiesCollection.updateOne(
+              { customerId: currentTableOrder.customerId.toString() },
+              {
+                $set: {
+                  totalPoints: newTotalPoints,
+                  pointsEarned: newPointsEarned,
+                  totalOrders: newTotalOrders,
+                  totalSpent: newTotalSpent,
+                  currentTier: newTier,
+                  lastOrderDate: new Date().toISOString(),
+                  updatedAt: new Date().toISOString()
+                }
+              }
+            )
+
+            // به‌روزرسانی آمار مشتری در collection customers
+            const customersCollection = db.collection('customers')
+            await customersCollection.updateOne(
+              { _id: new ObjectId(currentTableOrder.customerId.toString()) },
+              {
+                $set: {
+                  totalOrders: newTotalOrders,
+                  totalSpent: newTotalSpent,
+                  lastOrderDate: new Date().toISOString(),
+                  loyaltyPoints: newTotalPoints,
+                  updatedAt: new Date()
+                }
+              }
+            )
+
+            console.log(`[TABLE_ORDER] ✅ Updated customer stats for ${currentTableOrder.customerId}`)
+          }
+        } catch (error) {
+          console.error(`[TABLE_ORDER] Error updating customer stats:`, error)
+          // ادامه بده حتی اگر به‌روزرسانی آمار مشتری با خطا مواجه شد
+        }
       }
     }
 

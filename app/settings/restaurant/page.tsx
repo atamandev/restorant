@@ -30,7 +30,10 @@ import {
   EyeOff,
   CheckCircle,
   AlertCircle,
-  Info
+  Info,
+  QrCode,
+  Download,
+  Copy
 } from 'lucide-react'
 
 interface RestaurantSettings {
@@ -520,6 +523,87 @@ export default function RestaurantSettingsPage() {
                     className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     rows={4}
                   />
+                </div>
+              </div>
+
+              {/* QR Code Section */}
+              <div className="mt-8 p-6 bg-gradient-to-br from-primary-50 to-primary-100/50 dark:from-primary-900/20 dark:to-primary-800/20 rounded-2xl border-2 border-primary-200 dark:border-primary-700">
+                <div className="flex items-center space-x-3 space-x-reverse mb-4">
+                  <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <QrCode className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">QR Code سفارش آنلاین</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">کد QR برای دسترسی مشتریان به صفحه سفارش</p>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+                  {/* QR Code Display */}
+                  <div className="flex-shrink-0">
+                    <div className="relative p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border-2 border-primary-200 dark:border-primary-700">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin + '/order' : 'http://localhost:3000/order')}`}
+                        alt="QR Code"
+                        className="w-48 h-48"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/10 dark:bg-white/5 rounded-2xl">
+                        <div className="bg-white dark:bg-gray-800 px-3 py-1 rounded-lg shadow-lg text-xs font-semibold text-gray-900 dark:text-white">
+                          اسکن کنید
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* QR Code Info and Actions */}
+                  <div className="flex-1 space-y-4">
+                    <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">لینک سفارش آنلاین:</p>
+                      <div className="flex items-center space-x-2 space-x-reverse">
+                        <code className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm text-gray-900 dark:text-white font-mono break-all">
+                          {typeof window !== 'undefined' ? window.location.origin + '/order' : 'http://localhost:3000/order'}
+                        </code>
+                        <button
+                          onClick={() => {
+                            const url = typeof window !== 'undefined' ? window.location.origin + '/order' : 'http://localhost:3000/order'
+                            navigator.clipboard.writeText(url)
+                            alert('✅ لینک کپی شد!')
+                          }}
+                          className="p-2 bg-primary-100 dark:bg-primary-900/30 hover:bg-primary-200 dark:hover:bg-primary-900/50 text-primary-700 dark:text-primary-300 rounded-lg transition-colors"
+                          title="کپی لینک"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-3">
+                      <a
+                        href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin + '/order' : 'http://localhost:3000/order')}`}
+                        download="qrcode-order.png"
+                        className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold transition-colors shadow-lg hover:shadow-xl"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>دانلود QR Code</span>
+                      </a>
+                      <a
+                        href={typeof window !== 'undefined' ? window.location.origin + '/order' : 'http://localhost:3000/order'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center space-x-2 space-x-reverse px-4 py-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-white border-2 border-gray-200 dark:border-gray-700 rounded-xl font-semibold transition-colors"
+                      >
+                        <Globe className="w-4 h-4" />
+                        <span>مشاهده صفحه سفارش</span>
+                      </a>
+                    </div>
+                    
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <p className="text-xs text-amber-700 dark:text-amber-300 flex items-start space-x-2 space-x-reverse">
+                        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <span>این QR Code را روی میزها یا منوها قرار دهید تا مشتریان بتوانند به راحتی سفارش دهند.</span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -41,7 +41,7 @@ const FiltersSelect = dynamic(() => import('./FiltersSelect'), {
 interface KitchenOrder {
   _id?: string
   orderNumber: string
-  orderType: 'dine-in' | 'takeaway' | 'delivery'
+  orderType: 'dine-in' | 'takeaway' | 'delivery' | 'table-order'
   tableNumber?: string
   customerName: string
   customerPhone?: string

@@ -169,7 +169,7 @@ export default function Dashboard() {
       // Reduced API calls - only essential ones
       const [
         dashboardRes,
-        ordersSalesRes,
+        ordersChartRes,
         paymentRes,
         topItemsRes,
         invoicesRes,
@@ -178,7 +178,7 @@ export default function Dashboard() {
         customersRes
       ] = await Promise.allSettled([
         fetch('/api/dashboard', { cache: 'default' }), // Use default cache
-        fetch(`/api/orders/sales?period=${selectedPeriod}`, { cache: 'default' }),
+        fetch(`/api/orders/chart-data?period=${selectedPeriod}`, { cache: 'default' }),
         fetch('/api/sales-reports?reportType=payment&dateRange=month', { cache: 'default' }),
         fetch('/api/reports/top-menu-items?limit=5', { cache: 'default' }),
         fetch('/api/invoices?limit=5&type=sales&sortBy=createdAt&sortOrder=desc', { cache: 'default' }),
@@ -202,7 +202,7 @@ export default function Dashboard() {
       // Process all responses in parallel
       const [
         dashboardResult,
-        ordersResult,
+        ordersChartResult,
         paymentResult,
         topItemsResult,
         invoicesResult,
@@ -211,7 +211,7 @@ export default function Dashboard() {
         customersResult
       ] = await Promise.all([
         processResponse(dashboardRes),
-        processResponse(ordersSalesRes),
+        processResponse(ordersChartRes),
         processResponse(paymentRes),
         processResponse(topItemsRes),
         processResponse(invoicesRes),
@@ -225,12 +225,12 @@ export default function Dashboard() {
       const summaryDataResult = dashboardDataResult
       
       const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
-      const salesChartDataResult = ordersResult.success && ordersResult.data && Array.isArray(ordersResult.data) && ordersResult.data.length > 0
-        ? ordersResult.data.map((item: any) => ({
-            label: item.label || item.period || item.month || '',
-            month: item.label || item.period || item.month || '',
-            sales: item.totalSales || item.sales || item.amount || 0,
-            profit: item.totalProfit || item.profit || ((item.totalSales || item.sales || item.amount || 0) * 0.3)
+      const salesChartDataResult = ordersChartResult.success && ordersChartResult.data && Array.isArray(ordersChartResult.data) && ordersChartResult.data.length > 0
+        ? ordersChartResult.data.map((item: any) => ({
+            label: item.label || item.month || '',
+            month: item.label || item.month || '',
+            sales: item.sales || 0,
+            profit: item.profit || 0
           }))
         : []
 
@@ -719,26 +719,110 @@ export default function Dashboard() {
             )}
             </div>
 
-            {/* Modern Summary Stats */}
-            {salesChartData.length > 0 && (
-              <div className="mt-6 grid grid-cols-3 gap-4">
-                {[
-                  { label: 'کل فروش', value: salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0), gradient: 'from-emerald-500 to-teal-500' },
-                  { label: 'کل سود', value: salesChartData.reduce((sum, item) => sum + (item.profit || 0), 0), gradient: 'from-blue-500 to-indigo-500' },
-                  { label: 'میانگین روزانه', value: salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0) / Math.max(salesChartData.length, 1), gradient: 'from-purple-500 to-pink-500' }
-                ].map((stat, idx) => (
-                  <div key={idx} className="relative group overflow-hidden">
-                    <div className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-0 group-hover:opacity-10 blur-xl transition-opacity duration-300`}></div>
-                    <div className="relative backdrop-blur-xl bg-white/60 dark:bg-gray-800/60 rounded-xl p-4 border border-white/20 dark:border-gray-700/50">
-                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">{stat.label}</p>
-                      <p className={`text-xl font-extrabold bg-gradient-to-r ${stat.gradient} bg-clip-text text-transparent`}>
-                        {stat.value.toLocaleString('fa-IR')} تومان
-                      </p>
+            {/* Premium Summary Stats */}
+            {salesChartData.length > 0 && (() => {
+              const totalSales = salesChartData.reduce((sum, item) => sum + (item.sales || 0), 0)
+              const totalProfit = salesChartData.reduce((sum, item) => sum + (item.profit || 0), 0)
+              const maxSales = Math.max(...salesChartData.map(item => item.sales || 0))
+              const maxProfit = Math.max(...salesChartData.map(item => item.profit || 0))
+              const avgDaily = totalSales / Math.max(salesChartData.length, 1)
+              
+              return (
+                <div className="mt-8 space-y-4">
+                  {/* Main Stats Grid */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* بیشترین فروش */}
+                    <div className="relative group overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-br from-slate-500/10 via-gray-500/10 to-zinc-500/10 opacity-0 group-hover:opacity-100 blur-2xl transition-opacity duration-500"></div>
+                      <div className="relative backdrop-blur-xl bg-gradient-to-br from-slate-50/90 to-gray-50/90 dark:from-slate-800/40 dark:to-gray-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-700/60 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-slate-600 to-gray-600 rounded-xl flex items-center justify-center shadow-md">
+                            <TrendingUp className="w-5 h-5 text-white" />
+                          </div>
+                          <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
+                        </div>
+                        <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2 uppercase tracking-wider">بیشترین فروش</p>
+                        <p className="text-2xl font-extrabold text-slate-800 dark:text-slate-200">
+                          {maxSales.toLocaleString('fa-IR')} <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">تومان</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* بیشترین سود */}
+                    <div className="relative group overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-br from-gray-500/10 via-slate-500/10 to-zinc-500/10 opacity-0 group-hover:opacity-100 blur-2xl transition-opacity duration-500"></div>
+                      <div className="relative backdrop-blur-xl bg-gradient-to-br from-gray-50/90 to-slate-50/90 dark:from-gray-800/40 dark:to-slate-800/40 rounded-2xl p-5 border border-gray-200/60 dark:border-gray-700/60 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-gray-700 to-slate-700 rounded-xl flex items-center justify-center shadow-md">
+                            <DollarSign className="w-5 h-5 text-white" />
+                          </div>
+                          <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                        </div>
+                        <p className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wider">بیشترین سود</p>
+                        <p className="text-2xl font-extrabold text-gray-800 dark:text-gray-200">
+                          {maxProfit.toLocaleString('fa-IR')} <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">تومان</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* کل فروش */}
+                    <div className="relative group overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-br from-zinc-500/10 via-gray-500/10 to-slate-500/10 opacity-0 group-hover:opacity-100 blur-2xl transition-opacity duration-500"></div>
+                      <div className="relative backdrop-blur-xl bg-gradient-to-br from-zinc-50/90 to-gray-50/90 dark:from-zinc-800/40 dark:to-gray-800/40 rounded-2xl p-5 border border-zinc-200/60 dark:border-zinc-700/60 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-zinc-600 to-gray-600 rounded-xl flex items-center justify-center shadow-md">
+                            <ShoppingCart className="w-5 h-5 text-white" />
+                          </div>
+                          <div className="w-2 h-2 bg-zinc-500 rounded-full"></div>
+                        </div>
+                        <p className="text-xs font-bold text-zinc-600 dark:text-zinc-400 mb-2 uppercase tracking-wider">کل فروش</p>
+                        <p className="text-2xl font-extrabold text-zinc-800 dark:text-zinc-200">
+                          {totalSales.toLocaleString('fa-IR')} <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">تومان</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* کل سود */}
+                    <div className="relative group overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-br from-slate-500/10 via-zinc-500/10 to-gray-500/10 opacity-0 group-hover:opacity-100 blur-2xl transition-opacity duration-500"></div>
+                      <div className="relative backdrop-blur-xl bg-gradient-to-br from-slate-50/90 to-zinc-50/90 dark:from-slate-800/40 dark:to-zinc-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-700/60 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-slate-700 to-zinc-700 rounded-xl flex items-center justify-center shadow-md">
+                            <Star className="w-5 h-5 text-white" />
+                          </div>
+                          <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
+                        </div>
+                        <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2 uppercase tracking-wider">کل سود</p>
+                        <p className="text-2xl font-extrabold text-slate-800 dark:text-slate-200">
+                          {totalProfit.toLocaleString('fa-IR')} <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">تومان</span>
+                        </p>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {/* میانگین روزانه */}
+                  <div className="relative group overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-gray-500/10 via-slate-500/10 to-zinc-500/10 opacity-0 group-hover:opacity-100 blur-2xl transition-opacity duration-500"></div>
+                    <div className="relative backdrop-blur-xl bg-gradient-to-br from-gray-50/90 to-slate-50/90 dark:from-gray-800/40 dark:to-slate-800/40 rounded-2xl p-5 border border-gray-200/60 dark:border-gray-700/60 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.01]">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-gradient-to-br from-gray-700 to-slate-700 rounded-xl flex items-center justify-center shadow-md">
+                            <BarChart3 className="w-6 h-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-1 uppercase tracking-wider">میانگین روزانه</p>
+                            <p className="text-3xl font-extrabold text-gray-800 dark:text-gray-200">
+                              {avgDaily.toLocaleString('fa-IR')} <span className="text-base font-semibold text-gray-500 dark:text-gray-400">تومان</span>
+                            </p>
+                          </div>
+                        </div>
+                        <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
 
@@ -1050,7 +1134,8 @@ export default function Dashboard() {
               { 
                 icon: Users, 
                 label: 'مشتری جدید', 
-                path: '/customers/add',
+                path: '/customers/list',
+                query: '?action=add',
                 gradient: 'from-purple-500 via-pink-500 to-rose-500'
               },
               { 
@@ -1068,7 +1153,10 @@ export default function Dashboard() {
               return (
                 <button
                   key={index}
-                  onClick={() => router.push(action.path)}
+                  onClick={() => {
+                    const fullPath = action.path + (action.query || '')
+                    router.push(fullPath)
+                  }}
                   className="group/btn relative overflow-hidden"
                 >
                   {/* Glow Effect */}

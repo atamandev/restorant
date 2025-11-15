@@ -4,13 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:show-urls": "node scripts/show-urls.js & next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "show-urls": "node scripts/show-urls.js",
+    "test:order": "node scripts/test-order-page.js"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",
