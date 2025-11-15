@@ -470,6 +470,14 @@ export default function LedgersPage() {
   const totalCredit = journalEntries.reduce((sum, entry) => sum + entry.credit, 0)
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01
 
+  const handleRefresh = () => {
+    fetchJournalEntries()
+    fetchGeneralAccounts()
+    if (activeTab === 'subsidiary') {
+      fetchSubsidiaryEntries()
+    }
+  }
+
   const handleExport = (type: 'journal' | 'general' | 'subsidiary') => {
     alert(`گزارش ${type === 'journal' ? 'دفتر روزنامه' : type === 'general' ? 'دفتر کل' : 'دفتر معین'} به صورت Excel صادر شد.`)
   }

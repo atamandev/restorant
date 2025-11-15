@@ -252,8 +252,23 @@ export default function RestaurantSettingsPage() {
   // Handle logo upload
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (file) {
-      // Create a FileReader to preview
+    if (!file) return
+
+    // بررسی نوع فایل
+    if (!file.type.startsWith('image/')) {
+      alert('فقط فایل‌های تصویری مجاز هستند')
+      return
+    }
+
+    // بررسی اندازه فایل (حداکثر 5MB)
+    const maxSize = 5 * 1024 * 1024 // 5MB
+    if (file.size > maxSize) {
+      alert('حجم فایل نباید بیشتر از 5 مگابایت باشد')
+      return
+    }
+
+    try {
+      // نمایش preview فوری با data URL
       const reader = new FileReader()
       reader.onload = (e) => {
         const logoDataUrl = e.target?.result as string
@@ -261,14 +276,54 @@ export default function RestaurantSettingsPage() {
           ...prev,
           basicInfo: {
             ...prev.basicInfo,
-            logo: logoDataUrl
+            logo: logoDataUrl // Preview موقت
           }
         }))
       }
       reader.readAsDataURL(file)
-      
-      // TODO: Upload to server and get URL
-      // For now, we'll save it as data URL in the settings
+
+      // آپلود فایل به سرور
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      const result = await response.json()
+
+      if (result.success && result.url) {
+        // به‌روزرسانی با URL واقعی
+        setSettings(prev => ({
+          ...prev,
+          basicInfo: {
+            ...prev.basicInfo,
+            logo: result.url
+          }
+        }))
+      } else {
+        alert(result.message || 'خطا در آپلود فایل')
+        // اگر آپلود ناموفق بود، preview را پاک کن
+        setSettings(prev => ({
+          ...prev,
+          basicInfo: {
+            ...prev.basicInfo,
+            logo: prev.basicInfo.logo || '/api/placeholder/200/200'
+          }
+        }))
+      }
+    } catch (error) {
+      console.error('Error uploading logo:', error)
+      alert('خطا در آپلود فایل')
+      // اگر خطا رخ داد، preview را پاک کن
+      setSettings(prev => ({
+        ...prev,
+        basicInfo: {
+          ...prev.basicInfo,
+          logo: prev.basicInfo.logo || '/api/placeholder/200/200'
+        }
+      }))
     }
   }
 
@@ -598,7 +653,9 @@ export default function RestaurantSettingsPage() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     <span className="flex items-center space-x-2 space-x-reverse">
                       <span>درصد تخفیف مشتریان طلایی</span>
-                      <Info className="w-4 h-4 text-gray-400" title="تخفیف خودکار برای مشتریانی که به عنوان طلایی ثبت شده‌اند" />
+                      <div title="تخفیف خودکار برای مشتریانی که به عنوان طلایی ثبت شده‌اند">
+                        <Info className="w-4 h-4 text-gray-400" />
+                      </div>
                     </span>
                   </label>
                   <div className="relative">

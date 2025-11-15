@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, memo } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { useAuth } from './AuthProvider'
 import { 
   Bell, 
@@ -17,10 +17,44 @@ import {
 import MobileMenu from './MobileMenu'
 import DarkModeToggle from './DarkModeToggle'
 
+interface RestaurantSettings {
+  basicInfo: {
+    name: string
+    description?: string
+    logo?: string
+  }
+}
+
 function Header() {
   const { user, logout } = useAuth()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [restaurantSettings, setRestaurantSettings] = useState<RestaurantSettings | null>(null)
+
+  // دریافت تنظیمات رستوران
+  useEffect(() => {
+    const fetchRestaurantSettings = async () => {
+      try {
+        const response = await fetch('/api/restaurant-settings')
+        const data = await response.json()
+        if (data.success && data.data) {
+          setRestaurantSettings(data.data)
+        }
+      } catch (error) {
+        console.error('Error fetching restaurant settings:', error)
+      }
+    }
+    
+    // دریافت اولیه
+    fetchRestaurantSettings()
+    
+    // به‌روزرسانی هر 30 ثانیه (برای نمایش تغییرات)
+    const interval = setInterval(() => {
+      fetchRestaurantSettings()
+    }, 30000)
+    
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <header className="premium-header sticky top-0 z-50">
@@ -37,12 +71,36 @@ function Header() {
           {/* Logo and Title */}
           <div className="flex items-center space-x-4 space-x-reverse">
             <div className="flex items-center space-x-3 space-x-reverse">
-              <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center floating-card pulse-glow">
-                <ChefHat className="w-6 h-6 text-white" />
-              </div>
+              {restaurantSettings?.basicInfo?.logo && 
+               restaurantSettings.basicInfo.logo !== '/api/placeholder/200/200' &&
+               (restaurantSettings.basicInfo.logo.startsWith('data:') || 
+                !restaurantSettings.basicInfo.logo.startsWith('/api/placeholder')) ? (
+                <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center floating-card pulse-glow border-2 border-primary-200 dark:border-primary-800 bg-white dark:bg-gray-800">
+                  <img 
+                    src={restaurantSettings.basicInfo.logo} 
+                    alt="Restaurant Logo" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // اگر تصویر لود نشد، آیکون پیش‌فرض را نمایش بده
+                      const parent = e.currentTarget.parentElement
+                      if (parent) {
+                        parent.innerHTML = '<div class="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center"><svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg></div>'
+                      }
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center floating-card pulse-glow">
+                  <ChefHat className="w-6 h-6 text-white" />
+                </div>
+              )}
               <div className="hidden sm:block">
-                <h1 className="text-xl font-decorative gradient-text dark:text-white">مدیریت رستوران</h1>
-                <p className="text-sm font-persian-medium text-gray-500 dark:text-gray-300">سیستم مدیریت حرفه‌ای</p>
+                <h1 className="text-xl font-decorative gradient-text dark:text-white">
+                  {restaurantSettings?.basicInfo?.name || 'مدیریت رستوران'}
+                </h1>
+                <p className="text-sm font-persian-medium text-gray-500 dark:text-gray-300">
+                  {restaurantSettings?.basicInfo?.description || 'سیستم مدیریت حرفه‌ای'}
+                </p>
               </div>
             </div>
           </div>

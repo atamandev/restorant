@@ -59,12 +59,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
     setToken(null)
     setUser(null)
     if (typeof window !== 'undefined') {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
+      
+      // Call logout API to clear cookie
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include'
+        })
+      } catch (error) {
+        console.error('Error calling logout API:', error)
+      }
+      
       // استفاده از window.location به جای router.push برای جلوگیری از خطا
       window.location.href = '/login'
     }

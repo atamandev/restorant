@@ -524,12 +524,15 @@ export default function CashDrawersPage() {
                         <span>مبلغ واقعی:</span>
                         <span className="font-medium">{selectedSession.endAmount.toLocaleString('fa-IR')} تومان</span>
                       </div>
-                      {difference !== null && (
-                        <div className={`flex justify-between ${difference === 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          <span className="font-medium">تفاوت:</span>
-                          <span className="font-bold">{difference > 0 ? '+' : ''}{difference.toLocaleString('fa-IR')} تومان</span>
-                        </div>
-                      )}
+                      {(() => {
+                        const difference = getDifference(selectedSession)
+                        return difference !== null && (
+                          <div className={`flex justify-between ${difference === 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            <span className="font-medium">تفاوت:</span>
+                            <span className="font-bold">{difference > 0 ? '+' : ''}{difference.toLocaleString('fa-IR')} تومان</span>
+                          </div>
+                        )
+                      })()}
                     </div>
                   </div>
                 )}

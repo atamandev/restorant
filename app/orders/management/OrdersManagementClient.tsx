@@ -949,24 +949,37 @@ export default function OrdersManagementClient() {
                       <div className={`absolute left-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 z-50 ${
                         openPrintMenu === (order._id?.toString() || order.orderNumber) ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
                       }`}>
-                        <button
-                          onClick={() => {
-                            printOrder(order, 'printer')
-                            setOpenPrintMenu(null)
-                          }}
-                          className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg transition-colors"
-                        >
-                          چاپ پرینتر
-                        </button>
-                        <button
-                          onClick={() => {
-                            printOrder(order, 'laser')
-                            setOpenPrintMenu(null)
-                          }}
-                          className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg transition-colors"
-                        >
-                          چاپ لیزری
-                        </button>
+                        {printerConfig?.printer?.enabled && (
+                          <button
+                            onClick={() => {
+                              printOrder(order, 'printer')
+                              setOpenPrintMenu(null)
+                            }}
+                            className={`w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                              !printerConfig?.laser?.enabled ? 'rounded-lg' : 'rounded-t-lg'
+                            }`}
+                          >
+                            چاپ پرینتر
+                          </button>
+                        )}
+                        {printerConfig?.laser?.enabled && (
+                          <button
+                            onClick={() => {
+                              printOrder(order, 'laser')
+                              setOpenPrintMenu(null)
+                            }}
+                            className={`w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                              !printerConfig?.printer?.enabled ? 'rounded-lg' : 'rounded-b-lg'
+                            }`}
+                          >
+                            چاپ لیزری
+                          </button>
+                        )}
+                        {!printerConfig?.printer?.enabled && !printerConfig?.laser?.enabled && (
+                          <div className="w-full text-right px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                            هیچ چاپگری فعال نیست
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1112,24 +1125,37 @@ export default function OrdersManagementClient() {
                         <div className={`absolute left-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 z-50 ${
                           openPrintMenu === (order._id?.toString() || order.orderNumber) ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
                         }`}>
-                          <button
-                            onClick={() => {
-                              printOrder(order, 'printer')
-                              setOpenPrintMenu(null)
-                            }}
-                            className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg transition-colors"
-                          >
-                            چاپ پرینتر
-                          </button>
-                          <button
-                            onClick={() => {
-                              printOrder(order, 'laser')
-                              setOpenPrintMenu(null)
-                            }}
-                            className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg transition-colors"
-                          >
-                            چاپ لیزری
-                          </button>
+                          {printerConfig?.printer?.enabled && (
+                            <button
+                              onClick={() => {
+                                printOrder(order, 'printer')
+                                setOpenPrintMenu(null)
+                              }}
+                              className={`w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                                !printerConfig?.laser?.enabled ? 'rounded-lg' : 'rounded-t-lg'
+                              }`}
+                            >
+                              چاپ پرینتر
+                            </button>
+                          )}
+                          {printerConfig?.laser?.enabled && (
+                            <button
+                              onClick={() => {
+                                printOrder(order, 'laser')
+                                setOpenPrintMenu(null)
+                              }}
+                              className={`w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                                !printerConfig?.printer?.enabled ? 'rounded-lg' : 'rounded-b-lg'
+                              }`}
+                            >
+                              چاپ لیزری
+                            </button>
+                          )}
+                          {!printerConfig?.printer?.enabled && !printerConfig?.laser?.enabled && (
+                            <div className="w-full text-right px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                              هیچ چاپگری فعال نیست
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1300,26 +1326,39 @@ export default function OrdersManagementClient() {
                   <div className={`absolute left-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 z-50 ${
                     openPrintMenu === (selectedOrder._id?.toString() || selectedOrder.orderNumber || 'modal') ? 'opacity-100 visible' : 'opacity-0 invisible group-hover:opacity-100 group-hover:visible'
                   }`}>
-                    <button
-                      onClick={() => {
-                        printOrder(selectedOrder, 'printer')
-                        setSelectedOrder(null)
-                        setOpenPrintMenu(null)
-                      }}
-                      className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg transition-colors"
-                    >
-                      چاپ پرینتر
-                    </button>
-                    <button
-                      onClick={() => {
-                        printOrder(selectedOrder, 'laser')
-                        setSelectedOrder(null)
-                        setOpenPrintMenu(null)
-                      }}
-                      className="w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg transition-colors"
-                    >
-                      چاپ لیزری
-                    </button>
+                    {printerConfig?.printer?.enabled && (
+                      <button
+                        onClick={() => {
+                          printOrder(selectedOrder, 'printer')
+                          setSelectedOrder(null)
+                          setOpenPrintMenu(null)
+                        }}
+                        className={`w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                          !printerConfig?.laser?.enabled ? 'rounded-lg' : 'rounded-t-lg'
+                        }`}
+                      >
+                        چاپ پرینتر
+                      </button>
+                    )}
+                    {printerConfig?.laser?.enabled && (
+                      <button
+                        onClick={() => {
+                          printOrder(selectedOrder, 'laser')
+                          setSelectedOrder(null)
+                          setOpenPrintMenu(null)
+                        }}
+                        className={`w-full text-right px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                          !printerConfig?.printer?.enabled ? 'rounded-lg' : 'rounded-b-lg'
+                        }`}
+                      >
+                        چاپ لیزری
+                      </button>
+                    )}
+                    {!printerConfig?.printer?.enabled && !printerConfig?.laser?.enabled && (
+                      <div className="w-full text-right px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                        هیچ چاپگری فعال نیست
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
