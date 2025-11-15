@@ -166,7 +166,17 @@ export default function Dashboard() {
           break
       }
 
-      // Reduced API calls - only essential ones
+      // Helper function to add timeout to fetch
+      const fetchWithTimeout = (url: string, options: any = {}, timeout = 10000) => {
+        return Promise.race([
+          fetch(url, options),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Request timeout')), timeout)
+          )
+        ])
+      }
+
+      // Reduced API calls - only essential ones with timeout
       const [
         dashboardRes,
         ordersChartRes,
@@ -177,14 +187,14 @@ export default function Dashboard() {
         alertsRes,
         customersRes
       ] = await Promise.allSettled([
-        fetch('/api/dashboard', { cache: 'default' }), // Use default cache
-        fetch(`/api/orders/chart-data?period=${selectedPeriod}`, { cache: 'default' }),
-        fetch('/api/sales-reports?reportType=payment&dateRange=month', { cache: 'default' }),
-        fetch('/api/reports/top-menu-items?limit=5', { cache: 'default' }),
-        fetch('/api/invoices?limit=5&type=sales&sortBy=createdAt&sortOrder=desc', { cache: 'default' }),
-        fetch('/api/cheques?limit=5&sortBy=createdAt&sortOrder=desc', { cache: 'default' }),
-        fetch('/api/stock-alerts?status=active&limit=5', { cache: 'default' }),
-        fetch('/api/customers?status=active&limit=50', { cache: 'default' })
+        fetchWithTimeout('/api/dashboard', { cache: 'default' }, 15000), // 15s timeout for dashboard
+        fetchWithTimeout(`/api/orders/chart-data?period=${selectedPeriod}`, { cache: 'default' }, 10000),
+        fetchWithTimeout('/api/sales-reports?reportType=payment&dateRange=month', { cache: 'default' }, 10000),
+        fetchWithTimeout('/api/reports/top-menu-items?limit=5', { cache: 'default' }, 10000),
+        fetchWithTimeout('/api/invoices?limit=5&type=sales&sortBy=createdAt&sortOrder=desc', { cache: 'default' }, 10000),
+        fetchWithTimeout('/api/cheques?limit=5&sortBy=createdAt&sortOrder=desc', { cache: 'default' }, 10000),
+        fetchWithTimeout('/api/stock-alerts?status=active&limit=5', { cache: 'default' }, 10000),
+        fetchWithTimeout('/api/customers?status=active&limit=50', { cache: 'default' }, 10000)
       ])
 
       // Process all responses in parallel and batch state updates
@@ -302,13 +312,37 @@ export default function Dashboard() {
           // Ignore cache errors
         }
       }
-    } catch (error) {
-      // Silent error handling
+    } catch (error: any) {
+      console.error('Error fetching dashboard data:', error)
+      // Set default empty data to prevent infinite loading
+      if (!dashboardData) {
+        startTransition(() => {
+          setDashboardData({
+            todaySales: 0,
+            todayOrders: 0,
+            todayProfit: 0,
+            todayNetProfit: 0,
+            grossProfit: 0,
+            grossMargin: 0
+          })
+          setSummaryData({
+            todaySales: 0,
+            todayOrders: 0,
+            todayProfit: 0
+          })
+          setSalesChartData([])
+          setPaymentMethodsData([])
+          setTopMenuItems([])
+          setRecentInvoices([])
+          setRecentCheques([])
+          setNotifications([])
+        })
+      }
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [chartPeriod])
+  }, [chartPeriod, dashboardData])
 
   // همه hookها (useState, useEffect, useMemo) باید قبل از هر early return باشند
   useEffect(() => {
