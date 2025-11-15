@@ -1,7 +1,7 @@
 import { MongoClient, ObjectId, ClientSession } from 'mongodb'
 import { notifyStockMovement } from '@/lib/inventory-sync'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 
 /**
  * رزرو مواد اولیه برای یک سفارش

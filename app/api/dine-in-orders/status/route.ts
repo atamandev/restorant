@@ -6,7 +6,7 @@ import {
   releaseReservedInventory 
 } from '../../inventory-reservations/helpers'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 
 // PATCH /api/dine-in-orders/status - به‌روزرسانی وضعیت سفارش حضوری
 export async function PATCH(request: NextRequest) {
@@ -27,7 +27,7 @@ export async function PATCH(request: NextRequest) {
 
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     // دریافت سفارش فعلی
     const currentOrder = await db.collection('dine_in_orders').findOne({ _id: new ObjectId(id) })

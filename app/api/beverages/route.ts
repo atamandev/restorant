@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 
 let client: MongoClient
 let clientPromise: Promise<MongoClient>
@@ -15,7 +15,7 @@ if (!client) {
 export async function GET(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     // استفاده از collection مرکزی menu_items
     const collection = db.collection('menu_items')
 
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     const collection = db.collection('menu_items') // استفاده از collection مرکزی
 
     const body = await request.json()
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     const collection = db.collection('menu_items') // استفاده از collection مرکزی
 
     const { searchParams } = new URL(request.url)

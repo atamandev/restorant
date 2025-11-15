@@ -76,6 +76,7 @@ export default function CustomerOrderPage() {
   const loadMenuItems = useCallback(async () => {
     try {
       setLoading(true)
+      setError(null)
       
       // Add timeout to prevent hanging
       const controller = new AbortController()
@@ -84,12 +85,17 @@ export default function CustomerOrderPage() {
       try {
         // استفاده از همان API که /menu/all-items استفاده می‌کند
         const response = await fetch('/api/menu-items', {
-          signal: controller.signal
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json'
+          }
         })
         
         clearTimeout(timeoutId)
         
         if (!response.ok) {
+          const errorText = await response.text()
+          console.error('API Error:', response.status, errorText)
           throw new Error(`HTTP error! status: ${response.status}`)
         }
         
@@ -105,8 +111,10 @@ export default function CustomerOrderPage() {
           setMenuItems(items)
           
           // Extract unique categories
-          const uniqueCategories = Array.from(new Set(items.map((item: MenuItem) => item.category))) as string[]
+          const uniqueCategories = Array.from(new Set(items.map((item: MenuItem) => item.category || 'بدون دسته'))) as string[]
           setCategories(uniqueCategories)
+          
+          console.log(`✅ Loaded ${items.length} menu items, ${uniqueCategories.length} categories`)
         } else {
           console.warn('API returned unsuccessful response:', result)
           // Set empty arrays to show page anyway
@@ -119,15 +127,16 @@ export default function CustomerOrderPage() {
           console.error('Request timeout: API took too long to respond')
           setError('زمان اتصال به سرور به پایان رسید. لطفاً دوباره تلاش کنید.')
         } else {
-          throw fetchError
+          console.error('Fetch error:', fetchError)
+          setError(`خطا در اتصال به سرور: ${fetchError.message || 'خطای ناشناخته'}`)
         }
         // Set empty arrays to show page anyway
         setMenuItems([])
         setCategories([])
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading menu items:', error)
-      setError('خطا در بارگذاری منو. لطفاً صفحه را refresh کنید.')
+      setError(`خطا در بارگذاری منو: ${error.message || 'خطای ناشناخته'}`)
       // Set empty arrays to show page anyway (better UX than infinite loading)
       setMenuItems([])
       setCategories([])

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient } from 'mongodb'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 
 let client: MongoClient
 let clientPromise: Promise<MongoClient>
@@ -18,7 +18,7 @@ if (!client) {
 export async function POST(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const menuItemsCollection = db.collection('menu_items')
     const mainCoursesCollection = db.collection('main_courses')
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const menuItemsCollection = db.collection('menu_items')
     const mainCoursesCollection = db.collection('main_courses')

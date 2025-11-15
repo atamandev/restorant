@@ -3,8 +3,8 @@ import { MongoClient, ObjectId } from 'mongodb'
 import { logStockMovement } from '@/lib/audit-logger'
 import { notifyStockMovement } from '@/lib/inventory-sync'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
-const DB_NAME = 'restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
+const DB_NAME = 'restaurant'
 
 let client: MongoClient
 let db: any

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 
 // GET /api/tables - دریافت لیست میزها
 export async function GET(request: NextRequest) {
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   try {
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
 
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const tableData = {
       number: String(number),
@@ -157,7 +157,7 @@ export async function PUT(request: NextRequest) {
 
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const updateFields: any = {
       ...updateData,
@@ -237,7 +237,7 @@ export async function DELETE(request: NextRequest) {
 
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const result = await db.collection('tables').deleteOne({ _id: new ObjectId(id) })
 

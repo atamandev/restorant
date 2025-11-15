@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 import bcrypt from 'bcryptjs'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 const client = new MongoClient(MONGO_URI)
 
 // GET /api/users - دریافت لیست کاربران
 export async function GET(request: NextRequest) {
   try {
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     }
 
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     // Check if username or email already exists
     const existingUser = await db.collection('users').findOne({
@@ -189,7 +189,7 @@ export async function PUT(request: NextRequest) {
     }
 
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const updateFields = {
       ...updateData,
@@ -258,7 +258,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const result = await db.collection('users').deleteOne({ _id: new ObjectId(id) })
 

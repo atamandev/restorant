@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient } from 'mongodb'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 
 let client: MongoClient | undefined
 let clientPromise: Promise<MongoClient>
@@ -14,7 +14,7 @@ if (!client) {
 export async function POST(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     const collection = db.collection('menu_items')
 
     // محصولات تستی با طراحی حرفه‌ای
@@ -250,7 +250,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const client = await clientPromise
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     const collection = db.collection('menu_items')
 
     // لیست نام محصولات تستی

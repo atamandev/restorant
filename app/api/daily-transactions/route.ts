@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MongoClient, ObjectId } from 'mongodb'
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://restorenUser:1234@localhost:27017/restoren'
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:StrongPassword123@185.204.169.107:27017/restaurant?authSource=admin'
 
 // GET /api/daily-transactions - دریافت لیست تراکنش‌های روزانه
 export async function GET(request: NextRequest) {
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   try {
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const transactionData = {
       sessionId: String(sessionId),
@@ -175,7 +175,7 @@ export async function PUT(request: NextRequest) {
 
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const updateFields: any = {
       ...updateData,
@@ -270,7 +270,7 @@ export async function DELETE(request: NextRequest) {
 
     client = new MongoClient(MONGO_URI)
     await client.connect()
-    const db = client.db('restoren')
+    const db = client.db('restaurant')
     
     const result = await db.collection('daily_transactions').deleteOne({ _id: new ObjectId(id) })
 
